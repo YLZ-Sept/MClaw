@@ -48,3 +48,14 @@ export const personnelChangeApi = {
   update: (id, d) => PUT(`/personnel-changes/${id}`, d),
   remove: (id) => DEL(`/personnel-changes/${id}`)
 }
+
+export const performanceApi = {
+  schemes: () => GET('/performance/schemes'),
+  createScheme: (d) => POST('/performance/schemes', d),
+  deleteScheme: (id) => DEL(`/performance/schemes/${id}`),
+  items: (schemeId) => GET(`/performance/schemes/${schemeId}/items`),
+  addItem: (schemeId, d) => POST(`/performance/schemes/${schemeId}/items`, d),
+  updateItem: (id, d) => PUT(`/performance/items/${id}`, d),
+  deleteItem: (id) => DEL(`/performance/items/${id}`),
+  report: (schemeId) => GET('/performance/report', { params: { scheme_id: schemeId } })
+}

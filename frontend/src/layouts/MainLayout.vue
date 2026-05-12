@@ -52,3 +52,10 @@
     </main>
   </div>
 </template>
+
+<script setup>
+import {
+  ChatDotSquare, DataAnalysis, List, FolderOpened, Document,
+  Cpu, Setting, ChatLineSquare, Promotion, Lock
+} from '@element-plus/icons-vue'
+</script>

@@ -55,3 +55,10 @@ export const returnApi = {
   update: (id, d) => PUT(`/returns/${id}`, d),
   remove: (id) => DEL(`/returns/${id}`)
 }
+
+export const assetLedgerApi = {
+  list: () => GET('/asset-ledger'),
+  create: (d) => POST('/asset-ledger', d),
+  update: (id, d) => PUT(`/asset-ledger/${id}`, d),
+  remove: (id) => DEL(`/asset-ledger/${id}`)
+}

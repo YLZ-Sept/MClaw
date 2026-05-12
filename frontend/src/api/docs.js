@@ -11,3 +11,9 @@ export const documentApi = {
   remove: (id) => DEL(`/documents/${id}`),
   search: (q) => GET('/documents/search', { params: { q } })
 }
+
+export const folderApi = {
+  list: () => GET('/doc-folders'),
+  create: (d) => POST('/doc-folders', d),
+  remove: (id) => DEL(`/doc-folders/${id}`)
+}

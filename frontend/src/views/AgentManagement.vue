@@ -84,7 +84,7 @@ function chatWith(agent) {
 
 function openManagement(agent) {
   if (agent.id === 'internal-agent') {
-    router.push('/internal/crm')
+    router.push('/internal')
   }
 }
 </script>

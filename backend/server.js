@@ -17,6 +17,8 @@ app.use('/api/quotations', require('./routes/crm-quotations'));
 app.use('/api/contracts', require('./routes/crm-contracts'));
 app.use('/api/tickets', require('./routes/crm-tickets'));
 app.use('/api/feedback', require('./routes/crm-feedback'));
+app.use('/api/opportunities', require('./routes/crm-opportunities'));
+app.use('/api/asset-ledger', require('./routes/asset-ledger'));
 
 // 进销存
 app.use('/api/products', require('./routes/products'));
@@ -34,9 +36,11 @@ app.use('/api/recruitment', require('./routes/hr-recruitment'));
 app.use('/api/candidates', require('./routes/hr-recruitment'));
 app.use('/api/attendance', require('./routes/hr-attendance'));
 app.use('/api/personnel-changes', require('./routes/hr-changes'));
+app.use('/api/performance', require('./routes/hr-performance'));
 
 // 文档
 app.use('/api/documents', require('./routes/documents'));
+app.use('/api/doc-folders', require('./routes/doc-folders'));
 
 const DEEPSEEK_URL = 'https://api.deepseek.com/v1';
 const DEEPSEEK_KEY = 'sk-4d6b0b5cbfac4e57bdadc29011cffe24';
@@ -49,7 +53,7 @@ function getHistory(agent) {
   if (!chatHistories[key]) {
     chatHistories[key] = [
       { role: 'user', content: '你好！' },
-      { role: 'assistant', content: '你好！我是 MClaw 助手，有什么可以帮助你的？' }
+      { role: 'assistant', content: '你好老板！MClaw 企业管理已就绪，有什么需要处理的？' }
     ];
   }
   return chatHistories[key];
@@ -76,7 +80,7 @@ async function queryAPI(url) {
 app.get('/api/info', (req, res) => {
   res.json({
     code: 200,
-    data: { version: 'v2026.5.7', engine: 'DeepSeek', status: 'running' }
+    data: { version: 'v2026.5.7', engine: 'OpenClaw', status: 'running' }
   });
 });
 
@@ -116,19 +120,11 @@ app.post('/api/chat/send', async (req, res) => {
       }
     }
 
-    let systemMsg = `你是 MClaw 内部管理助手。回答简洁直接，不需要客套话。`;
+    let systemMsg = `你是 MClaw 企业管理系统助手「小内」。你已经完成了所有初始化配置（IDENTITY.md、USER.md、TOOLS.md 均已设置），直接回答问题即可。禁止自我介绍，禁止引导流程，禁止问用户问题。用中文回答，简洁直接。你的用户叫"老板"。`;
 
     if (queryResult !== null) {
       const total = Array.isArray(queryResult) ? queryResult.length : 1;
-      systemMsg = `你是 MClaw 内部管理助手。用户查询了「${queryLabel}」，以下是真实数据（共 ${total} 条），请用自然语言格式化输出。
-
-数据：
-${JSON.stringify(queryResult, null, 2)}
-
-要求：
-- 用表格展示数据
-- 不要添加数据中不存在的字段
-- 回答简洁，不要客套话`;
+      systemMsg += `\n\n用户查询了「${queryLabel}」，以下是真实数据（共 ${total} 条）：\n${JSON.stringify(queryResult, null, 2)}\n\n请用表格展示数据，不要添加不存在的字段。`;
     }
 
     const dsRes = await fetch(`${DEEPSEEK_URL}/chat/completions`, {
@@ -141,10 +137,11 @@ ${JSON.stringify(queryResult, null, 2)}
         model: DEEPSEEK_MODEL,
         messages: [
           { role: 'system', content: systemMsg },
-          ...history.slice(-6).filter(m => m.role !== 'system')
+          ...history.slice(-6)
         ],
         stream: false,
-        temperature: queryResult !== null ? 0.2 : 0.7
+        max_tokens: 800,
+        temperature: 0.3
       })
     });
 

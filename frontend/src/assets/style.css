@@ -317,3 +317,21 @@ html, body, #app {
   font-weight: 700;
   color: #4a3f5e;
 }
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+  .sidebar { width: 64px; }
+  .sidebar-header h2 { font-size: 14px; }
+  .sidebar-header { padding: 12px 8px; }
+  .nav-item span, .nav-group-title, .sidebar-footer { display: none; }
+  .nav-item { justify-content: center; padding: 10px 0; }
+  .nav-item .el-icon { margin-right: 0; font-size: 18px; }
+  .el-dialog { width: 90% !important; max-width: 90vw !important; }
+  .kpi-row { flex-wrap: wrap; }
+  .kpi { min-width: 70px; padding: 8px 12px; }
+  .kpi-val { font-size: 16px; }
+  .side-tabs { width: 80px; }
+  .side-tabs .el-menu-item { padding: 0 8px; font-size: 12px; }
+  .pg-hd { padding: 12px 16px 0; }
+  .tab-content { padding: 12px 16px; }
+}

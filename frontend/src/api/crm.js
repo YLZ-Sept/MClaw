@@ -64,3 +64,10 @@ export const feedbackApi = {
   update: (id, d) => PUT(`/feedback/${id}`, d),
   remove: (id) => DEL(`/feedback/${id}`)
 }
+
+export const opportunityApi = {
+  list: () => GET('/opportunities'),
+  create: (d) => POST('/opportunities', d),
+  update: (id, d) => PUT(`/opportunities/${id}`, d),
+  remove: (id) => DEL(`/opportunities/${id}`)
+}

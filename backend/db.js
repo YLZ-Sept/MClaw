@@ -221,6 +221,53 @@ db.exec(`
     category TEXT, tags TEXT,
     created_at TEXT DEFAULT (datetime('now','localtime'))
   );
+
+  CREATE TABLE IF NOT EXISTS document_folders (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL,
+    parent_id TEXT, remark TEXT,
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+
+  -- ========== CRM 扩展 ==========
+  CREATE TABLE IF NOT EXISTS opportunities (
+    id TEXT PRIMARY KEY, title TEXT NOT NULL,
+    customer_id TEXT REFERENCES customers(id),
+    stage TEXT DEFAULT 'contact',   -- contact/demo/proposal/negotiation/closed
+    amount REAL DEFAULT 0,
+    probability INTEGER DEFAULT 0,  -- 赢率 0-100
+    expected_close_date TEXT,
+    owner TEXT, remark TEXT,
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+
+  -- ========== 进销存扩展: 设备台账 ==========
+  CREATE TABLE IF NOT EXISTS asset_ledger (
+    id TEXT PRIMARY KEY, customer_id TEXT,
+    product_name TEXT NOT NULL, serial_no TEXT,
+    deploy_date TEXT, warranty_expire TEXT, license_expire TEXT,
+    status TEXT DEFAULT 'active',   -- active/maintenance/expired
+    remark TEXT,
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+
+  -- ========== 绩效 ==========
+  CREATE TABLE IF NOT EXISTS performance_schemes (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL,
+    period TEXT DEFAULT 'quarterly',  -- monthly/quarterly/yearly
+    status TEXT DEFAULT 'active',
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+
+  CREATE TABLE IF NOT EXISTS performance_items (
+    id TEXT PRIMARY KEY, scheme_id TEXT NOT NULL REFERENCES performance_schemes(id),
+    employee_id TEXT NOT NULL REFERENCES employees(id),
+    indicator TEXT NOT NULL,       -- KPI 指标名
+    weight REAL DEFAULT 0,         -- 权重
+    target TEXT,                   -- 目标值
+    self_score REAL, leader_score REAL,
+    comment TEXT,
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
 `);
 
 // 插入默认仓库

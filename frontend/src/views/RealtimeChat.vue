@@ -39,7 +39,7 @@
           class="send-btn"
           :icon="Promotion"
           @click="handleSend"
-          :disabled="!inputText.trim()"
+          :loading="sending" :disabled="!inputText.trim()||sending"
         >
           发送
         </el-button>
@@ -58,6 +58,7 @@ import ChatMessage from '../components/ChatMessage.vue'
 const route = useRoute()
 const messages = ref([])
 const inputText = ref('')
+const sending = ref(false)
 const messagesRef = ref(null)
 
 const currentAgentName = computed(() => route.query.agentName || null)
@@ -85,13 +86,15 @@ async function handleSend() {
 
   messages.value.push({ role: 'user', content: text })
   scrollToBottom()
+  sending.value = true
 
   try {
     const res = await apiSendMessage(text, agentKey())
     messages.value.push({ role: 'ai', content: res.data.data.content })
   } catch {
-    messages.value.push({ role: 'ai', content: `已收到：${text}，OpenClaw 正在处理...` })
+    messages.value.push({ role: 'ai', content: '消息发送失败，请检查后端服务后重试。' })
   }
+  sending.value = false
   scrollToBottom()
 }
 
