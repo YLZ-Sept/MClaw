@@ -22,7 +22,10 @@
         <div class="agent-meta">
           <span class="agent-id">ID: {{ agent.id }}</span>
         </div>
-        <div class="agent-action">
+        <div class="agent-action" style="display:flex;gap:8px;justify-content:center;">
+          <el-button v-if="agent.id === 'internal-agent'" type="success" size="small" round @click.stop="openManagement(agent)">
+            管理面板
+          </el-button>
           <el-button type="primary" size="small" round @click.stop="chatWith(agent)">
             开始对话
           </el-button>
@@ -77,6 +80,12 @@ const agents = [
 
 function chatWith(agent) {
   router.push({ path: '/chat', query: { agent: agent.id, agentName: agent.name } })
+}
+
+function openManagement(agent) {
+  if (agent.id === 'internal-agent') {
+    router.push('/internal/crm')
+  }
 }
 </script>
 

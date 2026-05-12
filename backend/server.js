@@ -1,70 +1,172 @@
 const express = require('express');
+const path = require('path');
 const cors = require('cors');
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 
-const OPENCLAW_URL = 'http://localhost:3098';
-const OPENCLAW_TOKEN = 'd54c33642bfc7654e7b8a560a85cdddd334c6fa0bcde352d';
+require('./db');
 
-let chatHistory = [
-  { role: 'user', content: '你好！' },
-  { role: 'ai', content: '你好！我是 MClaw 助手，已接入 OpenClaw 引擎，有什么可以帮助你的？' }
+// CRM
+app.use('/api/customers', require('./routes/customers'));
+app.use('/api/contacts', require('./routes/crm-contacts'));
+app.use('/api/leads', require('./routes/crm-leads'));
+app.use('/api/campaigns', require('./routes/crm-campaigns'));
+app.use('/api/quotations', require('./routes/crm-quotations'));
+app.use('/api/contracts', require('./routes/crm-contracts'));
+app.use('/api/tickets', require('./routes/crm-tickets'));
+app.use('/api/feedback', require('./routes/crm-feedback'));
+
+// 进销存
+app.use('/api/products', require('./routes/products'));
+app.use('/api/inventory', require('./routes/products'));
+app.use('/api/suppliers', require('./routes/suppliers'));
+app.use('/api/purchase-orders', require('./routes/purchase-orders'));
+app.use('/api/warehouses', require('./routes/warehouses'));
+app.use('/api/sales-orders', require('./routes/sales-orders'));
+app.use('/api/returns', require('./routes/returns'));
+
+// 人事
+app.use('/api/employees', require('./routes/employees'));
+app.use('/api/departments', require('./routes/hr-departments'));
+app.use('/api/recruitment', require('./routes/hr-recruitment'));
+app.use('/api/candidates', require('./routes/hr-recruitment'));
+app.use('/api/attendance', require('./routes/hr-attendance'));
+app.use('/api/personnel-changes', require('./routes/hr-changes'));
+
+// 文档
+app.use('/api/documents', require('./routes/documents'));
+
+const DEEPSEEK_URL = 'https://api.deepseek.com/v1';
+const DEEPSEEK_KEY = 'sk-4d6b0b5cbfac4e57bdadc29011cffe24';
+const DEEPSEEK_MODEL = 'deepseek-chat';
+
+let chatHistories = {};
+
+function getHistory(agent) {
+  const key = agent || 'default';
+  if (!chatHistories[key]) {
+    chatHistories[key] = [
+      { role: 'user', content: '你好！' },
+      { role: 'assistant', content: '你好！我是 MClaw 助手，有什么可以帮助你的？' }
+    ];
+  }
+  return chatHistories[key];
+}
+
+// 简单的意图识别 + 数据查询
+const API_BASE = 'http://localhost:3666';
+
+const QUERIES = [
+  { match: /客户列表|有哪些客户|查客户/, url: '/api/customers', label: '客户列表' },
+  { match: /产品列表|有哪些产品|查产品/, url: '/api/products', label: '产品列表' },
+  { match: /库存查询|查库存/, url: '/api/inventory/stock-query', label: '库存情况' },
+  { match: /员工列表|有哪些员工|查员工/, url: '/api/employees', label: '员工列表' },
+  { match: /请假记录|请假列表/, url: '/api/employees/leave-requests', label: '请假记录' },
+  { match: /文档列表|有哪些文档|查文档/, url: '/api/documents', label: '文档列表' }
 ];
+
+async function queryAPI(url) {
+  const res = await fetch(`${API_BASE}${url}`);
+  const data = await res.json();
+  return data.data || [];
+}
 
 app.get('/api/info', (req, res) => {
   res.json({
     code: 200,
-    data: {
-      version: 'v2026.5.7',
-      engine: 'OpenClaw',
-      status: 'running'
-    }
+    data: { version: 'v2026.5.7', engine: 'DeepSeek', status: 'running' }
   });
 });
 
 app.get('/api/chat/history', (req, res) => {
-  res.json({ code: 200, data: chatHistory });
+  const history = getHistory(req.query.agent);
+  res.json({ code: 200, data: history });
+});
+
+app.post('/api/chat/clear', (req, res) => {
+  const key = req.body.agent || 'default';
+  delete chatHistories[key];
+  res.json({ code: 200 });
 });
 
 app.post('/api/chat/send', async (req, res) => {
   const { content, agent } = req.body;
-  chatHistory.push({ role: 'user', content });
-
-  const model = agent ? `openclaw/${agent}` : 'openclaw';
+  const history = getHistory(agent);
+  console.log(`[chat] agent=${agent || 'default'} content="${content}"`);
+  history.push({ role: 'user', content });
 
   try {
-    const ocRes = await fetch(`${OPENCLAW_URL}/v1/chat/completions`, {
+    // 检查是否为数据查询
+    let queryResult = null;
+    let queryLabel = '';
+    for (const q of QUERIES) {
+      if (q.match.test(content)) {
+        console.log(`[query] matched: ${q.label}, url: ${q.url}`);
+        queryLabel = q.label;
+        try {
+          queryResult = await queryAPI(q.url);
+          console.log(`[query] got ${Array.isArray(queryResult) ? queryResult.length + ' items' : 'data'}`);
+        } catch (e) {
+          console.log(`[query] failed: ${e.message}`);
+          queryResult = null;
+        }
+        break;
+      }
+    }
+
+    let systemMsg = `你是 MClaw 内部管理助手。回答简洁直接，不需要客套话。`;
+
+    if (queryResult !== null) {
+      const total = Array.isArray(queryResult) ? queryResult.length : 1;
+      systemMsg = `你是 MClaw 内部管理助手。用户查询了「${queryLabel}」，以下是真实数据（共 ${total} 条），请用自然语言格式化输出。
+
+数据：
+${JSON.stringify(queryResult, null, 2)}
+
+要求：
+- 用表格展示数据
+- 不要添加数据中不存在的字段
+- 回答简洁，不要客套话`;
+    }
+
+    const dsRes = await fetch(`${DEEPSEEK_URL}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENCLAW_TOKEN}`
+        'Authorization': `Bearer ${DEEPSEEK_KEY}`
       },
       body: JSON.stringify({
-        model,
-        messages: chatHistory.slice(-10),
-        stream: false
+        model: DEEPSEEK_MODEL,
+        messages: [
+          { role: 'system', content: systemMsg },
+          ...history.slice(-6).filter(m => m.role !== 'system')
+        ],
+        stream: false,
+        temperature: queryResult !== null ? 0.2 : 0.7
       })
     });
 
-    const ocData = await ocRes.json();
-    const reply = ocData.choices?.[0]?.message?.content || 'OpenClaw 未返回有效回复';
+    if (!dsRes.ok) {
+      const errText = await dsRes.text();
+      throw new Error(`DeepSeek ${dsRes.status}: ${errText}`);
+    }
 
-    chatHistory.push({ role: 'ai', content: reply });
+    const dsData = await dsRes.json();
+    const reply = dsData.choices?.[0]?.message?.content || '未返回有效回复';
+    history.push({ role: 'assistant', content: reply });
     res.json({ code: 200, data: { content: reply } });
+
   } catch (err) {
-    const fallback = `已收到：${content}（OpenClaw 连接失败：${err.message}）`;
-    chatHistory.push({ role: 'ai', content: fallback });
+    const fallback = `${content}（${err.message}）`;
+    history.push({ role: 'assistant', content: fallback });
     res.json({ code: 200, data: { content: fallback } });
   }
 });
 
 app.get('/api/status', (req, res) => {
-  res.json({
-    code: 200,
-    data: { cpu: '12%', memory: '380MB', services: 3 }
-  });
+  res.json({ code: 200, data: { cpu: '12%', memory: '380MB', services: 3 } });
 });
 
 const PORT = 3666;

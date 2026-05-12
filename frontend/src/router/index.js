@@ -9,6 +9,11 @@ const routes = [
     children: [
       { path: 'chat', name: 'RealtimeChat', component: () => import('../views/RealtimeChat.vue') },
       { path: 'digital', name: 'DigitalManagement', component: () => import('../views/AgentManagement.vue') },
+      { path: 'internal', name: 'InternalMgmt', component: () => import('../views/InternalManagement.vue') },
+      { path: 'internal/crm', name: 'CRMMgmt', component: () => import('../views/internal/CRMManagement.vue') },
+      { path: 'internal/inventory', name: 'InventoryMgmt', component: () => import('../views/internal/InventoryManagement.vue') },
+      { path: 'internal/hr', name: 'HRMgmt', component: () => import('../views/internal/HRManagement.vue') },
+      { path: 'internal/docs', name: 'DocMgmt', component: () => import('../views/internal/DocumentManagement.vue') },
       { path: 'tasks', name: 'Tasks', component: () => import('../views/Task.vue') },
       { path: 'files', name: 'Files', component: () => import('../views/File.vue') },
       { path: 'services', name: 'ServiceManagement', component: () => import('../views/ServiceManagement.vue') },

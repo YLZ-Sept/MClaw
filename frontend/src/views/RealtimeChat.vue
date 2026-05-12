@@ -2,14 +2,19 @@
   <div class="chat-page">
     <div class="chat-header">
       <h3>
-        <template v-if="currentAgent">
+        <template v-if="currentAgentName">
           <el-tag size="small" round style="margin-right: 8px; background: #ede9fe; border-color: #c4b5fd; color: #7c3aed;">
-            {{ currentAgent }}
+            {{ currentAgentName }}
           </el-tag>
         </template>
         实时聊天
       </h3>
-      <el-tag size="small" type="success" effect="dark">已连接</el-tag>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <el-button size="small" text type="danger" @click="handleClear" :disabled="messages.length === 0">
+          清空记录
+        </el-button>
+        <el-tag size="small" type="success" effect="dark">已连接</el-tag>
+      </div>
     </div>
 
     <div class="chat-messages" ref="messagesRef">
@@ -44,10 +49,10 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick, computed } from 'vue'
-import { useRoute } from 'vue-router'
-import { Promotion } from '@element-plus/icons-vue'
-import { getChatHistory, sendMessage as apiSendMessage } from '../api'
+import { ref, onMounted, nextTick, computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { Promotion, Delete } from '@element-plus/icons-vue'
+import { getChatHistory, sendMessage as apiSendMessage, clearChat } from '../api'
 import ChatMessage from '../components/ChatMessage.vue'
 
 const route = useRoute()
@@ -55,13 +60,15 @@ const messages = ref([])
 const inputText = ref('')
 const messagesRef = ref(null)
 
-const currentAgentId = ref(null)
-const currentAgent = computed(() => route.query.agentName || null)
+const currentAgentName = computed(() => route.query.agentName || null)
+
+function agentKey() {
+  return route.query.agent || null
+}
 
 async function loadHistory() {
-  currentAgentId.value = route.query.agent || null
   try {
-    const res = await getChatHistory()
+    const res = await getChatHistory(agentKey())
     messages.value = res.data.data
   } catch {
     messages.value = [
@@ -80,12 +87,17 @@ async function handleSend() {
   scrollToBottom()
 
   try {
-    const agent = route.query.agent || null
-    const res = await apiSendMessage(text, agent)
+    const res = await apiSendMessage(text, agentKey())
     messages.value.push({ role: 'ai', content: res.data.data.content })
   } catch {
     messages.value.push({ role: 'ai', content: `已收到：${text}，OpenClaw 正在处理...` })
   }
+  scrollToBottom()
+}
+
+async function handleClear() {
+  await clearChat(agentKey())
+  messages.value = []
   scrollToBottom()
 }
 
@@ -96,6 +108,9 @@ function scrollToBottom() {
     }
   })
 }
+
+// 切换 Agent 时重新加载历史
+watch(() => route.query.agent, () => loadHistory())
 
 onMounted(loadHistory)
 </script>
