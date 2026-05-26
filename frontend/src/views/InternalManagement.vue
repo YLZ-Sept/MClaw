@@ -1,7 +1,10 @@
 <template>
   <div class="page-container">
-    <div class="page-title">内部管理</div>
-    <p style="color: #b8aad0; margin-bottom: 24px;">选择管理模块进入</p>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+      <el-button text @click="router.push('/digital')"><el-icon><ArrowLeft/></el-icon></el-button>
+      <span class="page-title" style="margin-bottom:0">内部管理</span>
+    </div>
+    <p style="color: #b8aad0; margin-bottom: 24px; margin-top: 4px;">选择管理模块进入</p>
 
     <div class="module-grid">
       <div v-for="m in modules" :key="m.path" class="module-card" @click="router.push(m.path)">
@@ -17,14 +20,14 @@
 
 <script setup>
 import { useRouter } from 'vue-router'
-import { TrendCharts, Box, UserFilled, FolderOpened } from '@element-plus/icons-vue'
+import { TrendCharts, Box, UserFilled, FolderOpened, ArrowLeft } from '@element-plus/icons-vue'
 
 const router = useRouter()
 
 const modules = [
-  { path: '/internal/crm', name: '客户关系管理', desc: '客户档案、联系人、线索、营销、报价、合同、工单、反馈', icon: TrendCharts, color: 'linear-gradient(135deg, #a78bfa, #7c3aed)' },
-  { path: '/internal/inventory', name: '进销存管理', desc: '产品、供应商、采购订单、仓库管理', icon: Box, color: 'linear-gradient(135deg, #818cf8, #4f46e5)' },
-  { path: '/internal/hr', name: '人力资源管理', desc: '员工档案、组织架构、招聘、请假考勤', icon: UserFilled, color: 'linear-gradient(135deg, #34d399, #10b981)' },
+  { path: '/internal/crm', name: '客户关系管理', desc: '客户档案、联系人、线索、营销、报价、合同、工单', icon: TrendCharts, color: 'linear-gradient(135deg, #a78bfa, #7c3aed)' },
+  { path: '/internal/inventory', name: '进销存管理', desc: '采购入库、销售出库、库存台账、退换货、预警', icon: Box, color: 'linear-gradient(135deg, #818cf8, #4f46e5)' },
+  { path: '/internal/hr', name: '人力资源管理', desc: '员工档案、组织架构、招聘、请假考勤、绩效', icon: UserFilled, color: 'linear-gradient(135deg, #34d399, #10b981)' },
   { path: '/internal/docs', name: '文档管理', desc: '文档上传、搜索、分类管理', icon: FolderOpened, color: 'linear-gradient(135deg, #fb7185, #ef4444)' }
 ]
 </script>

@@ -24,4 +24,13 @@ export function getStatus() {
   return request.get('/status')
 }
 
+export function login(username, password) {
+  return request.post('/auth/login', { username, password }).then(res => res.data)
+}
+
+export function logout() {
+  const token = localStorage.getItem('token')
+  return request.post('/auth/logout', null, { headers: { Authorization: `Bearer ${token}` } }).then(res => res.data)
+}
+
 export default request

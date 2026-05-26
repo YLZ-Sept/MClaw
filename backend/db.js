@@ -222,6 +222,12 @@ db.exec(`
     created_at TEXT DEFAULT (datetime('now','localtime'))
   );
 
+  CREATE TABLE IF NOT EXISTS org_charts (
+    id TEXT PRIMARY KEY, title TEXT NOT NULL, file_path TEXT,
+    file_type TEXT, file_size INTEGER,
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+
   CREATE TABLE IF NOT EXISTS document_folders (
     id TEXT PRIMARY KEY, name TEXT NOT NULL,
     parent_id TEXT, remark TEXT,
@@ -268,7 +274,135 @@ db.exec(`
     comment TEXT,
     created_at TEXT DEFAULT (datetime('now','localtime'))
   );
+
+  -- 绩效考核 V2：维度模板 + 考核记录 + 单项评分
+  CREATE TABLE IF NOT EXISTS performance_dimensions (
+    id TEXT PRIMARY KEY, scheme_id TEXT NOT NULL REFERENCES performance_schemes(id) ON DELETE CASCADE,
+    name TEXT NOT NULL, weight REAL DEFAULT 0, sort_order INTEGER DEFAULT 0
+  );
+
+  CREATE TABLE IF NOT EXISTS performance_records (
+    id TEXT PRIMARY KEY, scheme_id TEXT NOT NULL REFERENCES performance_schemes(id) ON DELETE CASCADE,
+    employee_id TEXT NOT NULL REFERENCES employees(id),
+    month TEXT NOT NULL,        -- YYYY-MM
+    total_score REAL, remark TEXT,
+    created_at TEXT DEFAULT (datetime('now','localtime')),
+    UNIQUE(scheme_id, employee_id, month)
+  );
+
+  CREATE TABLE IF NOT EXISTS performance_scores (
+    id TEXT PRIMARY KEY, record_id TEXT NOT NULL REFERENCES performance_records(id) ON DELETE CASCADE,
+    dimension_id TEXT NOT NULL REFERENCES performance_dimensions(id) ON DELETE CASCADE,
+    self_score REAL, leader_score REAL
+  );
+
+  -- 绩效考核 V3：扁平化月度报告，维度存 JSON
+  CREATE TABLE IF NOT EXISTS performance_reports (
+    id TEXT PRIMARY KEY, employee_name TEXT NOT NULL,
+    department TEXT, position TEXT,
+    month TEXT NOT NULL,           -- YYYY-MM
+    dims TEXT,                     -- JSON array: [{"name":"工作效率","weight":20,"score":85},...]
+    total_score REAL,
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+
+  -- 考勤月报 V2：对齐 Excel 考勤机导出格式
+  CREATE TABLE IF NOT EXISTS attendance_reports (
+    id TEXT PRIMARY KEY, employee_name TEXT NOT NULL,
+    department TEXT, position TEXT,
+    month TEXT NOT NULL,           -- YYYY-MM
+    should_work_days REAL DEFAULT 0,
+    actual_work_days REAL DEFAULT 0,
+    rest_days REAL DEFAULT 0,
+    normal_days REAL DEFAULT 0,
+    abnormal_days REAL DEFAULT 0,
+    standard_hours REAL DEFAULT 0,
+    actual_hours REAL DEFAULT 0,
+    late_count INTEGER DEFAULT 0,
+    late_minutes INTEGER DEFAULT 0,
+    absent_count INTEGER DEFAULT 0,
+    absent_minutes INTEGER DEFAULT 0,
+    missing_clock_count INTEGER DEFAULT 0,
+    location_abnormal INTEGER DEFAULT 0,
+    out_hours REAL DEFAULT 0,
+    travel_days REAL DEFAULT 0,
+    personal_leave REAL DEFAULT 0,
+    sick_leave REAL DEFAULT 0,
+    comp_leave REAL DEFAULT 0,
+    annual_leave REAL DEFAULT 0,
+    marriage_leave REAL DEFAULT 0,
+    maternity_leave REAL DEFAULT 0,
+    paternity_leave REAL DEFAULT 0,
+    other_leave REAL DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+
+  CREATE TABLE IF NOT EXISTS bid_sources (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL,
+    url TEXT NOT NULL, parser_rule TEXT,
+    interval_minutes INTEGER DEFAULT 360, enabled INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+
+  CREATE TABLE IF NOT EXISTS bid_keywords (
+    id TEXT PRIMARY KEY, keyword TEXT NOT NULL UNIQUE,
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+
+  CREATE TABLE IF NOT EXISTS auto_reply_rules (
+    id TEXT PRIMARY KEY, keyword TEXT NOT NULL,
+    reply TEXT NOT NULL, priority INTEGER DEFAULT 0,
+    enabled INTEGER DEFAULT 1, match_mode TEXT DEFAULT 'contains',
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+
+  CREATE TABLE IF NOT EXISTS auto_reply_logs (
+    id TEXT PRIMARY KEY, incoming_msg TEXT,
+    matched_rule_id TEXT, reply TEXT,
+    confidence INTEGER, source TEXT DEFAULT 'chat',
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+
+  CREATE TABLE IF NOT EXISTS faq (
+    id TEXT PRIMARY KEY,
+    question TEXT NOT NULL,
+    answer TEXT NOT NULL,
+    tags TEXT, category TEXT DEFAULT '通用',
+    similar_questions TEXT DEFAULT '',
+    notes TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+
+  CREATE TABLE IF NOT EXISTS bid_items (
+    id TEXT PRIMARY KEY, source_id TEXT REFERENCES bid_sources(id),
+    title TEXT NOT NULL,                    -- 项目名称
+    bid_type TEXT DEFAULT '公开招标',        -- 招投标方式
+    fetch_time TEXT,                        -- 获取时间
+    doc_deadline TEXT,                      -- 获取招标文件截止时间
+    bid_time TEXT,                          -- 投标时间
+    submit_type TEXT DEFAULT '线上',         -- 投标方式
+    amount REAL,                            -- 金额（万元）
+    evaluation TEXT,                        -- 评
+    collect_time TEXT,                      -- 自定义采集时间
+    url TEXT UNIQUE,                        -- 网址
+    is_notified INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'new',
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+  CREATE TABLE IF NOT EXISTS content_publish (
+    id TEXT PRIMARY KEY,
+    platform TEXT NOT NULL,                   -- 平台：微信/抖音/小红书
+    content_type TEXT,                        -- 类型：图文/视频
+    content TEXT,                             -- 内容
+    scheduled_at TEXT,                        -- 计划发布时间
+    status TEXT DEFAULT 'draft',              -- 状态
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
 `);
+
+// 兼容旧 faq 表：补充新增字段
+try { db.exec("ALTER TABLE faq ADD COLUMN similar_questions TEXT DEFAULT ''"); } catch {}
+try { db.exec("ALTER TABLE faq ADD COLUMN notes TEXT DEFAULT ''"); } catch {}
 
 // 插入默认仓库
 const wc = db.prepare('SELECT COUNT(*) AS c FROM warehouses').get();
@@ -281,5 +415,57 @@ const ac = db.prepare('SELECT COUNT(*) AS c FROM attendance_rules').get();
 if (ac.c === 0) {
   db.prepare("INSERT INTO attendance_rules (id,name,check_in_time,check_out_time) VALUES ('rule-default','标准班次','09:00','18:00')").run();
 }
+
+// 种子：绩效考核数据 — 通过导入功能填充，不自动种子
+function seedPerformanceReports() {
+  // 模板文件中无实际数据行，等待用户导入填好的考评文档
+  const hasPerf = db.prepare('SELECT COUNT(*) AS c FROM performance_reports').get().c;
+  if (hasPerf === 0) console.log('[seed] 绩效考核表已就绪，等待导入数据');
+}
+
+// 种子：考勤月报数据
+function seedAttendanceReports() {
+  const XLSX = require('xlsx');
+  const { randomUUID } = require('crypto');
+  const attDir = 'G:/桌面/人力资源管理模块/考勤月报/考勤月报xlsx(1).xlsx';
+  const hasAtt = db.prepare('SELECT COUNT(*) AS c FROM attendance_reports').get().c;
+  if (hasAtt > 0) return;
+
+  const fs = require('fs');
+  if (!fs.existsSync(attDir)) { console.log('[seed] 考勤月报文件不存在，跳过'); return; }
+
+  const wb = XLSX.readFile(attDir);
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  const data = XLSX.utils.sheet_to_json(sheet, { header:1, defval:'' });
+
+  // Row 0: header1, Row 1: header2, Row 2+: data
+  // 映射: [姓名,部门,职务,应出勤,实际出勤,休息,正常,异常,标准时长,实际时长,迟到次数,迟到时长,旷工次数,旷工时长,缺卡次数,地点异常,外出,出差,事假,病假,调休假,年假,婚假,产假,陪产假,其他]
+  const parseNum = (v) => {
+    if (v === '--' || v === '' || v === undefined) return 0;
+    return parseFloat(v) || 0;
+  };
+
+  const month = '2026-05'; // 默认当月，Excel中没有明确的月份列
+
+  for (let i = 2; i < data.length; i++) {
+    const r = data[i];
+    if (!r[0] || String(r[0]).trim() === '') continue;
+    const id = randomUUID();
+    db.prepare(`INSERT INTO attendance_reports (id,employee_name,department,position,month,
+      should_work_days,actual_work_days,rest_days,normal_days,abnormal_days,standard_hours,actual_hours,
+      late_count,late_minutes,absent_count,absent_minutes,missing_clock_count,location_abnormal,
+      out_hours,travel_days,personal_leave,sick_leave,comp_leave,annual_leave,marriage_leave,maternity_leave,paternity_leave,other_leave)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .run(id, String(r[0]).trim(), String(r[1]||'').trim(), String(r[2]||'').trim(), month,
+        parseNum(r[3]), parseNum(r[4]), parseNum(r[5]), parseNum(r[6]), parseNum(r[7]), parseNum(r[8]), parseNum(r[9]),
+        parseNum(r[10]), parseNum(r[11]), parseNum(r[12]), parseNum(r[13]), parseNum(r[14]), parseNum(r[15]),
+        parseNum(r[16]), parseNum(r[17]), parseNum(r[18]), parseNum(r[19]), parseNum(r[20]), parseNum(r[21]),
+        parseNum(r[22]), parseNum(r[23]), parseNum(r[24]), parseNum(r[25]));
+  }
+  console.log('[seed] 考勤月报数据已导入 ' + (data.length - 2) + ' 条');
+}
+
+try { seedPerformanceReports(); } catch(e) { console.log('[seed] 绩效考核种子失败:', e.message); }
+try { seedAttendanceReports(); } catch(e) { console.log('[seed] 考勤月报种子失败:', e.message); }
 
 module.exports = db;

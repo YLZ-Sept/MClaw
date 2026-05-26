@@ -20,40 +20,40 @@
       </el-menu>
       <div class="tab-content">
         <div v-if="tab==='customers'">
-          <div class="tb"><el-button type="primary" @click="openCusDlg()">新增客户</el-button></div>
+          <div class="tb"><el-button type="primary" @click="openCusDlg()">新增客户</el-button><el-button @click="handleExport('customers')">导出</el-button><el-button @click="handleImport('customers')">导入</el-button></div>
           <el-empty v-if="!loading&&customers.length===0" description="暂无客户"/>
           <el-table v-loading="loading" :data="customers" stripe border row-key="id"><el-table-column type="index" label="#" width="50"/><el-table-column prop="name" label="姓名" width="100"/><el-table-column prop="phone" label="电话" width="130"/><el-table-column prop="company" label="公司" min-width="150"/><el-table-column prop="source" label="来源" width="80"/><el-table-column label="操作" width="180" fixed="right"><template #default="{row}"><el-button size="small" type="primary" link @click="openCusDlg(row)">编辑</el-button><el-button size="small" type="primary" link @click="openFollow(row)">跟进</el-button><el-button size="small" type="danger" link @click="delCus(row.id)">删除</el-button></template></el-table-column></el-table>
         </div>
         <div v-else-if="tab==='contacts'">
-          <div class="tb"><el-button type="primary" @click="ctDlg.visible=true">新增联系人</el-button></div>
+          <div class="tb"><el-button type="primary" @click="ctDlg.visible=true">新增联系人</el-button><el-button @click="handleExport('contacts')">导出</el-button><el-button @click="handleImport('contacts')">导入</el-button></div>
           <el-table v-loading="loading" :data="contacts" stripe border row-key="id"><el-table-column type="index" label="#" width="50"/><el-table-column prop="name" label="姓名" width="100"/><el-table-column prop="position" label="职位" width="120"/><el-table-column prop="phone" label="电话" width="130"/><el-table-column label="操作" width="100"><template #default="{r}"><el-button size="small" type="danger" link @click="delCt(r.id)">删除</el-button></template></el-table-column></el-table>
         </div>
         <div v-else-if="tab==='opportunities'">
-          <div class="tb"><el-button type="primary" @click="opDlg.visible=true">新增机会</el-button></div>
+          <div class="tb"><el-button type="primary" @click="opDlg.visible=true">新增机会</el-button><el-button @click="handleExport('opportunities')">导出</el-button><el-button @click="handleImport('opportunities')">导入</el-button></div>
           <el-table v-loading="loading" :data="opportunities" stripe border row-key="id"><el-table-column type="index" label="#" width="50"/><el-table-column prop="title" label="机会名称" width="160"/><el-table-column prop="customer_name" label="客户" width="120"/><el-table-column prop="stage" label="阶段" width="90"/><el-table-column prop="amount" label="金额" width="90"/><el-table-column prop="probability" label="赢率" width="70"><template #default="{row}">{{row.probability}}%</template></el-table-column><el-table-column label="操作" width="100"><template #default="{r}"><el-button size="small" type="danger" link @click="delOp(r.id)">删除</el-button></template></el-table-column></el-table>
         </div>
         <div v-else-if="tab==='leads'">
-          <div class="tb"><el-button type="primary" @click="ldDlg.visible=true">新增线索</el-button></div>
+          <div class="tb"><el-button type="primary" @click="ldDlg.visible=true">新增线索</el-button><el-button @click="handleExport('leads')">导出</el-button><el-button @click="handleImport('leads')">导入</el-button></div>
           <el-table v-loading="loading" :data="leads" stripe border row-key="id"><el-table-column type="index" label="#" width="50"/><el-table-column prop="name" label="姓名" width="100"/><el-table-column prop="company" label="公司" width="140"/><el-table-column prop="source" label="来源" width="80"/><el-table-column prop="status" label="状态" width="90"/><el-table-column label="操作" width="80"><template #default="{r}"><el-button size="small" type="danger" link @click="delLd(r.id)">删除</el-button></template></el-table-column></el-table>
         </div>
         <div v-else-if="tab==='campaigns'">
-          <div class="tb"><el-button type="primary" @click="cpDlg.visible=true">新增活动</el-button></div>
+          <div class="tb"><el-button type="primary" @click="cpDlg.visible=true">新增活动</el-button><el-button @click="handleExport('campaigns')">导出</el-button><el-button @click="handleImport('campaigns')">导入</el-button></div>
           <el-table v-loading="loading" :data="campaigns" stripe border row-key="id"><el-table-column type="index" label="#" width="50"/><el-table-column prop="name" label="活动名" width="140"/><el-table-column prop="type" label="类型" width="80"/><el-table-column prop="budget" label="预算" width="90"/><el-table-column prop="status" label="状态" width="80"/><el-table-column label="操作" width="80"><template #default="{r}"><el-button size="small" type="danger" link @click="delCp(r.id)">删除</el-button></template></el-table-column></el-table>
         </div>
         <div v-else-if="tab==='quotations'">
-          <div class="tb"><el-button type="primary" @click="qtDlg.visible=true">新增报价</el-button></div>
+          <div class="tb"><el-button type="primary" @click="qtDlg.visible=true">新增报价</el-button><el-button @click="handleExport('quotations')">导出</el-button><el-button @click="handleImport('quotations')">导入</el-button></div>
           <el-table v-loading="loading" :data="quotations" stripe border row-key="id"><el-table-column type="index" label="#" width="50"/><el-table-column prop="title" label="标题" width="140"/><el-table-column prop="customer_name" label="客户" width="120"/><el-table-column prop="total" label="金额" width="90"/><el-table-column prop="status" label="状态" width="80"/><el-table-column label="操作" width="80"><template #default="{r}"><el-button size="small" type="danger" link @click="delQt(r.id)">删除</el-button></template></el-table-column></el-table>
         </div>
         <div v-else-if="tab==='contracts'">
-          <div class="tb"><el-button type="primary" @click="cnDlg.visible=true">新增合同</el-button></div>
+          <div class="tb"><el-button type="primary" @click="cnDlg.visible=true">新增合同</el-button><el-button @click="handleExport('contracts')">导出</el-button><el-button @click="handleImport('contracts')">导入</el-button></div>
           <el-table v-loading="loading" :data="contracts" stripe border row-key="id"><el-table-column type="index" label="#" width="50"/><el-table-column prop="title" label="标题" width="140"/><el-table-column prop="customer_name" label="客户" width="120"/><el-table-column prop="total" label="金额" width="90"/><el-table-column prop="status" label="状态" width="80"/><el-table-column label="操作" width="80"><template #default="{r}"><el-button size="small" type="danger" link @click="delCn(r.id)">删除</el-button></template></el-table-column></el-table>
         </div>
         <div v-else-if="tab==='tickets'">
-          <div class="tb"><el-button type="primary" @click="tkDlg.visible=true">新建工单</el-button></div>
+          <div class="tb"><el-button type="primary" @click="tkDlg.visible=true">新建工单</el-button><el-button @click="handleExport('tickets')">导出</el-button><el-button @click="handleImport('tickets')">导入</el-button></div>
           <el-table v-loading="loading" :data="tickets" stripe border row-key="id"><el-table-column type="index" label="#" width="50"/><el-table-column prop="title" label="标题" min-width="160"/><el-table-column prop="customer_name" label="客户" width="120"/><el-table-column prop="priority" label="优先级" width="70"/><el-table-column prop="status" label="状态" width="70"/><el-table-column label="操作" width="80"><template #default="{r}"><el-button size="small" type="danger" link @click="delTk(r.id)">删除</el-button></template></el-table-column></el-table>
         </div>
         <div v-else-if="tab==='feedback'">
-          <div class="tb"><el-button type="primary" @click="fbDlg.visible=true">新增反馈</el-button></div>
+          <div class="tb"><el-button type="primary" @click="fbDlg.visible=true">新增反馈</el-button><el-button @click="handleExport('feedback')">导出</el-button><el-button @click="handleImport('feedback')">导入</el-button></div>
           <el-table v-loading="loading" :data="feedbacks" stripe border row-key="id"><el-table-column type="index" label="#" width="50"/><el-table-column prop="customer_name" label="客户" width="120"/><el-table-column prop="rating" label="评分" width="60"/><el-table-column prop="category" label="类别" width="80"/><el-table-column prop="content" label="内容" min-width="200"/><el-table-column label="操作" width="80"><template #default="{r}"><el-button size="small" type="danger" link @click="delFb(r.id)">删除</el-button></template></el-table-column></el-table>
         </div>
       </div>
@@ -69,6 +69,7 @@
     <el-dialog v-model="cnDlg.visible" title="新增合同" width="500px"><el-form :model="cnDlg.form" label-width="80px"><el-form-item label="标题"><el-input v-model="cnDlg.form.title"/></el-form-item><el-form-item label="金额"><el-input-number v-model="cnDlg.form.total" :min="0"/></el-form-item></el-form><template #footer><el-button @click="cnDlg.visible=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveCn">保存</el-button></template></el-dialog>
     <el-dialog v-model="tkDlg.visible" title="新建工单" width="500px"><el-form :model="tkDlg.form" label-width="80px"><el-form-item label="标题"><el-input v-model="tkDlg.form.title"/></el-form-item><el-form-item label="描述"><el-input v-model="tkDlg.form.description" type="textarea"/></el-form-item><el-form-item label="优先级"><el-select v-model="tkDlg.form.priority"><el-option label="低" value="low"/><el-option label="中" value="medium"/><el-option label="高" value="high"/><el-option label="紧急" value="urgent"/></el-select></el-form-item></el-form><template #footer><el-button @click="tkDlg.visible=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveTk">保存</el-button></template></el-dialog>
     <el-dialog v-model="fbDlg.visible" title="新增反馈" width="500px"><el-form :model="fbDlg.form" label-width="80px"><el-form-item label="评分"><el-rate v-model="fbDlg.form.rating"/></el-form-item><el-form-item label="类别"><el-input v-model="fbDlg.form.category"/></el-form-item><el-form-item label="内容"><el-input v-model="fbDlg.form.content" type="textarea"/></el-form-item></el-form><template #footer><el-button @click="fbDlg.visible=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveFb">保存</el-button></template></el-dialog>
+    <ImportDialog v-model="importVisible" :ioKey="importKey" @done="onImportDone" />
   </div>
 </template>
 
@@ -77,9 +78,15 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { customerApi, contactApi, opportunityApi, leadApi, campaignApi, quotationApi, contractApi, ticketApi, feedbackApi } from '../../api/crm'
+import ImportDialog from '../../components/ImportDialog.vue'
 const router = useRouter()
 
 const tab = ref('customers')
+const importVisible = ref(false)
+const importKey = ref('')
+function handleImport(key) { importKey.value = key; importVisible.value = true }
+function handleExport(key) { window.open(`/api/io/${key}/export`) }
+function onImportDone() { ld() }
 const customers = ref([]), contacts = ref([]), opportunities = ref([]), leads = ref([]), campaigns = ref([]), quotations = ref([]), contracts = ref([]), tickets = ref([]), feedbacks = ref([])
 
 const kpis = computed(() => [

@@ -111,12 +111,74 @@ html, body, #app {
   font-size: 16px;
 }
 
+/* 侧边栏会话子列表 */
+.nav-item-wrapper {
+  display: flex; align-items: center;
+}
+.nav-item-toggle {
+  padding: 4px; margin-right: 8px; color: #b8aad0;
+}
+.nav-item-more {
+  opacity: 0; transition: opacity .15s; padding: 2px; color: #b8aad0;
+}
+.nav-item-wrapper:hover .nav-item-more { opacity: 1; }
+.nav-sub-group {
+  padding: 4px 0 8px 28px;
+}
+.nav-sub-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 16px 6px 12px; border-radius: 6px; cursor: pointer;
+  transition: background .15s; font-size: 13px; color: #6b5f80;
+}
+.nav-sub-item:hover { background: #f5f3ff; }
+.nav-sub-item.active { background: #ede9fe; color: #7c3aed; }
+.nav-sub-text {
+  flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.nav-sub-del { opacity: 0; transition: opacity .15s; }
+.nav-sub-item:hover .nav-sub-del { opacity: 1; }
+.nav-sub-more { opacity: 0; transition: opacity .15s; padding: 2px; color: #b8aad0; }
+.nav-sub-item:hover .nav-sub-more { opacity: 1; }
+.nav-sub-add { color: #b8aad0; gap: 4px; }
+.nav-sub-add:hover { color: #7c3aed; }
+.nav-sub-empty { text-align: center; padding: 6px; color: #b8aad0; font-size: 12px; }
+.session-menu { padding: 4px 0; }
+.session-menu-item { padding: 6px 12px; cursor: pointer; font-size: 13px; color: #4a3f5e; transition: background .15s; }
+.session-menu-item:hover { background: #f5f3ff; }
+.session-menu-danger { color: #e53e3e; }
+.session-menu-danger:hover { background: #fff5f5; }
+
 .sidebar-footer {
-  padding: 16px 20px;
+  padding: 12px 20px;
   border-top: 1px solid #f0ecfc;
   font-size: 12px;
   color: #b8aad0;
-  text-align: center;
+}
+
+.sidebar-footer .user-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  color: #1e293b;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.sidebar-footer .user-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sidebar-footer .version {
+  color: #b8aad0;
+  font-size: 12px;
+}
+
+.sidebar-footer .el-button {
+  font-size: 12px;
+  color: #94a3b8;
 }
 
 /* 主内容区 */
@@ -326,6 +388,7 @@ html, body, #app {
   .nav-item span, .nav-group-title, .sidebar-footer { display: none; }
   .nav-item { justify-content: center; padding: 10px 0; }
   .nav-item .el-icon { margin-right: 0; font-size: 18px; }
+  .nav-sub-group, .nav-item-toggle, .nav-item-wrapper, .nav-sub-more { display: none; }
   .el-dialog { width: 90% !important; max-width: 90vw !important; }
   .kpi-row { flex-wrap: wrap; }
   .kpi { min-width: 70px; padding: 8px 12px; }

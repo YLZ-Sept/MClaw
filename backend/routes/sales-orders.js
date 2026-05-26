@@ -1,50 +1,88 @@
 const { Router } = require('express');
 const { randomUUID } = require('crypto');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const XLSX = require('xlsx');
 const db = require('../db');
 const router = Router();
 
+db.exec(`CREATE TABLE IF NOT EXISTS sales_orders (
+  id TEXT PRIMARY KEY,
+  customer_name TEXT,
+  distributor TEXT,
+  product_name TEXT NOT NULL,
+  model TEXT,
+  quantity REAL DEFAULT 1,
+  unit TEXT DEFAULT '套',
+  serial_number TEXT,
+  out_date TEXT,
+  unit_price REAL DEFAULT 0,
+  total_price REAL DEFAULT 0,
+  remark TEXT,
+  status TEXT DEFAULT 'draft',
+  created_at TEXT DEFAULT (datetime('now','localtime'))
+)`);
+
+try { db.exec('ALTER TABLE sales_orders ADD COLUMN distributor TEXT'); } catch {}
+try { db.exec('ALTER TABLE sales_orders ADD COLUMN product_name TEXT'); } catch {}
+try { db.exec('ALTER TABLE sales_orders ADD COLUMN model TEXT'); } catch {}
+try { db.exec('ALTER TABLE sales_orders ADD COLUMN serial_number TEXT'); } catch {}
+try { db.exec('ALTER TABLE sales_orders ADD COLUMN out_date TEXT'); } catch {}
+try { db.exec('ALTER TABLE sales_orders ADD COLUMN unit TEXT DEFAULT \'套\''); } catch {}
+try { db.exec('ALTER TABLE sales_orders ADD COLUMN unit_price REAL DEFAULT 0'); } catch {}
+try { db.exec('ALTER TABLE sales_orders ADD COLUMN total_price REAL DEFAULT 0'); } catch {}
+try { db.exec('ALTER TABLE sales_orders ADD COLUMN customer_name TEXT'); } catch {}
+try { db.exec('ALTER TABLE sales_orders ADD COLUMN quantity REAL DEFAULT 1'); } catch {}
+
+const upload = multer({ dest: path.join(__dirname, '..', 'uploads', 'temp') });
+
 router.get('/', (req, res) => {
-  const list = db.prepare('SELECT so.*, c.name AS customer_name FROM sales_orders so LEFT JOIN customers c ON so.customer_id=c.id ORDER BY so.created_at DESC').all();
-  res.json({ code: 200, data: list });
+  const { keyword } = req.query;
+  let sql = 'SELECT * FROM sales_orders WHERE 1=1';
+  const params = [];
+  if (keyword) { sql += ' AND (product_name LIKE ? OR customer_name LIKE ? OR model LIKE ? OR distributor LIKE ? OR serial_number LIKE ?)'; params.push(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`, `%${keyword}%`, `%${keyword}%`); }
+  sql += ' ORDER BY created_at DESC LIMIT 500';
+  res.json({ code: 200, data: db.prepare(sql).all(...params) });
 });
 
 router.post('/', (req, res) => {
-  const { customer_id, total, status, order_date, remark } = req.body;
+  const { customer_name, distributor, product_name, model, quantity, unit, serial_number, out_date, unit_price, total_price, remark } = req.body;
+  if (!product_name) return res.status(400).json({ code: 400, message: '产品名称必填' });
   const id = randomUUID();
-  db.prepare('INSERT INTO sales_orders (id,customer_id,total,status,order_date,remark) VALUES (?,?,?,?,?,?)')
-    .run(id, customer_id, total, status || 'draft', order_date, remark);
+  db.prepare(`INSERT INTO sales_orders (id,customer_name,distributor,product_name,model,quantity,unit,serial_number,out_date,unit_price,total_price,remark)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(id, customer_name||'', distributor||'', product_name, model||'', quantity||1, unit||'套', serial_number||'', out_date||'', unit_price||0, total_price||0, remark||'');
   res.json({ code: 200, data: { id } });
 });
 
 router.put('/:id', (req, res) => {
-  const { customer_id, total, status, order_date, remark } = req.body;
-  db.prepare('UPDATE sales_orders SET customer_id=?,total=?,status=?,order_date=?,remark=? WHERE id=?')
-    .run(customer_id, total, status, order_date, remark, req.params.id);
+  const { customer_name, distributor, product_name, model, quantity, unit, serial_number, out_date, unit_price, total_price, remark, status } = req.body;
+  db.prepare(`UPDATE sales_orders SET customer_name=COALESCE(?,customer_name),distributor=COALESCE(?,distributor),product_name=COALESCE(?,product_name),model=COALESCE(?,model),quantity=COALESCE(?,quantity),unit=COALESCE(?,unit),serial_number=COALESCE(?,serial_number),out_date=COALESCE(?,out_date),unit_price=COALESCE(?,unit_price),total_price=COALESCE(?,total_price),remark=COALESCE(?,remark),status=COALESCE(?,status) WHERE id=?`)
+    .run(customer_name,distributor,product_name,model,quantity,unit,serial_number,out_date,unit_price,total_price,remark,status,req.params.id);
   res.json({ code: 200 });
 });
 
 router.delete('/:id', (req, res) => {
-  db.prepare('DELETE FROM sales_order_items WHERE sales_order_id=?').run(req.params.id);
   db.prepare('DELETE FROM sales_orders WHERE id=?').run(req.params.id);
   res.json({ code: 200 });
 });
 
-router.get('/:id/items', (req, res) => {
-  const items = db.prepare('SELECT soi.*, p.name AS product_name FROM sales_order_items soi LEFT JOIN products p ON soi.product_id=p.id WHERE soi.sales_order_id=?').all(req.params.id);
-  res.json({ code: 200, data: items });
-});
-
-router.post('/:id/items', (req, res) => {
-  const { product_id, quantity, unit_price, total } = req.body;
-  const id = randomUUID();
-  db.prepare('INSERT INTO sales_order_items (id,sales_order_id,product_id,quantity,unit_price,total) VALUES (?,?,?,?,?,?)')
-    .run(id, req.params.id, product_id, quantity || 1, unit_price || 0, total || 0);
-  res.json({ code: 200, data: { id } });
-});
-
-router.delete('/:id/items/:itemId', (req, res) => {
-  db.prepare('DELETE FROM sales_order_items WHERE id=?').run(req.params.itemId);
-  res.json({ code: 200 });
+router.post('/import', upload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ code: 400, message: '请选择文件' });
+  const wb = XLSX.readFile(req.file.path);
+  const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
+  fs.unlinkSync(req.file.path);
+  let count = 0;
+  for (let i = 1; i < data.length; i++) {
+    const r = data[i]; if (!r || !r[2]) continue;
+    const id = randomUUID();
+    db.prepare(`INSERT INTO sales_orders (id,customer_name,distributor,product_name,model,quantity,unit,serial_number,out_date,unit_price,total_price,remark)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .run(id, String(r[0]||''), String(r[1]||''), String(r[2]||''), String(r[3]||''), Number(r[4])||1, String(r[5]||'套'), String(r[6]||''), String(r[7]||''), Number(r[8])||0, Number(r[9])||0, String(r[10]||''));
+    count++;
+  }
+  res.json({ code: 200, data: { count } });
 });
 
 module.exports = router;

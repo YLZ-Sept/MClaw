@@ -4,14 +4,24 @@ export const POST = (...args) => request.post(...args)
 export const PUT = (...args) => request.put(...args)
 export const DEL = (url) => request.delete(url)
 
+export const orgChartApi = {
+  list: () => GET('/org-charts'),
+  upload: (formData) => POST('/org-charts', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  }),
+  remove: (id) => DEL(`/org-charts/${id}`),
+  previewUrl: (id) => `/api/org-charts/preview/${id}`,
+  downloadUrl: (id) => `/api/org-charts/download/${id}`,
+  importDepartments: (formData) => POST('/org-charts/import-departments', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  })
+}
+
 export const employeeApi = {
   list: () => GET('/employees'),
   create: (d) => POST('/employees', d),
   update: (id, d) => PUT(`/employees/${id}`, d),
-  remove: (id) => DEL(`/employees/${id}`),
-  leaveList: () => GET('/employees/leave-requests'),
-  applyLeave: (d) => POST('/employees/leave-requests', d),
-  approveLeave: (id, d) => PUT(`/employees/leave-requests/${id}/approve`, d)
+  remove: (id) => DEL(`/employees/${id}`)
 }
 
 export const departmentApi = {
@@ -21,41 +31,21 @@ export const departmentApi = {
   remove: (id) => DEL(`/departments/${id}`)
 }
 
-export const recruitmentApi = {
-  list: () => GET('/recruitment'),
-  create: (d) => POST('/recruitment', d),
-  update: (id, d) => PUT(`/recruitment/${id}`, d),
-  remove: (id) => DEL(`/recruitment/${id}`),
-  candidates: (id) => GET(`/recruitment/${id}/candidates`),
-  addCandidate: (id, d) => POST(`/recruitment/${id}/candidates`, d),
-  updateCandidate: (id, d) => PUT(`/recruitment/candidates/${id}`, d)
-}
-
 export const attendanceApi = {
-  rules: () => GET('/attendance/rules'),
-  createRule: (d) => POST('/attendance/rules', d),
-  updateRule: (id, d) => PUT(`/attendance/rules/${id}`, d),
-  deleteRule: (id) => DEL(`/attendance/rules/${id}`),
-  clockIn: (d) => POST('/attendance/clock-in', d),
-  clockOut: (d) => POST('/attendance/clock-out', d),
-  records: (params) => GET('/attendance/records', { params }),
+  reports: (params) => GET('/attendance/reports', { params }),
+  importReports: (formData) => POST('/attendance/reports/import', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  }),
+  deleteReport: (id) => DEL(`/attendance/reports/${id}`),
   monthlyReport: (params) => GET('/attendance/report/monthly', { params })
 }
 
-export const personnelChangeApi = {
-  list: () => GET('/personnel-changes'),
-  create: (d) => POST('/personnel-changes', d),
-  update: (id, d) => PUT(`/personnel-changes/${id}`, d),
-  remove: (id) => DEL(`/personnel-changes/${id}`)
-}
-
 export const performanceApi = {
-  schemes: () => GET('/performance/schemes'),
-  createScheme: (d) => POST('/performance/schemes', d),
-  deleteScheme: (id) => DEL(`/performance/schemes/${id}`),
-  items: (schemeId) => GET(`/performance/schemes/${schemeId}/items`),
-  addItem: (schemeId, d) => POST(`/performance/schemes/${schemeId}/items`, d),
-  updateItem: (id, d) => PUT(`/performance/items/${id}`, d),
-  deleteItem: (id) => DEL(`/performance/items/${id}`),
-  report: (schemeId) => GET('/performance/report', { params: { scheme_id: schemeId } })
+  reports: (params) => GET('/performance/reports', { params }),
+  importPreview: (formData) => POST('/performance/import', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  }),
+  batchInsert: (d) => POST('/performance/batch', d),
+  deleteReport: (id) => DEL(`/performance/reports/${id}`),
+  exportUrl: (month) => `/api/performance/export?month=${month}`
 }

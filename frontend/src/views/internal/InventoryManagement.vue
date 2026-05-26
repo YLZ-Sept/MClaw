@@ -8,121 +8,265 @@
     </div>
     <div class="pg-body">
       <el-menu :default-active="tab" class="side-tabs" @select="t=>tab=t">
-        <el-menu-item index="products">产品管理</el-menu-item>
-        <el-menu-item index="suppliers">供应商</el-menu-item>
-        <el-menu-item index="purchase">采购订单</el-menu-item>
-        <el-menu-item index="sales">销售订单</el-menu-item>
-        <el-menu-item index="stock">出入库</el-menu-item>
-        <el-menu-item index="assets">设备台账</el-menu-item>
-        <el-menu-item index="warehouses">仓库管理</el-menu-item>
+        <el-menu-item index="purchase">采购入库</el-menu-item>
+        <el-menu-item index="sales">销售出库</el-menu-item>
+        <el-menu-item index="ledger">库存台账</el-menu-item>
+        <el-menu-item index="returns">退换货管理</el-menu-item>
+        <el-menu-item index="alerts">库存预警</el-menu-item>
       </el-menu>
       <div class="tab-content">
-        <!-- 产品 -->
-        <div v-if="tab==='products'">
-          <div class="tb"><el-button type="primary" @click="openPdDlg()">新增产品</el-button></div>
-          <el-table v-loading="loading" :data="products" stripe border row-key="id"><el-table-column type="index" label="#" width="50"/><el-table-column prop="name" label="产品名" width="140"/><el-table-column prop="sku" label="SKU" width="90"/><el-table-column prop="unit" label="单位" width="60"/><el-table-column prop="sale_price" label="售价" width="80"/><el-table-column prop="cost_price" label="成本" width="80"/><el-table-column prop="quantity" label="库存" width="60"/><el-table-column label="操作" width="140"><template #default="{r}"><el-button size="small" type="primary" link @click="openPdDlg(r)">编辑</el-button><el-button size="small" type="danger" link @click="delPd(r.id)">删除</el-button></template></el-table-column></el-table>
+        <!-- 采购入库 -->
+        <div v-if="tab==='purchase'">
+          <div class="tb"><el-input v-model="poKeyword" placeholder="搜索供应商/品牌/名称/型号/序列号" style="width:260px" clearable @input="ldPurchase"/><el-button type="primary" style="margin-left:12px" @click="openPoDlg()">新增采购入库</el-button><el-button @click="handleImport('purchase_orders')">导入 Excel</el-button></div>
+          <el-table v-loading="loading" :data="purchaseOrders" stripe border row-key="id" max-height="calc(100vh - 280px)">
+            <el-table-column type="index" label="#" width="50"/>
+            <el-table-column prop="supplier" label="供应商" width="120"/>
+            <el-table-column prop="brand" label="品牌" width="100"/>
+            <el-table-column prop="category" label="品类" width="80"/>
+            <el-table-column prop="name" label="名称" min-width="120"/>
+            <el-table-column prop="model" label="型号" width="100"/>
+            <el-table-column prop="quantity" label="数量" width="70"/>
+            <el-table-column prop="unit" label="单位" width="60"/>
+            <el-table-column prop="serial_number" label="序列号" width="120"/>
+            <el-table-column prop="unit_price" label="单价" width="80"/>
+            <el-table-column prop="total_price" label="总价" width="90"/>
+            <el-table-column prop="stock_date" label="入库日期" width="110"/>
+            <el-table-column prop="status" label="状态" width="80"><template #default="{row}"><el-tag :type="row.status==='confirmed'?'success':row.status==='draft'?'info':'warning'" size="small">{{ row.status==='draft'?'草稿':row.status==='confirmed'?'已确认':'已取消' }}</el-tag></template></el-table-column>
+            <el-table-column label="操作" width="160" fixed="right"><template #default="{row}"><el-button size="small" type="primary" link @click="openPoDlg(row)">编辑</el-button><el-button size="small" type="danger" link @click="delPo(row.id)">删除</el-button></template></el-table-column>
+          </el-table>
         </div>
-        <!-- 供应商 -->
-        <div v-else-if="tab==='suppliers'">
-          <div class="tb"><el-button type="primary" @click="spDlg.visible=true">新增供应商</el-button></div>
-          <el-table v-loading="loading" :data="suppliers" stripe border row-key="id"><el-table-column type="index" label="#" width="50"/><el-table-column prop="name" label="名称" width="140"/><el-table-column prop="contact_person" label="联系人" width="100"/><el-table-column prop="phone" label="电话" width="130"/><el-table-column label="操作" width="100"><template #default="{r}"><el-button size="small" type="danger" link @click="delSp(r.id)">删除</el-button></template></el-table-column></el-table>
-        </div>
-        <!-- 采购 -->
-        <div v-else-if="tab==='purchase'">
-          <div class="tb"><el-button type="primary" @click="poDlg.visible=true">新增采购单</el-button></div>
-          <el-table v-loading="loading" :data="purchaseOrders" stripe border row-key="id"><el-table-column type="index" label="#" width="50"/><el-table-column prop="supplier_name" label="供应商" width="120"/><el-table-column prop="total" label="总额" width="100"/><el-table-column prop="status" label="状态" width="80"/><el-table-column label="操作" width="100"><template #default="{r}"><el-button size="small" type="danger" link @click="delPo(r.id)">删除</el-button></template></el-table-column></el-table>
-        </div>
-        <!-- 销售 -->
+        <!-- 销售出库 -->
         <div v-else-if="tab==='sales'">
-          <div class="tb"><el-button type="primary" @click="soDlg.visible=true">新增销售单</el-button></div>
-          <el-table v-loading="loading" :data="salesOrders" stripe border row-key="id"><el-table-column type="index" label="#" width="50"/><el-table-column prop="customer_name" label="客户" width="120"/><el-table-column prop="total" label="总额" width="100"/><el-table-column prop="status" label="状态" width="80"/><el-table-column label="操作" width="100"><template #default="{r}"><el-button size="small" type="danger" link @click="delSo(r.id)">删除</el-button></template></el-table-column></el-table>
+          <div class="tb"><el-input v-model="soKeyword" placeholder="搜索客户/经销商/产品/型号/序列号" style="width:260px" clearable @input="ldSales"/><el-button type="primary" style="margin-left:12px" @click="openSoDlg()">新增销售出库</el-button><el-button @click="handleImport('sales_orders')">导入 Excel</el-button></div>
+          <el-table v-loading="loading" :data="salesOrders" stripe border row-key="id" max-height="calc(100vh - 280px)">
+            <el-table-column type="index" label="#" width="50"/>
+            <el-table-column prop="customer_name" label="客户" width="100"/>
+            <el-table-column prop="distributor" label="经销商" width="120"/>
+            <el-table-column prop="product_name" label="产品名称" min-width="120"/>
+            <el-table-column prop="model" label="型号" width="100"/>
+            <el-table-column prop="quantity" label="数量" width="70"/>
+            <el-table-column prop="unit" label="单位" width="60"/>
+            <el-table-column prop="serial_number" label="序列号" width="120"/>
+            <el-table-column prop="out_date" label="出库日期" width="110"/>
+            <el-table-column prop="unit_price" label="单价" width="80"/>
+            <el-table-column prop="total_price" label="总价" width="90"/>
+            <el-table-column prop="remark" label="备注" width="100"/>
+            <el-table-column prop="status" label="状态" width="80"><template #default="{row}"><el-tag :type="row.status==='confirmed'?'success':row.status==='draft'?'info':'warning'" size="small">{{ row.status==='draft'?'草稿':row.status==='confirmed'?'已确认':'已取消' }}</el-tag></template></el-table-column>
+            <el-table-column label="操作" width="160" fixed="right"><template #default="{row}"><el-button size="small" type="primary" link @click="openSoDlg(row)">编辑</el-button><el-button size="small" type="danger" link @click="delSo(row.id)">删除</el-button></template></el-table-column>
+          </el-table>
         </div>
-        <!-- 出入库 -->
-        <div v-else-if="tab==='stock'">
-          <div class="tb"><el-button type="primary" @click="siDlg.visible=true">入库</el-button><el-button @click="soOutDlg.visible=true" style="margin-left:8px">出库</el-button></div>
-          <el-table v-loading="loading" :data="stockList" stripe border row-key="id"><el-table-column type="index" label="#" width="50"/><el-table-column prop="name" label="产品" width="140"/><el-table-column prop="warehouse_name" label="仓库" width="100"/><el-table-column prop="quantity" label="数量" width="70"/><el-table-column prop="sku" label="SKU" width="90"/></el-table>
+        <!-- 库存台账 -->
+        <div v-else-if="tab==='ledger'">
+          <div class="tb"><el-input v-model="alKeyword" placeholder="搜索厂商/品类/产品/型号" style="width:260px" clearable @input="ldLedger"/><el-button type="primary" style="margin-left:12px" @click="openAlDlg()">登记台账</el-button><el-button @click="handleImport('asset_ledger')">导入 Excel</el-button></div>
+          <el-table v-loading="loading" :data="assetList" stripe border row-key="id" max-height="calc(100vh - 280px)">
+            <el-table-column type="index" label="#" width="50"/>
+            <el-table-column prop="manufacturer" label="厂商" width="100"/>
+            <el-table-column prop="category" label="品类" width="80"/>
+            <el-table-column prop="product_name" label="产品名称" min-width="130"/>
+            <el-table-column prop="model" label="型号" width="100"/>
+            <el-table-column prop="unit" label="单位" width="60"/>
+            <el-table-column prop="in_quantity" label="入库数量" width="80"/>
+            <el-table-column prop="out_quantity" label="出库数量" width="80"/>
+            <el-table-column prop="balance" label="库存余量" width="80"><template #default="{row}"><span :style="{color:row.balance<10?'#ef4444':row.balance<50?'#f59e0b':'#10b981',fontWeight:'600'}">{{ row.balance }}</span></template></el-table-column>
+            <el-table-column prop="unit_price" label="单价" width="80"/>
+            <el-table-column prop="order_total" label="订单总价" width="90"/>
+            <el-table-column prop="inventory_value" label="库存价值" width="90"/>
+            <el-table-column prop="stock_date" label="入库日期" width="110"/>
+            <el-table-column label="操作" width="160" fixed="right"><template #default="{row}"><el-button size="small" type="primary" link @click="openAlDlg(row)">编辑</el-button><el-button size="small" type="danger" link @click="delAl(row.id)">删除</el-button></template></el-table-column>
+          </el-table>
         </div>
-        <!-- 设备台账 -->
-        <div v-else-if="tab==='assets'">
-          <div class="tb"><el-button type="primary" @click="alDlg.visible=true">登记设备</el-button></div>
-          <el-table v-loading="loading" :data="assetList" stripe border row-key="id"><el-table-column type="index" label="#" width="50"/><el-table-column prop="product_name" label="产品名称" width="140"/><el-table-column prop="serial_no" label="序列号" width="120"/><el-table-column prop="deploy_date" label="部署日期" width="110"/><el-table-column prop="warranty_expire" label="维保到期" width="110"/><el-table-column prop="license_expire" label="许可到期" width="110"/><el-table-column prop="status" label="状态" width="80"/><el-table-column label="操作" width="100"><template #default="{r}"><el-button size="small" type="danger" link @click="delAl(r.id)">删除</el-button></template></el-table-column></el-table>
+        <!-- 退换货管理 -->
+        <div v-else-if="tab==='returns'">
+          <div class="tb"><el-button type="primary" @click="openRtDlg()">新增退换货</el-button><el-button @click="handleImport('returns')">导入 Excel</el-button></div>
+          <el-table v-loading="loading" :data="returns" stripe border row-key="id" max-height="calc(100vh - 280px)">
+            <el-table-column type="index" label="#" width="50"/>
+            <el-table-column prop="order_type" label="单据类型" width="80"><template #default="{row}">{{ row.order_type==='purchase'?'采购':row.order_type==='sales'?'销售':'销售' }}</template></el-table-column>
+            <el-table-column prop="order_id" label="关联单号" width="140"/>
+            <el-table-column prop="product_name" label="产品名称" min-width="120"/>
+            <el-table-column prop="model" label="型号" width="100"/>
+            <el-table-column prop="quantity" label="数量" width="70"/>
+            <el-table-column prop="reason" label="原因" min-width="140"/>
+            <el-table-column prop="type" label="类型" width="80"><template #default="{row}"><el-tag :type="row.type==='exchange'?'warning':row.type==='return'?'danger':'info'" size="small">{{ row.type==='return'?'退货':row.type==='exchange'?'换货':'其他' }}</el-tag></template></el-table-column>
+            <el-table-column prop="exchange_product" label="换货产品" width="120"/>
+            <el-table-column prop="status" label="状态" width="80"><template #default="{row}"><el-tag :type="row.status==='approved'?'success':row.status==='approved'?'success':row.status==='rejected'?'danger':'warning'" size="small">{{ row.status==='pending'?'待处理':row.status==='approved'?'已通过':row.status==='rejected'?'已驳回':'处理中' }}</el-tag></template></el-table-column>
+            <el-table-column label="操作" width="200" fixed="right"><template #default="{row}"><el-button size="small" type="primary" link @click="openRtDlg(row)">编辑</el-button><el-button size="small" type="success" link v-if="row.status==='pending'" @click="updateRtStatus(row.id,'approved')">通过</el-button><el-button size="small" type="warning" link v-if="row.status==='pending'" @click="updateRtStatus(row.id,'rejected')">驳回</el-button><el-button size="small" type="danger" link @click="delRt(row.id)">删除</el-button></template></el-table-column>
+          </el-table>
         </div>
-        <!-- 仓库 -->
-        <div v-else-if="tab==='warehouses'">
-          <div class="tb"><el-button type="primary" @click="whDlg.visible=true">新增仓库</el-button></div>
-          <el-table v-loading="loading" :data="warehouses" stripe border row-key="id"><el-table-column type="index" label="#" width="50"/><el-table-column prop="name" label="仓库名" width="140"/><el-table-column prop="manager" label="负责人" width="100"/><el-table-column label="操作" width="100"><template #default="{r}"><el-button size="small" type="danger" link @click="delWh(r.id)">删除</el-button></template></el-table-column></el-table>
+        <!-- 库存预警 -->
+        <div v-else-if="tab==='alerts'">
+          <div class="tb"><span style="color:#b8aad0;font-size:13px">库存余量低于安全阈值的产品</span></div>
+          <el-table v-loading="loading" :data="alertList" stripe border row-key="id" max-height="calc(100vh - 280px)">
+            <el-table-column type="index" label="#" width="50"/>
+            <el-table-column prop="product_name" label="产品名称" min-width="130"/>
+            <el-table-column prop="model" label="型号" width="100"/>
+            <el-table-column prop="manufacturer" label="厂商" width="100"/>
+            <el-table-column prop="category" label="品类" width="80"/>
+            <el-table-column prop="balance" label="当前库存" width="90"><template #default="{row}"><span style="color:#ef4444;font-weight:600">{{ row.balance }}</span></template></el-table-column>
+            <el-table-column prop="unit" label="单位" width="60"/>
+            <el-table-column prop="unit_price" label="单价" width="80"/>
+            <el-table-column prop="inventory_value" label="库存价值" width="90"/>
+            <el-table-column prop="stock_date" label="最近入库" width="110"/>
+          </el-table>
         </div>
       </div>
     </div>
-    <!-- Dialogs -->
-    <el-dialog v-model="pdDlg.visible" :title="pdDlg.ed?'编辑产品':'新增产品'" width="500px"><el-form :model="pdDlg.form" label-width="80px"><el-form-item label="产品名"><el-input v-model="pdDlg.form.name"/></el-form-item><el-form-item label="SKU"><el-input v-model="pdDlg.form.sku"/></el-form-item><el-form-item label="单位"><el-input v-model="pdDlg.form.unit"/></el-form-item><el-form-item label="售价"><el-input-number v-model="pdDlg.form.sale_price" :min="0"/></el-form-item><el-form-item label="成本"><el-input-number v-model="pdDlg.form.cost_price" :min="0"/></el-form-item></el-form><template #footer><el-button @click="pdDlg.visible=false">取消</el-button><el-button type="primary" :loading="saving" @click="savePd">保存</el-button></template></el-dialog>
-    <el-dialog v-model="siDlg.visible" title="入库" width="400px"><el-form :model="siDlg.form" label-width="60px"><el-form-item label="产品"><el-select v-model="siDlg.form.product_id" style="width:100%"><el-option v-for="p in products" :key="p.id" :label="p.name" :value="p.id"/></el-select></el-form-item><el-form-item label="数量"><el-input-number v-model="siDlg.form.quantity" :min="1"/></el-form-item><el-form-item label="备注"><el-input v-model="siDlg.form.remark"/></el-form-item></el-form><template #footer><el-button @click="siDlg.visible=false">取消</el-button><el-button type="primary" @click="doSi">确认入库</el-button></template></el-dialog>
-    <el-dialog v-model="soOutDlg.visible" title="出库" width="400px"><el-form :model="soOutDlg.form" label-width="60px"><el-form-item label="产品"><el-select v-model="soOutDlg.form.product_id" style="width:100%"><el-option v-for="p in products" :key="p.id" :label="p.name" :value="p.id"/></el-select></el-form-item><el-form-item label="数量"><el-input-number v-model="soOutDlg.form.quantity" :min="1"/></el-form-item><el-form-item label="备注"><el-input v-model="soOutDlg.form.remark"/></el-form-item></el-form><template #footer><el-button @click="soOutDlg.visible=false">取消</el-button><el-button type="primary" @click="doSo">确认出库</el-button></template></el-dialog>
-    <el-dialog v-model="spDlg.visible" title="新增供应商" width="500px"><el-form :model="spDlg.form" label-width="80px"><el-form-item label="名称"><el-input v-model="spDlg.form.name"/></el-form-item><el-form-item label="联系人"><el-input v-model="spDlg.form.contact_person"/></el-form-item><el-form-item label="电话"><el-input v-model="spDlg.form.phone"/></el-form-item></el-form><template #footer><el-button @click="spDlg.visible=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveSp">保存</el-button></template></el-dialog>
-    <el-dialog v-model="poDlg.visible" title="新增采购单" width="500px"><el-form :model="poDlg.form" label-width="80px"><el-form-item label="供应商"><el-select v-model="poDlg.form.supplier_id" style="width:100%"><el-option v-for="s in suppliers" :key="s.id" :label="s.name" :value="s.id"/></el-select></el-form-item><el-form-item label="总额"><el-input-number v-model="poDlg.form.total" :min="0"/></el-form-item></el-form><template #footer><el-button @click="poDlg.visible=false">取消</el-button><el-button type="primary" :loading="saving" @click="savePo">保存</el-button></template></el-dialog>
-    <el-dialog v-model="soDlg.visible" title="新增销售单" width="500px"><el-form :model="soDlg.form" label-width="80px"><el-form-item label="总额"><el-input-number v-model="soDlg.form.total" :min="0"/></el-form-item></el-form><template #footer><el-button @click="soDlg.visible=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveSales">保存</el-button></template></el-dialog>
-    <el-dialog v-model="alDlg.visible" title="登记设备" width="500px"><el-form :model="alDlg.form" label-width="80px"><el-form-item label="产品名称"><el-input v-model="alDlg.form.product_name"/></el-form-item><el-form-item label="序列号"><el-input v-model="alDlg.form.serial_no"/></el-form-item><el-form-item label="部署日期"><el-date-picker v-model="alDlg.form.deploy_date" type="date" value-format="YYYY-MM-DD" style="width:100%"/></el-form-item><el-form-item label="维保到期"><el-date-picker v-model="alDlg.form.warranty_expire" type="date" value-format="YYYY-MM-DD" style="width:100%"/></el-form-item><el-form-item label="许可到期"><el-date-picker v-model="alDlg.form.license_expire" type="date" value-format="YYYY-MM-DD" style="width:100%"/></el-form-item></el-form><template #footer><el-button @click="alDlg.visible=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveAl">保存</el-button></template></el-dialog>
-    <el-dialog v-model="whDlg.visible" title="新增仓库" width="500px"><el-form :model="whDlg.form" label-width="80px"><el-form-item label="仓库名"><el-input v-model="whDlg.form.name"/></el-form-item><el-form-item label="负责人"><el-input v-model="whDlg.form.manager"/></el-form-item></el-form><template #footer><el-button @click="whDlg.visible=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveWh">保存</el-button></template></el-dialog>
+
+    <!-- 采购入库对话框 -->
+    <el-dialog v-model="poDlg.visible" :title="poDlg.ed?'编辑采购入库':'新增采购入库'" width="620px" @closed="poDlg.form={}">
+      <el-form :model="poDlg.form" label-width="80px" inline>
+        <el-form-item label="供应商"><el-input v-model="poDlg.form.supplier" style="width:180px"/></el-form-item>
+        <el-form-item label="品牌"><el-input v-model="poDlg.form.brand" style="width:180px"/></el-form-item>
+        <el-form-item label="品类"><el-input v-model="poDlg.form.category" style="width:180px"/></el-form-item>
+        <el-form-item label="名称" required><el-input v-model="poDlg.form.name" style="width:180px"/></el-form-item>
+        <el-form-item label="型号"><el-input v-model="poDlg.form.model" style="width:180px"/></el-form-item>
+        <el-form-item label="数量"><el-input-number v-model="poDlg.form.quantity" :min="1" style="width:180px"/></el-form-item>
+        <el-form-item label="单位"><el-input v-model="poDlg.form.unit" placeholder="套" style="width:180px"/></el-form-item>
+        <el-form-item label="序列号"><el-input v-model="poDlg.form.serial_number" style="width:180px"/></el-form-item>
+        <el-form-item label="单价"><el-input-number v-model="poDlg.form.unit_price" :min="0" :precision="2" style="width:180px"/></el-form-item>
+        <el-form-item label="总价"><el-input-number v-model="poDlg.form.total_price" :min="0" :precision="2" style="width:180px"/></el-form-item>
+        <el-form-item label="入库日期"><el-date-picker v-model="poDlg.form.stock_date" type="date" value-format="YYYY-MM-DD" style="width:180px"/></el-form-item>
+        <el-form-item label="状态"><el-select v-model="poDlg.form.status" style="width:180px"><el-option label="草稿" value="draft"/><el-option label="已确认" value="confirmed"/><el-option label="已取消" value="cancelled"/></el-select></el-form-item>
+      </el-form>
+      <template #footer><el-button @click="poDlg.visible=false">取消</el-button><el-button type="primary" :loading="saving" @click="savePo">保存</el-button></template>
+    </el-dialog>
+
+    <!-- 销售出库对话框 -->
+    <el-dialog v-model="soDlg.visible" :title="soDlg.ed?'编辑销售出库':'新增销售出库'" width="620px" @closed="soDlg.form={}">
+      <el-form :model="soDlg.form" label-width="80px" inline>
+        <el-form-item label="客户"><el-input v-model="soDlg.form.customer_name" style="width:180px"/></el-form-item>
+        <el-form-item label="经销商"><el-input v-model="soDlg.form.distributor" style="width:180px"/></el-form-item>
+        <el-form-item label="产品名称" required><el-input v-model="soDlg.form.product_name" style="width:180px"/></el-form-item>
+        <el-form-item label="型号"><el-input v-model="soDlg.form.model" style="width:180px"/></el-form-item>
+        <el-form-item label="数量"><el-input-number v-model="soDlg.form.quantity" :min="1" style="width:180px"/></el-form-item>
+        <el-form-item label="单位"><el-input v-model="soDlg.form.unit" placeholder="套" style="width:180px"/></el-form-item>
+        <el-form-item label="序列号"><el-input v-model="soDlg.form.serial_number" style="width:180px"/></el-form-item>
+        <el-form-item label="出库日期"><el-date-picker v-model="soDlg.form.out_date" type="date" value-format="YYYY-MM-DD" style="width:180px"/></el-form-item>
+        <el-form-item label="单价"><el-input-number v-model="soDlg.form.unit_price" :min="0" :precision="2" style="width:180px"/></el-form-item>
+        <el-form-item label="总价"><el-input-number v-model="soDlg.form.total_price" :min="0" :precision="2" style="width:180px"/></el-form-item>
+        <el-form-item label="备注"><el-input v-model="soDlg.form.remark" style="width:180px"/></el-form-item>
+        <el-form-item label="状态"><el-select v-model="soDlg.form.status" style="width:180px"><el-option label="草稿" value="draft"/><el-option label="已确认" value="confirmed"/><el-option label="已取消" value="cancelled"/></el-select></el-form-item>
+      </el-form>
+      <template #footer><el-button @click="soDlg.visible=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveSo">保存</el-button></template>
+    </el-dialog>
+
+    <!-- 库存台账对话框 -->
+    <el-dialog v-model="alDlg.visible" :title="alDlg.ed?'编辑库存台账':'登记台账'" width="620px" @closed="alDlg.form={}">
+      <el-form :model="alDlg.form" label-width="80px" inline>
+        <el-form-item label="厂商"><el-input v-model="alDlg.form.manufacturer" style="width:180px"/></el-form-item>
+        <el-form-item label="品类"><el-input v-model="alDlg.form.category" style="width:180px"/></el-form-item>
+        <el-form-item label="产品名称" required><el-input v-model="alDlg.form.product_name" style="width:180px"/></el-form-item>
+        <el-form-item label="型号"><el-input v-model="alDlg.form.model" style="width:180px"/></el-form-item>
+        <el-form-item label="单位"><el-input v-model="alDlg.form.unit" placeholder="套" style="width:180px"/></el-form-item>
+        <el-form-item label="入库数量"><el-input-number v-model="alDlg.form.in_quantity" :min="0" style="width:180px"/></el-form-item>
+        <el-form-item label="出库数量"><el-input-number v-model="alDlg.form.out_quantity" :min="0" style="width:180px"/></el-form-item>
+        <el-form-item label="库存余量"><el-input-number v-model="alDlg.form.balance" :min="0" style="width:180px"/></el-form-item>
+        <el-form-item label="单价"><el-input-number v-model="alDlg.form.unit_price" :min="0" :precision="2" style="width:180px"/></el-form-item>
+        <el-form-item label="订单总价"><el-input-number v-model="alDlg.form.order_total" :min="0" :precision="2" style="width:180px"/></el-form-item>
+        <el-form-item label="库存价值"><el-input-number v-model="alDlg.form.inventory_value" :min="0" :precision="2" style="width:180px"/></el-form-item>
+        <el-form-item label="入库日期"><el-date-picker v-model="alDlg.form.stock_date" type="date" value-format="YYYY-MM-DD" style="width:180px"/></el-form-item>
+      </el-form>
+      <template #footer><el-button @click="alDlg.visible=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveAl">保存</el-button></template>
+    </el-dialog>
+
+    <!-- 退换货对话框 -->
+    <el-dialog v-model="rtDlg.visible" :title="rtDlg.ed?'编辑退换货':'新增退换货'" width="560px" @closed="rtDlg.form={}">
+      <el-form :model="rtDlg.form" label-width="80px" inline>
+        <el-form-item label="单据类型"><el-select v-model="rtDlg.form.order_type" style="width:180px"><el-option label="销售" value="sales"/><el-option label="采购" value="purchase"/></el-select></el-form-item>
+        <el-form-item label="关联单号"><el-input v-model="rtDlg.form.order_id" style="width:180px"/></el-form-item>
+        <el-form-item label="产品名称" required><el-input v-model="rtDlg.form.product_name" style="width:180px"/></el-form-item>
+        <el-form-item label="型号"><el-input v-model="rtDlg.form.model" style="width:180px"/></el-form-item>
+        <el-form-item label="数量"><el-input-number v-model="rtDlg.form.quantity" :min="1" style="width:180px"/></el-form-item>
+        <el-form-item label="原因"><el-input v-model="rtDlg.form.reason" type="textarea" :rows="2" style="width:180px"/></el-form-item>
+        <el-form-item label="类型"><el-select v-model="rtDlg.form.type" style="width:180px"><el-option label="退货" value="return"/><el-option label="换货" value="exchange"/><el-option label="其他" value="other"/></el-select></el-form-item>
+        <el-form-item label="换货产品" v-if="rtDlg.form.type==='exchange'"><el-input v-model="rtDlg.form.exchange_product" style="width:180px"/></el-form-item>
+      </el-form>
+      <template #footer><el-button @click="rtDlg.visible=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveRt">保存</el-button></template>
+    </el-dialog>
+
+    <ImportDialog v-model="importVisible" :ioKey="importKey" @done="onImportDone"/>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { ArrowLeft } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { productApi, supplierApi, purchaseOrderApi, salesOrderApi, warehouseApi, assetLedgerApi } from '../../api/inventory'
-const router = useRouter()
+import { purchaseOrderApi, salesOrderApi, assetLedgerApi, returnApi } from '../../api/inventory'
+import ImportDialog from '../../components/ImportDialog.vue'
 
-const tab = ref('products')
-const products = ref([]), suppliers = ref([]), purchaseOrders = ref([]), salesOrders = ref([]), warehouses = ref([]), assetList = ref([]), stockList = ref([])
+const router = useRouter()
+const tab = ref('purchase')
+const loading = ref(false)
+const saving = ref(false)
+
+const purchaseOrders = ref([])
+const salesOrders = ref([])
+const assetList = ref([])
+const returns = ref([])
+
+const poKeyword = ref('')
+const soKeyword = ref('')
+const alKeyword = ref('')
+
+const importVisible = ref(false)
+const importKey = ref('')
+function handleImport(key) { importKey.value = key; importVisible.value = true }
+function onImportDone() { ld() }
 
 const kpis = computed(() => {
-  const lowStock = stockList.value.filter(i => i.quantity < 10).length
-  const expired = assetList.value.filter(a => a.warranty_expire && a.warranty_expire < new Date().toISOString().slice(0,10)).length
+  const lowStock = assetList.value.filter(a => a.balance < 10).length
   return [
-    { val: products.value.length, label: '产品数' },
-    { val: lowStock, label: '低库存预警' },
-    { val: purchaseOrders.value.length, label: '采购单' },
-    { val: expired, label: '维保到期' }
+    { val: purchaseOrders.value.length, label: '采购入库' },
+    { val: salesOrders.value.length, label: '销售出库' },
+    { val: assetList.value.length, label: '台账记录' },
+    { val: lowStock, label: '低库存预警' }
   ]
 })
 
-const pdDlg = reactive({ visible: false, ed: false, form: {} })
-const siDlg = reactive({ visible: false, form: { product_id: '', quantity: 1, remark: '' } })
-const soOutDlg = reactive({ visible: false, form: { product_id: '', quantity: 1, remark: '' } })
-const spDlg = reactive({ visible: false, form: {} })
-const poDlg = reactive({ visible: false, form: {} })
-const soDlg = reactive({ visible: false, form: {} })
-const whDlg = reactive({ visible: false, form: {} })
-const alDlg = reactive({ visible: false, form: {} })
+const alertList = computed(() => assetList.value.filter(a => a.balance < 10))
 
-function openPdDlg(r) { pdDlg.ed = !!r; pdDlg.form = r ? { ...r } : {}; pdDlg.visible = true }
-const saving = ref(false)
-async function savePd() { saving.value = true; const f = pdDlg.form; pdDlg.ed ? await productApi.update(f.id, f) : await productApi.create(f); pdDlg.visible = false; await ld(); saving.value = false; ElMessage.success('OK') }
-async function delPd(id) { await ElMessageBox.confirm('确认?'); await productApi.remove(id); await ld() }
-async function doSi() { saving.value = true; await productApi.stockIn(siDlg.form); siDlg.visible = false; siDlg.form = { product_id: '', quantity: 1, remark: '' }; await ld(); saving.value = false; ElMessage.success('入库成功') }
-async function doSo() { saving.value = true; try { await productApi.stockOut(soOutDlg.form); soOutDlg.visible = false; soOutDlg.form = { product_id: '', quantity: 1, remark: '' }; await ld(); ElMessage.success('出库成功') } catch (e) { ElMessage.error(e.response?.data?.message || '失败') } saving.value = false }
-async function saveSp() { saving.value = true; await supplierApi.create(spDlg.form); spDlg.visible = false; spDlg.form = {}; await ld(); saving.value = false; ElMessage.success('OK') }
-async function delSp(id) { await supplierApi.remove(id); await ld() }
-async function savePo() { saving.value = true; await purchaseOrderApi.create(poDlg.form); poDlg.visible = false; poDlg.form = {}; await ld(); saving.value = false; ElMessage.success('OK') }
-async function delPo(id) { await purchaseOrderApi.remove(id); await ld() }
-async function saveSales() { saving.value = true; await salesOrderApi.create(soDlg.form); soDlg.visible = false; soDlg.form = {}; await ld(); saving.value = false; ElMessage.success('OK') }
-async function delSo(id) { await salesOrderApi.remove(id); await ld() }
-async function saveWh() { saving.value = true; await warehouseApi.create(whDlg.form); whDlg.visible = false; whDlg.form = {}; await ld(); saving.value = false; ElMessage.success('OK') }
-async function delWh(id) { await warehouseApi.remove(id); await ld() }
-async function saveAl() { saving.value = true; await assetLedgerApi.create(alDlg.form); alDlg.visible = false; alDlg.form = {}; await ld(); saving.value = false; ElMessage.success('OK') }
-async function delAl(id) { await assetLedgerApi.remove(id); await ld() }
+// 采购入库
+const poDlg = reactive({ visible: false, ed: false, form: {} })
+function openPoDlg(r) { poDlg.ed = !!r; poDlg.form = r ? { ...r } : { quantity: 1, unit: '套', status: 'draft' }; poDlg.visible = true }
+async function savePo() { saving.value = true; const f = poDlg.form; if (poDlg.ed) { await purchaseOrderApi.update(f.id, f) } else { await purchaseOrderApi.create(f) }; poDlg.visible = false; await ldPurchase(); saving.value = false; ElMessage.success('OK') }
+async function delPo(id) { await ElMessageBox.confirm('确认删除?', '提示', { type: 'warning' }); await purchaseOrderApi.remove(id); await ldPurchase(); ElMessage.success('已删除') }
 
-const loading = ref(false)
+// 销售出库
+const soDlg = reactive({ visible: false, ed: false, form: {} })
+function openSoDlg(r) { soDlg.ed = !!r; soDlg.form = r ? { ...r } : { quantity: 1, unit: '套', status: 'draft' }; soDlg.visible = true }
+async function saveSo() { saving.value = true; const f = soDlg.form; if (soDlg.ed) { await salesOrderApi.update(f.id, f) } else { await salesOrderApi.create(f) }; soDlg.visible = false; await ldSales(); saving.value = false; ElMessage.success('OK') }
+async function delSo(id) { await ElMessageBox.confirm('确认删除?', '提示', { type: 'warning' }); await salesOrderApi.remove(id); await ldSales(); ElMessage.success('已删除') }
+
+// 库存台账
+const alDlg = reactive({ visible: false, ed: false, form: {} })
+function openAlDlg(r) { alDlg.ed = !!r; alDlg.form = r ? { ...r } : { unit: '套', in_quantity: 0, out_quantity: 0, balance: 0, unit_price: 0, order_total: 0, inventory_value: 0 }; alDlg.visible = true }
+async function saveAl() { saving.value = true; const f = alDlg.form; if (alDlg.ed) { await assetLedgerApi.update(f.id, f) } else { await assetLedgerApi.create(f) }; alDlg.visible = false; await ldLedger(); saving.value = false; ElMessage.success('OK') }
+async function delAl(id) { await ElMessageBox.confirm('确认删除?', '提示', { type: 'warning' }); await assetLedgerApi.remove(id); await ldLedger(); ElMessage.success('已删除') }
+
+// 退换货
+const rtDlg = reactive({ visible: false, ed: false, form: {} })
+function openRtDlg(r) { rtDlg.ed = !!r; rtDlg.form = r ? { ...r } : { order_type: 'sales', quantity: 1, type: 'return' }; rtDlg.visible = true }
+async function saveRt() { saving.value = true; const f = rtDlg.form; if (rtDlg.ed) { await returnApi.update(f.id, f) } else { await returnApi.create(f) }; rtDlg.visible = false; await ldReturns(); saving.value = false; ElMessage.success('OK') }
+async function delRt(id) { await ElMessageBox.confirm('确认删除?', '提示', { type: 'warning' }); await returnApi.remove(id); await ldReturns(); ElMessage.success('已删除') }
+async function updateRtStatus(id, status) { await returnApi.update(id, { status }); await ldReturns(); ElMessage.success(status === 'approved' ? '已通过' : '已驳回') }
+
+async function ldPurchase() {
+  try { const r = await purchaseOrderApi.list(poKeyword.value); purchaseOrders.value = r.data.data } catch {}
+}
+async function ldSales() {
+  try { const r = await salesOrderApi.list(soKeyword.value); salesOrders.value = r.data.data } catch {}
+}
+async function ldLedger() {
+  try { const r = await assetLedgerApi.list(alKeyword.value); assetList.value = r.data.data } catch {}
+}
+async function ldReturns() {
+  try { const r = await returnApi.list(); returns.value = r.data.data } catch {}
+}
+
 async function ld() {
   loading.value = true
-  try { products.value = (await productApi.list()).data.data } catch {}
-  try { suppliers.value = (await supplierApi.list()).data.data } catch {}
-  try { purchaseOrders.value = (await purchaseOrderApi.list()).data.data } catch {}
-  try { salesOrders.value = (await salesOrderApi.list()).data.data } catch {}
-  try { warehouses.value = (await warehouseApi.list()).data.data } catch {}
-  try { assetList.value = (await assetLedgerApi.list()).data.data } catch {}
-  try { stockList.value = (await productApi.stockQuery()).data.data } catch {}
+  await Promise.all([ldPurchase(), ldSales(), ldLedger(), ldReturns()])
   loading.value = false
 }
 onMounted(ld)
@@ -140,5 +284,5 @@ onMounted(ld)
 .side-tabs { width: 140px; flex-shrink: 0; border-right: 1px solid #f0ecfc; padding-top: 4px; }
 .side-tabs .el-menu-item { height: 40px; line-height: 40px; font-size: 13px; }
 .tab-content { flex: 1; padding: 16px 24px; overflow-y: auto; }
-.tb { margin-bottom: 12px; }
+.tb { margin-bottom: 12px; display: flex; align-items: center; }
 </style>

@@ -2,3 +2,7 @@ node_modules/
 dist/
 .local
 *.log
+backend/data/internal.db
+backend/data/internal.db-shm
+backend/data/internal.db-wal
+backend/uploads/
