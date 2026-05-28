@@ -6,3 +6,8 @@ backend/data/internal.db
 backend/data/internal.db-shm
 backend/data/internal.db-wal
 backend/uploads/
+backend/videos/
+backend/browser-profile/
+backend/test-hf-output.html
+*.traineddata
+.vite/deps/

@@ -5,7 +5,7 @@ const db = require('./db');
 const SHOWAPI_APPKEY = process.env.SHOWAPI_APPKEY || 'e0670e015635409B922De744Bd28Ca4A';
 const SHOWAPI_BASE = 'https://route.showapi.com';
 
-async function searchBids({ keyword, start, end, page = 1 }) {
+async function searchBidsPage({ start, end, page = 1 }) {
   const body = { page, pageSize: 100 };
   if (start) body.startDate = start;
   if (end) body.endDate = end;
@@ -20,10 +20,31 @@ async function searchBids({ keyword, start, end, page = 1 }) {
   return d.data?.data || [];
 }
 
+async function searchBidsAll({ start, end }) {
+  const allItems = [];
+  let page = 1;
+  while (page <= 5) {
+    const items = await searchBidsPage({ start, end, page });
+    if (!items.length) break;
+    allItems.push(...items);
+    console.log(`[collector] 第${page}页 ${items.length} 条`);
+    if (items.length < 100) break;
+    page++;
+  }
+  return allItems;
+}
+
 async function runCollect(opts = {}) {
   if (SHOWAPI_APPKEY === '你的AppKey') {
     console.log('[collector] 未配置 AppKey，使用模拟数据');
     return mockCollect(opts);
+  }
+
+  // 读取启用的 API 类型采集源
+  const sources = db.prepare("SELECT * FROM bid_sources WHERE enabled=1 AND source_type='api'").all();
+  if (sources.length === 0) {
+    console.log('[collector] 无启用的 API 采集源');
+    return { found: 0, inserted: 0 };
   }
 
   const keywords = db.prepare('SELECT keyword FROM bid_keywords').all().map(r => r.keyword);
@@ -33,20 +54,21 @@ async function runCollect(opts = {}) {
   }
 
   const range = opts.start ? `${opts.start} ~ ${opts.end || '至今'}` : '全部';
-  console.log(`[collector] ${keywords.join(', ')}, ${range}`);
+  console.log(`[collector] ${sources.length} 个采集源, 关键词: ${keywords.join(', ')}, ${range}`);
 
   let totalFound = 0, totalInserted = 0;
+  const defaultSourceId = sources[0].id;
 
   // 默认采集最近1天
   const end = opts.end || new Date().toISOString().slice(0, 10);
   const start = opts.start || new Date(Date.now() - 86400000).toISOString().slice(0, 10);
 
-  // API 的 title 参数不生效，改为拉取全部后本地过滤
-  const items = await searchBids({ start, end });
+  // 翻页拉取全部数据（最多5页/500条）
+  const items = await searchBidsAll({ start, end });
+  console.log(`[collector] API 共返回 ${items.length} 条，开始关键词过滤`);
 
   for (const item of items) {
     const title = item.title || item.projectName || '';
-    // 匹配任一关键词
     const matched = keywords.find(kw => title.includes(kw));
     if (!matched) continue;
 
@@ -56,15 +78,14 @@ async function runCollect(opts = {}) {
 
     totalFound++;
     const id = randomUUID();
-    db.prepare(`INSERT INTO bid_items (id,title,bid_type,bid_time,url,status)
-      VALUES (?,?,?,?,?,'new')`).run(
-      id, title, item.projectClass || '公开招标', item.publishTime || null, url
+    db.prepare(`INSERT INTO bid_items (id,source_id,title,bid_type,bid_time,url,status)
+      VALUES (?,?,?,?,?,?,'new')`).run(
+      id, defaultSourceId, title, item.projectClass || '公开招标', item.publishTime || null, url
     );
     totalInserted++;
   }
-  console.log(`[collector] 返回 ${items.length} 条, 命中 ${totalFound}, 新增 ${totalInserted}`);
 
-  console.log(`[collector] 总返回 ${totalFound}, 新增 ${totalInserted}`);
+  console.log(`[collector] 命中 ${totalFound}, 新增 ${totalInserted}`);
   return { found: totalFound, inserted: totalInserted };
 }
 

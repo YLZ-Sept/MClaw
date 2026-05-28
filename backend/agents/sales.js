@@ -1,15 +1,11 @@
-// 销售管理 Agent — 客户跟进 + 销售机会 + 合同签署 + 业绩统计
+// 销售管理 Agent — CRM 核心：客户/联系人/机会/线索/合同
 
-const systemPrompt = `你是 MClaw 销售管理助手「小销」。你负责管理销售全流程：客户跟进、线索转化、销售机会推进、合同签署和业绩统计。
+const systemPrompt = `你是 MClaw 销售管理助手「小销」。你是老板的销售管家，负责客户关系管理（CRM）。
 
 ## 你的能力范围
-- **客户管理**: 查询/新增/更新客户信息，添加跟进记录
-- **联系人**: 查看客户联系人
-- **销售机会**: 查看和创建销售机会，跟踪阶段推进
-- **线索**: 查看线索列表
-- **合同**: 查看和创建合同
-- **报价单**: 查看报价单
-- **营销活动**: 查看营销活动
+- **客户信息**: 查询/新增/更新/删除客户，添加跟进记录，查看客户联系人
+- **项目商机**: 查看和创建项目商机（初步接触→需求确认→方案报价→商务谈判→签约）
+- **合同订单**: 查看和创建合同
 
 ## 行为准则
 - 用户叫"老板"，用中文回复，简洁直接
@@ -19,7 +15,7 @@ const systemPrompt = `你是 MClaw 销售管理助手「小销」。你负责管
 - 数字、金额用 **加粗** 突出
 
 ## 问候与身份
-- 当用户说"你好""hi""嗨"等问候语时，以「小销」身份回应："你好老板！我是小销，您的销售管理助手。我可以帮您管理客户跟进、销售机会、线索转化、合同签署和报价。请问今天需要处理什么销售事务？"
+- 当用户说"你好""hi""嗨"等问候语时，以「小销」身份回应："你好老板！我是小销，您的销售管理助手。我可以帮您管理客户信息、项目商机和合同订单。请问今天需要处理什么销售事务？"
 - 日常对话中不要反复自我介绍，只在问候时说明身份
 
 ## 输出格式
@@ -61,11 +57,16 @@ const tools = [
       parameters: {
         type: 'object',
         properties: {
-          name: { type: 'string', description: '客户姓名（必填）' },
-          phone: { type: 'string', description: '电话' },
-          company: { type: 'string', description: '公司名称' },
-          source: { type: 'string', description: '客户来源' },
-          remark: { type: 'string', description: '备注' }
+          name: { type: 'string', description: '客户名称（必填）' },
+          phone: { type: 'string', description: '联系电话' },
+          company: { type: 'string', description: '所属单位' },
+          position: { type: 'string', description: '职务' },
+          gender: { type: 'string', description: '性别' },
+          age: { type: 'integer', description: '年龄' },
+          traits: { type: 'string', description: '个人特征' },
+          preferences: { type: 'string', description: '个人喜好' },
+          contact_frequency: { type: 'string', description: '接触频次' },
+          address: { type: 'string', description: '地址' }
         },
         required: ['name']
       }
@@ -81,8 +82,23 @@ const tools = [
         properties: {
           customer_id: { type: 'string', description: '客户ID' },
           name: { type: 'string' }, phone: { type: 'string' },
-          company: { type: 'string' }, source: { type: 'string' }, remark: { type: 'string' }
+          company: { type: 'string' }, position: { type: 'string' },
+          gender: { type: 'string' }, age: { type: 'integer' },
+          traits: { type: 'string' }, preferences: { type: 'string' },
+          contact_frequency: { type: 'string' }, address: { type: 'string' }
         },
+        required: ['customer_id']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_customer',
+      description: '删除客户（同时删除关联的跟进记录）',
+      parameters: {
+        type: 'object',
+        properties: { customer_id: { type: 'string', description: '客户ID' } },
         required: ['customer_id']
       }
     }
@@ -127,26 +143,23 @@ const tools = [
     type: 'function',
     function: {
       name: 'create_opportunity',
-      description: '创建新的销售机会',
+      description: '创建新的项目商机',
       parameters: {
         type: 'object',
         properties: {
-          title: { type: 'string', description: '机会名称（必填）' },
-          customer_id: { type: 'string', description: '关联客户ID' },
+          title: { type: 'string', description: '商机名称（必填）' },
+          sales_owner: { type: 'string', description: '所属销售' },
+          contact_name: { type: 'string', description: '客户联系人' },
+          contact_phone: { type: 'string', description: '联系电话' },
+          description: { type: 'string', description: '商机需求描述' },
+          amount: { type: 'number', description: '商机金额' },
           stage: { type: 'string', enum: ['contact', 'demo', 'proposal', 'negotiation', 'closed'], description: '阶段' },
-          amount: { type: 'number', description: '预计金额' },
-          probability: { type: 'integer', description: '赢率 0-100' }
+          competition: { type: 'string', description: '竞争情况' },
+          progress: { type: 'string', description: '商机进展' },
+          next_plan: { type: 'string', description: '下一步计划' }
         },
         required: ['title']
       }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'list_leads',
-      description: '查询所有线索',
-      parameters: { type: 'object', properties: {}, required: [] }
     }
   },
   {
@@ -161,35 +174,27 @@ const tools = [
     type: 'function',
     function: {
       name: 'create_contract',
-      description: '创建新合同',
+      description: '创建新合同订单',
       parameters: {
         type: 'object',
         properties: {
-          customer_id: { type: 'string', description: '关联客户ID' },
-          title: { type: 'string', description: '合同标题（必填）' },
-          total: { type: 'number', description: '合同金额' },
-          start_date: { type: 'string', description: '开始日期' },
-          end_date: { type: 'string', description: '结束日期' },
-          content: { type: 'string', description: '合同内容' }
+          title: { type: 'string', description: '合同名称（必填）' },
+          contract_no: { type: 'string', description: '合同编号' },
+          sales_owner: { type: 'string', description: '所属销售' },
+          contact_name: { type: 'string', description: '客户联系人' },
+          contact_phone: { type: 'string', description: '联系电话' },
+          content: { type: 'string', description: '合同内容（产品/服务）' },
+          amount: { type: 'number', description: '合同金额' },
+          signed_date: { type: 'string', description: '合同签订时间' },
+          warranty_period: { type: 'string', description: '合同/质保期限' },
+          prepaid_amount: { type: 'number', description: '预付金额' },
+          receivable_amount: { type: 'number', description: '应收金额' },
+          invoice: { type: 'string', description: '发票开具' },
+          delivery_progress: { type: 'string', description: '合同交付进度' },
+          remark: { type: 'string', description: '备注' }
         },
         required: ['title']
       }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'list_quotations',
-      description: '查询所有报价单',
-      parameters: { type: 'object', properties: {}, required: [] }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'list_campaigns',
-      description: '查询所有营销活动',
-      parameters: { type: 'object', properties: {}, required: [] }
     }
   },
   {

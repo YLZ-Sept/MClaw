@@ -14,9 +14,14 @@ db.exec(`DROP TABLE IF EXISTS inventory`);
 
 db.exec(`
   -- ========== CRM ==========
+  DROP TABLE IF EXISTS follow_ups;
+  DROP TABLE IF EXISTS contacts;
+  DROP TABLE IF EXISTS customers;
   CREATE TABLE IF NOT EXISTS customers (
     id TEXT PRIMARY KEY, name TEXT NOT NULL, phone TEXT,
-    company TEXT, source TEXT, remark TEXT,
+    company TEXT, position TEXT, gender TEXT,
+    age INTEGER, traits TEXT, preferences TEXT,
+    contact_frequency TEXT, address TEXT,
     created_at TEXT DEFAULT (datetime('now','localtime'))
   );
 
@@ -33,55 +38,27 @@ db.exec(`
     created_at TEXT DEFAULT (datetime('now','localtime'))
   );
 
-  CREATE TABLE IF NOT EXISTS leads (
-    id TEXT PRIMARY KEY, name TEXT NOT NULL, phone TEXT, company TEXT,
-    source TEXT, status TEXT DEFAULT 'new',
-    assigned_to TEXT, remark TEXT,
-    created_at TEXT DEFAULT (datetime('now','localtime'))
-  );
+  DROP TABLE IF EXISTS leads;
 
-  CREATE TABLE IF NOT EXISTS marketing_campaigns (
-    id TEXT PRIMARY KEY, name TEXT NOT NULL, type TEXT,
-    status TEXT DEFAULT 'draft', budget REAL,
-    start_date TEXT, end_date TEXT, description TEXT,
-    created_at TEXT DEFAULT (datetime('now','localtime'))
-  );
+  DROP TABLE IF EXISTS marketing_campaigns;
+  DROP TABLE IF EXISTS quotations;
+  DROP TABLE IF EXISTS quotation_items;
+  DROP TABLE IF EXISTS tickets;
+  DROP TABLE IF EXISTS customer_feedback;
 
-  CREATE TABLE IF NOT EXISTS quotations (
-    id TEXT PRIMARY KEY, customer_id TEXT NOT NULL REFERENCES customers(id),
-    title TEXT, total REAL, status TEXT DEFAULT 'draft',
-    valid_until TEXT, remark TEXT,
-    created_at TEXT DEFAULT (datetime('now','localtime'))
-  );
-
-  CREATE TABLE IF NOT EXISTS quotation_items (
-    id TEXT PRIMARY KEY, quotation_id TEXT NOT NULL REFERENCES quotations(id),
-    product_id TEXT REFERENCES products(id),
-    description TEXT, quantity REAL DEFAULT 1,
-    unit_price REAL DEFAULT 0, total REAL DEFAULT 0
-  );
-
+  DROP TABLE IF EXISTS contracts;
   CREATE TABLE IF NOT EXISTS contracts (
-    id TEXT PRIMARY KEY, customer_id TEXT NOT NULL REFERENCES customers(id),
-    title TEXT NOT NULL, total REAL, status TEXT DEFAULT 'draft',
-    start_date TEXT, end_date TEXT, content TEXT,
+    id TEXT PRIMARY KEY, title TEXT NOT NULL,
+    contract_no TEXT, sales_owner TEXT,
+    contact_name TEXT, contact_phone TEXT,
+    content TEXT, amount REAL DEFAULT 0,
+    signed_date TEXT, warranty_period TEXT,
+    prepaid_amount REAL DEFAULT 0, receivable_amount REAL DEFAULT 0,
+    invoice TEXT, delivery_progress TEXT, remark TEXT,
     created_at TEXT DEFAULT (datetime('now','localtime'))
   );
 
-  CREATE TABLE IF NOT EXISTS tickets (
-    id TEXT PRIMARY KEY, customer_id TEXT,
-    title TEXT NOT NULL, description TEXT,
-    priority TEXT DEFAULT 'medium', status TEXT DEFAULT 'open',
-    assigned_to TEXT,
-    created_at TEXT DEFAULT (datetime('now','localtime'))
-  );
-
-  CREATE TABLE IF NOT EXISTS customer_feedback (
-    id TEXT PRIMARY KEY, customer_id TEXT,
-    rating INTEGER, category TEXT, content TEXT,
-    status TEXT DEFAULT 'pending',
-    created_at TEXT DEFAULT (datetime('now','localtime'))
-  );
+  DROP TABLE IF EXISTS opportunities;
 
   -- ========== 进销存 ==========
   CREATE TABLE IF NOT EXISTS products (
@@ -234,15 +211,13 @@ db.exec(`
     created_at TEXT DEFAULT (datetime('now','localtime'))
   );
 
-  -- ========== CRM 扩展 ==========
+  -- ========== CRM 核心 ==========
   CREATE TABLE IF NOT EXISTS opportunities (
     id TEXT PRIMARY KEY, title TEXT NOT NULL,
-    customer_id TEXT REFERENCES customers(id),
-    stage TEXT DEFAULT 'contact',   -- contact/demo/proposal/negotiation/closed
-    amount REAL DEFAULT 0,
-    probability INTEGER DEFAULT 0,  -- 赢率 0-100
-    expected_close_date TEXT,
-    owner TEXT, remark TEXT,
+    sales_owner TEXT, contact_name TEXT, contact_phone TEXT,
+    description TEXT, amount REAL DEFAULT 0,
+    stage TEXT DEFAULT 'contact', competition TEXT,
+    progress TEXT, next_plan TEXT,
     created_at TEXT DEFAULT (datetime('now','localtime'))
   );
 
@@ -339,7 +314,7 @@ db.exec(`
 
   CREATE TABLE IF NOT EXISTS bid_sources (
     id TEXT PRIMARY KEY, name TEXT NOT NULL,
-    url TEXT NOT NULL, parser_rule TEXT,
+    url TEXT NOT NULL, source_type TEXT DEFAULT 'api',
     interval_minutes INTEGER DEFAULT 360, enabled INTEGER DEFAULT 1,
     created_at TEXT DEFAULT (datetime('now','localtime'))
   );
@@ -376,13 +351,15 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS bid_items (
     id TEXT PRIMARY KEY, source_id TEXT REFERENCES bid_sources(id),
     title TEXT NOT NULL,                    -- 项目名称
-    bid_type TEXT DEFAULT '公开招标',        -- 招投标方式
+    project_no TEXT,                        -- 项目编号
+    bid_type TEXT DEFAULT '公开招标',        -- 招标方式
     fetch_time TEXT,                        -- 获取时间
-    doc_deadline TEXT,                      -- 获取招标文件截止时间
+    doc_deadline TEXT,                      -- 报名截止时间
     bid_time TEXT,                          -- 投标时间
     submit_type TEXT DEFAULT '线上',         -- 投标方式
-    amount REAL,                            -- 金额（万元）
-    evaluation TEXT,                        -- 评
+    amount REAL,                            -- 项目预算（万元）
+    purchase_requirements TEXT,             -- 采购需求
+    evaluation TEXT,                        -- 评标办法
     collect_time TEXT,                      -- 自定义采集时间
     url TEXT UNIQUE,                        -- 网址
     is_notified INTEGER DEFAULT 0,
@@ -403,6 +380,114 @@ db.exec(`
 // 兼容旧 faq 表：补充新增字段
 try { db.exec("ALTER TABLE faq ADD COLUMN similar_questions TEXT DEFAULT ''"); } catch {}
 try { db.exec("ALTER TABLE faq ADD COLUMN notes TEXT DEFAULT ''"); } catch {}
+// 兼容旧 bid_sources 表：补充 source_type 字段
+try { db.exec("ALTER TABLE bid_sources ADD COLUMN source_type TEXT DEFAULT 'api'"); } catch {}
+// 兼容旧 bid_items 表：补充 project_no / purchase_requirements 字段
+try { db.exec("ALTER TABLE bid_items ADD COLUMN project_no TEXT DEFAULT ''"); } catch {}
+try { db.exec("ALTER TABLE bid_items ADD COLUMN purchase_requirements TEXT DEFAULT ''"); } catch {}
+
+// ===== 消息中心 / 多渠道会话 =====
+db.exec(`
+  CREATE TABLE IF NOT EXISTS channel_accounts (
+    id TEXT PRIMARY KEY,
+    platform TEXT NOT NULL,                  -- wechat / wecom / feishu / douyin
+    account_name TEXT NOT NULL,              -- 账号名称（如"张三的微信"）
+    agent_id TEXT,                           -- 绑定的数字员工 ID
+    default_reply_mode TEXT DEFAULT 'manual',-- auto / manual / assisted
+    config TEXT DEFAULT '{}',                -- JSON: API Key / Webhook URL 等
+    status TEXT DEFAULT 'active',
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+
+  CREATE TABLE IF NOT EXISTS channel_conversations (
+    id TEXT PRIMARY KEY,
+    account_id TEXT REFERENCES channel_accounts(id),
+    platform TEXT NOT NULL,
+    contact_name TEXT NOT NULL,              -- 联系人昵称
+    contact_avatar TEXT,                     -- 头像 URL
+    last_message TEXT,                       -- 最后一条消息摘要
+    last_message_at TEXT,                    -- 最后消息时间
+    unread_count INTEGER DEFAULT 0,
+    reply_mode TEXT DEFAULT 'auto',          -- auto / manual / assisted
+    agent_id TEXT,                           -- 当前会话使用的数字员工
+    status TEXT DEFAULT 'active',
+    created_at TEXT DEFAULT (datetime('now','localtime')),
+    updated_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+
+  CREATE TABLE IF NOT EXISTS channel_messages (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT REFERENCES channel_conversations(id),
+    direction TEXT NOT NULL,                 -- incoming / outgoing
+    content TEXT NOT NULL,
+    reply_mode TEXT DEFAULT 'manual',        -- 发送时的模式
+    ai_suggestion TEXT,                      -- AI 建议回复（协同模式用）
+    status TEXT DEFAULT 'sent',              -- sent / delivered / read / failed
+    raw_data TEXT,                           -- 原始 JSON（平台特有字段）
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_cmsg_conv ON channel_messages(conversation_id, created_at);
+  CREATE INDEX IF NOT EXISTS idx_cconv_acc ON channel_conversations(account_id, updated_at);
+`);
+
+// ===== 一键追爆款 =====
+db.exec(`
+  CREATE TABLE IF NOT EXISTS hot_products (
+    id TEXT PRIMARY KEY,
+    brand_name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    selling_points TEXT DEFAULT '[]',
+    contact_info TEXT DEFAULT '',
+    target_audience TEXT DEFAULT '',
+    industry_tags TEXT DEFAULT '',
+    background_image TEXT,
+    created_at TEXT DEFAULT (datetime('now','localtime')),
+    updated_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+
+  CREATE TABLE IF NOT EXISTS hot_contents (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    tags TEXT DEFAULT '',
+    platforms TEXT DEFAULT '',
+    status TEXT DEFAULT 'draft',
+    publish_url TEXT,
+    video_url TEXT,
+    video_url_landscape TEXT,
+    video_status TEXT,
+    bgm_path TEXT,
+    bg_image_path TEXT,
+    error_message TEXT,
+    generated_at TEXT DEFAULT (datetime('now','localtime')),
+    published_at TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS hot_conversations (
+    id TEXT PRIMARY KEY,
+    source TEXT NOT NULL DEFAULT 'private_msg',
+    platform_msg_id TEXT,
+    from_user_name TEXT NOT NULL,
+    incoming_text TEXT NOT NULL,
+    intent TEXT DEFAULT 'invalid',
+    reply_text TEXT,
+    is_lead INTEGER DEFAULT 0,
+    replied_at TEXT,
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+
+  CREATE TABLE IF NOT EXISTS hot_leads (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT REFERENCES hot_conversations(id),
+    user_name TEXT NOT NULL,
+    contact_extracted TEXT,
+    summary TEXT,
+    status TEXT DEFAULT 'new',
+    pushed INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+`);
 
 // 插入默认仓库
 const wc = db.prepare('SELECT COUNT(*) AS c FROM warehouses').get();

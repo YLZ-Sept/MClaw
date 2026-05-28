@@ -20,13 +20,6 @@ export const contactApi = {
   remove: (id) => DEL(`/contacts/${id}`)
 }
 
-export const leadApi = {
-  list: () => GET('/leads'),
-  create: (d) => POST('/leads', d),
-  update: (id, d) => PUT(`/leads/${id}`, d),
-  remove: (id) => DEL(`/leads/${id}`)
-}
-
 export const campaignApi = {
   list: () => GET('/campaigns'),
   create: (d) => POST('/campaigns', d),

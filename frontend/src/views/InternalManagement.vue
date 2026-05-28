@@ -20,12 +20,11 @@
 
 <script setup>
 import { useRouter } from 'vue-router'
-import { TrendCharts, Box, UserFilled, FolderOpened, ArrowLeft } from '@element-plus/icons-vue'
+import { Box, UserFilled, FolderOpened, ArrowLeft } from '@element-plus/icons-vue'
 
 const router = useRouter()
 
 const modules = [
-  { path: '/internal/crm', name: '客户关系管理', desc: '客户档案、联系人、线索、营销、报价、合同、工单', icon: TrendCharts, color: 'linear-gradient(135deg, #a78bfa, #7c3aed)' },
   { path: '/internal/inventory', name: '进销存管理', desc: '采购入库、销售出库、库存台账、退换货、预警', icon: Box, color: 'linear-gradient(135deg, #818cf8, #4f46e5)' },
   { path: '/internal/hr', name: '人力资源管理', desc: '员工档案、组织架构、招聘、请假考勤、绩效', icon: UserFilled, color: 'linear-gradient(135deg, #34d399, #10b981)' },
   { path: '/internal/docs', name: '文档管理', desc: '文档上传、搜索、分类管理', icon: FolderOpened, color: 'linear-gradient(135deg, #fb7185, #ef4444)' }

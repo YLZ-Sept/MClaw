@@ -4,23 +4,23 @@ const db = require('../db');
 const router = Router();
 
 router.get('/', (req, res) => {
-  const list = db.prepare('SELECT ct.*, c.name AS customer_name FROM contracts ct LEFT JOIN customers c ON ct.customer_id=c.id ORDER BY ct.created_at DESC').all();
+  const list = db.prepare('SELECT * FROM contracts ORDER BY created_at DESC').all();
   res.json({ code: 200, data: list });
 });
 
 router.post('/', (req, res) => {
-  const { customer_id, title, total, status, start_date, end_date, content } = req.body;
-  if (!title) return res.status(400).json({ code: 400, message: '合同标题必填' });
+  const { title, contract_no, sales_owner, contact_name, contact_phone, content, amount, signed_date, warranty_period, prepaid_amount, receivable_amount, invoice, delivery_progress, remark } = req.body;
+  if (!title) return res.status(400).json({ code: 400, message: '合同名称必填' });
   const id = randomUUID();
-  db.prepare('INSERT INTO contracts (id,customer_id,title,total,status,start_date,end_date,content) VALUES (?,?,?,?,?,?,?,?)')
-    .run(id, customer_id, title, total, status || 'draft', start_date, end_date, content);
+  db.prepare('INSERT INTO contracts (id,title,contract_no,sales_owner,contact_name,contact_phone,content,amount,signed_date,warranty_period,prepaid_amount,receivable_amount,invoice,delivery_progress,remark) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+    .run(id, title, contract_no, sales_owner, contact_name, contact_phone, content, amount || 0, signed_date, warranty_period, prepaid_amount || 0, receivable_amount || 0, invoice, delivery_progress, remark);
   res.json({ code: 200, data: { id } });
 });
 
 router.put('/:id', (req, res) => {
-  const { title, total, status, start_date, end_date, content } = req.body;
-  db.prepare('UPDATE contracts SET title=?,total=?,status=?,start_date=?,end_date=?,content=? WHERE id=?')
-    .run(title, total, status, start_date, end_date, content, req.params.id);
+  const { title, contract_no, sales_owner, contact_name, contact_phone, content, amount, signed_date, warranty_period, prepaid_amount, receivable_amount, invoice, delivery_progress, remark } = req.body;
+  db.prepare('UPDATE contracts SET title=?,contract_no=?,sales_owner=?,contact_name=?,contact_phone=?,content=?,amount=?,signed_date=?,warranty_period=?,prepaid_amount=?,receivable_amount=?,invoice=?,delivery_progress=?,remark=? WHERE id=?')
+    .run(title, contract_no, sales_owner, contact_name, contact_phone, content, amount, signed_date, warranty_period, prepaid_amount, receivable_amount, invoice, delivery_progress, remark, req.params.id);
   res.json({ code: 200 });
 });
 

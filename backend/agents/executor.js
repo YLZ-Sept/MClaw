@@ -19,21 +19,22 @@ function exec(toolName, args) {
 
       case 'create_customer': {
         const id = randomUUID();
-        db.prepare('INSERT INTO customers (id,name,phone,company,source,remark) VALUES (?,?,?,?,?,?)')
-          .run(id, args.name, args.phone || null, args.company || null, args.source || null, args.remark || null);
+        db.prepare('INSERT INTO customers (id,name,phone,company,position,gender,age,traits,preferences,contact_frequency,address) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+          .run(id, args.name, args.phone || null, args.company || null, args.position || null, args.gender || null, args.age || null, args.traits || null, args.preferences || null, args.contact_frequency || null, args.address || null);
         return { id, name: args.name, message: '客户创建成功' };
       }
 
       case 'update_customer': {
         const cur = db.prepare('SELECT * FROM customers WHERE id=?').get(args.customer_id);
         if (!cur) return { error: '客户不存在' };
-        db.prepare('UPDATE customers SET name=?,phone=?,company=?,source=?,remark=? WHERE id=?')
-          .run(args.name ?? cur.name, args.phone ?? cur.phone, args.company ?? cur.company, args.source ?? cur.source, args.remark ?? cur.remark, args.customer_id);
+        db.prepare('UPDATE customers SET name=?,phone=?,company=?,position=?,gender=?,age=?,traits=?,preferences=?,contact_frequency=?,address=? WHERE id=?')
+          .run(args.name ?? cur.name, args.phone ?? cur.phone, args.company ?? cur.company, args.position ?? cur.position, args.gender ?? cur.gender, args.age ?? cur.age, args.traits ?? cur.traits, args.preferences ?? cur.preferences, args.contact_frequency ?? cur.contact_frequency, args.address ?? cur.address, args.customer_id);
         return { id: args.customer_id, message: '客户更新成功' };
       }
 
       case 'delete_customer':
         db.prepare('DELETE FROM follow_ups WHERE customer_id=?').run(args.customer_id);
+        db.prepare('DELETE FROM contacts WHERE customer_id=?').run(args.customer_id);
         db.prepare('DELETE FROM customers WHERE id=?').run(args.customer_id);
         return { message: '客户已删除' };
 
@@ -53,59 +54,24 @@ function exec(toolName, args) {
         return db.prepare('SELECT * FROM contacts ORDER BY created_at DESC').all();
 
       case 'list_opportunities':
-        return db.prepare(`SELECT o.*, c.name AS customer_name FROM opportunities o LEFT JOIN customers c ON o.customer_id=c.id ORDER BY o.created_at DESC`).all();
+        return db.prepare('SELECT * FROM opportunities ORDER BY created_at DESC').all();
 
       case 'create_opportunity': {
         const id = randomUUID();
-        db.prepare('INSERT INTO opportunities (id,title,customer_id,stage,amount,probability,expected_close_date,remark) VALUES (?,?,?,?,?,?,?,?)')
-          .run(id, args.title, args.customer_id || null, args.stage || 'contact', args.amount || 0, args.probability || 0, args.expected_close_date || null, args.remark || null);
+        db.prepare('INSERT INTO opportunities (id,title,sales_owner,contact_name,contact_phone,description,amount,stage,competition,progress,next_plan) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+          .run(id, args.title, args.sales_owner || null, args.contact_name || null, args.contact_phone || null, args.description || null, args.amount || 0, args.stage || 'contact', args.competition || null, args.progress || null, args.next_plan || null);
         return { id, message: '销售机会创建成功' };
       }
 
-      case 'list_leads':
-        return db.prepare('SELECT * FROM leads ORDER BY created_at DESC').all();
-
       case 'list_contracts':
-        return db.prepare(`SELECT c.*, cu.name AS customer_name FROM contracts c LEFT JOIN customers cu ON c.customer_id=cu.id ORDER BY c.created_at DESC`).all();
+        return db.prepare('SELECT * FROM contracts ORDER BY created_at DESC').all();
 
       case 'create_contract': {
         const id = randomUUID();
-        db.prepare('INSERT INTO contracts (id,customer_id,title,total,status,start_date,end_date,content) VALUES (?,?,?,?,?,?,?,?)')
-          .run(id, args.customer_id || null, args.title, args.total || null, 'draft', args.start_date || null, args.end_date || null, args.content || null);
+        db.prepare('INSERT INTO contracts (id,title,contract_no,sales_owner,contact_name,contact_phone,content,amount,signed_date,warranty_period,prepaid_amount,receivable_amount,invoice,delivery_progress,remark) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+          .run(id, args.title, args.contract_no || null, args.sales_owner || null, args.contact_name || null, args.contact_phone || null, args.content || null, args.amount || 0, args.signed_date || null, args.warranty_period || null, args.prepaid_amount || 0, args.receivable_amount || 0, args.invoice || null, args.delivery_progress || null, args.remark || null);
         return { id, message: '合同创建成功' };
       }
-
-      case 'list_tickets':
-        return db.prepare(`SELECT t.*, c.name AS customer_name FROM tickets t LEFT JOIN customers c ON t.customer_id=c.id ORDER BY t.created_at DESC`).all();
-
-      case 'get_ticket': {
-        const t = db.prepare(`SELECT t.*, c.name AS customer_name FROM tickets t LEFT JOIN customers c ON t.customer_id=c.id WHERE t.id=?`).get(args.ticket_id);
-        return t || { error: '工单不存在' };
-      }
-
-      case 'create_ticket': {
-        const id = randomUUID();
-        db.prepare('INSERT INTO tickets (id,customer_id,title,description,priority,status) VALUES (?,?,?,?,?,?)')
-          .run(id, args.customer_id || null, args.title, args.description || null, args.priority || 'medium', 'open');
-        return { id, message: '工单创建成功' };
-      }
-
-      case 'update_ticket': {
-        const cur = db.prepare('SELECT * FROM tickets WHERE id=?').get(args.ticket_id);
-        if (!cur) return { error: '工单不存在' };
-        db.prepare('UPDATE tickets SET status=?, assigned_to=? WHERE id=?')
-          .run(args.status ?? cur.status, args.assigned_to ?? cur.assigned_to, args.ticket_id);
-        return { message: '工单已更新' };
-      }
-
-      case 'list_feedback':
-        return db.prepare(`SELECT f.*, c.name AS customer_name FROM customer_feedback f LEFT JOIN customers c ON f.customer_id=c.id ORDER BY f.created_at DESC`).all();
-
-      case 'list_quotations':
-        return db.prepare(`SELECT q.*, c.name AS customer_name FROM quotations q LEFT JOIN customers c ON q.customer_id=c.id ORDER BY q.created_at DESC`).all();
-
-      case 'list_campaigns':
-        return db.prepare('SELECT * FROM marketing_campaigns ORDER BY created_at DESC').all();
 
       case 'list_asset_ledger':
         return db.prepare('SELECT * FROM asset_ledger ORDER BY created_at DESC').all();
@@ -207,6 +173,40 @@ function exec(toolName, args) {
           contracts: db.prepare('SELECT COUNT(*) AS c FROM contracts').get().c
         };
         return counts;
+      }
+
+      // ─── 爆款视频 ───
+      case 'list_hot_products':
+        return db.prepare('SELECT * FROM hot_products ORDER BY created_at DESC').all();
+
+      case 'get_hot_product': {
+        const hp = db.prepare('SELECT * FROM hot_products WHERE id=?').get(args.product_id);
+        if (!hp) return { error: '产品不存在' };
+        return hp;
+      }
+
+      case 'list_hot_contents': {
+        const status = args.status;
+        if (status) return db.prepare('SELECT * FROM hot_contents WHERE status=? ORDER BY generated_at DESC').all(status);
+        return db.prepare('SELECT * FROM hot_contents ORDER BY generated_at DESC').all();
+      }
+
+      case 'get_hot_content': {
+        const hc = db.prepare('SELECT * FROM hot_contents WHERE id=?').get(args.content_id);
+        if (!hc) return { error: '内容不存在' };
+        return hc;
+      }
+
+      case 'list_hot_leads':
+        return db.prepare('SELECT * FROM hot_leads ORDER BY created_at DESC').all();
+
+      case 'get_dashboard_hot_stats': {
+        const contents = db.prepare("SELECT COUNT(*) AS c FROM hot_contents WHERE status='published'").get().c || 0;
+        const drafts = db.prepare("SELECT COUNT(*) AS c FROM hot_contents WHERE status='draft'").get().c || 0;
+        const leads = db.prepare('SELECT COUNT(*) AS c FROM hot_leads').get().c || 0;
+        const videos = db.prepare("SELECT COUNT(*) AS c FROM hot_contents WHERE video_status='done'").get().c || 0;
+        const generating = db.prepare("SELECT COUNT(*) AS c FROM hot_contents WHERE video_status='generating'").get().c || 0;
+        return { published_contents: contents, draft_contents: drafts, total_leads: leads, videos_generated: videos, videos_generating: generating };
       }
 
       default:

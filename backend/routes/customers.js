@@ -10,11 +10,11 @@ router.get('/', (req, res) => {
 });
 
 router.post('/', (req, res) => {
-  const { name, phone, company, source, remark } = req.body;
-  if (!name) return res.status(400).json({ code: 400, message: '客户名必填' });
+  const { name, phone, company, position, gender, age, traits, preferences, contact_frequency, address } = req.body;
+  if (!name) return res.status(400).json({ code: 400, message: '客户名称必填' });
   const id = randomUUID();
-  db.prepare('INSERT INTO customers (id,name,phone,company,source,remark) VALUES (?,?,?,?,?,?)')
-    .run(id, name, phone, company, source, remark);
+  db.prepare('INSERT INTO customers (id,name,phone,company,position,gender,age,traits,preferences,contact_frequency,address) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+    .run(id, name, phone, company, position, gender, age, traits, preferences, contact_frequency, address);
   res.json({ code: 200, data: { id } });
 });
 
@@ -25,14 +25,15 @@ router.get('/:id', (req, res) => {
 });
 
 router.put('/:id', (req, res) => {
-  const { name, phone, company, source, remark } = req.body;
-  db.prepare('UPDATE customers SET name=?,phone=?,company=?,source=?,remark=? WHERE id=?')
-    .run(name, phone, company, source, remark, req.params.id);
+  const { name, phone, company, position, gender, age, traits, preferences, contact_frequency, address } = req.body;
+  db.prepare('UPDATE customers SET name=?,phone=?,company=?,position=?,gender=?,age=?,traits=?,preferences=?,contact_frequency=?,address=? WHERE id=?')
+    .run(name, phone, company, position, gender, age, traits, preferences, contact_frequency, address, req.params.id);
   res.json({ code: 200 });
 });
 
 router.delete('/:id', (req, res) => {
   db.prepare('DELETE FROM follow_ups WHERE customer_id=?').run(req.params.id);
+  db.prepare('DELETE FROM contacts WHERE customer_id=?').run(req.params.id);
   db.prepare('DELETE FROM customers WHERE id=?').run(req.params.id);
   res.json({ code: 200 });
 });

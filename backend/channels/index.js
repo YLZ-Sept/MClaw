@@ -1,0 +1,206 @@
+// 渠道管理器 — 统一处理多渠道消息收发、会话管理、Agent 路由
+const { randomUUID } = require('crypto');
+const db = require('../db');
+const { loadAgentConfig, callLLM, execTool, polishReply } = require('./agent-bridge');
+const { broadcast } = require('./event-bus');
+
+// ─── 内部缓存：WebSocket 连接 ───
+const channelSockets = {}; // { account_id: ws }
+
+function registerSocket(accountId, ws) {
+  channelSockets[accountId] = ws;
+  console.log(`[channels] 渠道上线: ${accountId}`);
+  broadcast({ type: 'account_status', account_id: accountId, online: true });
+}
+function unregisterSocket(accountId) {
+  delete channelSockets[accountId];
+  console.log(`[channels] 渠道离线: ${accountId}`);
+  broadcast({ type: 'account_status', account_id: accountId, online: false });
+}
+
+function kickSocket(accountId) {
+  const ws = channelSockets[accountId];
+  if (ws) {
+    ws.send(JSON.stringify({ type: 'disabled', message: '账号已被停用' }));
+    ws.close();
+  }
+}
+
+// ─── 会话管理 ───
+
+function getOrCreateConversation({ account_id, platform, contact_name, agent_id, reply_mode }) {
+  // 账号不存在则跳过（可能已被删除）
+  const account = db.prepare('SELECT * FROM channel_accounts WHERE id=?').get(account_id);
+  if (!account) {
+    console.warn(`[channels] 账号 ${account_id} 不存在，忽略消息`);
+    return null;
+  }
+  const existing = db.prepare(
+    'SELECT * FROM channel_conversations WHERE account_id=? AND contact_name=? AND status=?'
+  ).get(account_id, contact_name, 'active');
+  if (existing) {
+    db.prepare('UPDATE channel_conversations SET updated_at=datetime(\'now\',\'localtime\') WHERE id=?').run(existing.id);
+    return existing;
+  }
+  const effectiveAgentId = agent_id || account.agent_id || 'sales-agent';
+  const effectiveMode = reply_mode || account.default_reply_mode || 'manual';
+
+  const id = randomUUID();
+  db.prepare(`INSERT INTO channel_conversations (id,account_id,platform,contact_name,agent_id,reply_mode)
+    VALUES (?,?,?,?,?,?)`).run(id, account_id, platform, contact_name, effectiveAgentId, effectiveMode);
+  const conv = db.prepare('SELECT * FROM channel_conversations WHERE id=?').get(id);
+  broadcast({ type: 'new_conversation', conversation: conv });
+  return conv;
+}
+
+function saveMessage({ conversation_id, direction, content, reply_mode, ai_suggestion, status, raw_data }) {
+  const id = randomUUID();
+  db.prepare(`INSERT INTO channel_messages (id,conversation_id,direction,content,reply_mode,ai_suggestion,status,raw_data)
+    VALUES (?,?,?,?,?,?,?,?)`).run(
+    id, conversation_id, direction, content, reply_mode || 'manual', ai_suggestion || null, status || 'sent', raw_data || null
+  );
+  // 更新会话摘要
+  db.prepare(`UPDATE channel_conversations SET
+    last_message=?, last_message_at=datetime('now','localtime'),
+    unread_count=CASE WHEN ?='incoming' THEN unread_count+1 ELSE unread_count END,
+    updated_at=datetime('now','localtime')
+    WHERE id=?`).run(content.slice(0, 100), direction, conversation_id);
+  const msg = db.prepare('SELECT * FROM channel_messages WHERE id=?').get(id);
+  broadcast({ type: 'new_message', message: msg, conversation_id: conversation_id });
+  return msg;
+}
+
+function setConversationMode(conversationId, mode) {
+  db.prepare('UPDATE channel_conversations SET reply_mode=? WHERE id=?').run(mode, conversationId);
+  return { id: conversationId, reply_mode: mode };
+}
+
+// ─── Agent 回复生成 ───
+
+async function generateAIReply(conversationId, platform, agentId) {
+  const conv = db.prepare('SELECT * FROM channel_conversations WHERE id=?').get(conversationId);
+  if (!conv) return null;
+
+  // 加载 Agent 配置
+  const config = loadAgentConfig(agentId || 'sales-agent');
+
+  // 取最近 20 条消息作为上下文
+  const msgs = db.prepare(
+    'SELECT * FROM channel_messages WHERE conversation_id=? ORDER BY created_at DESC LIMIT 20'
+  ).all(conversationId).reverse();
+
+  const basePrompt = config.systemPrompt + `\n\n## 当前场景\n你正在${platform}平台上与「${conv.contact_name}」对话。请用口语化的中文回复，简洁自然。`;
+
+  const messages = [{ role: 'system', content: basePrompt }];
+  for (const m of msgs) {
+    const role = m.direction === 'incoming' ? 'user' : 'assistant';
+    messages.push({ role, content: m.content });
+  }
+
+  try {
+    const dsRes = await callLLM(messages, config.tools, false);
+    const dsData = await dsRes.json();
+    const msg = dsData.choices?.[0]?.message;
+    let reply = msg?.content || '';
+
+    // 如果有工具调用（最多1轮）
+    if (msg?.tool_calls && msg.tool_calls.length > 0) {
+      messages.push({ role: 'assistant', content: null, tool_calls: msg.tool_calls });
+      for (const tc of msg.tool_calls) {
+        let args;
+        try { args = JSON.parse(tc.function.arguments || '{}'); } catch { args = {}; }
+        const result = execTool(tc.function.name, args);
+        messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) });
+      }
+      const dsRes2 = await callLLM(messages, config.tools, false);
+      const dsData2 = await dsRes2.json();
+      reply = dsData2.choices?.[0]?.message?.content || reply;
+    }
+
+    // 润色
+    try {
+      const polished = await polishReply(reply);
+      if (polished && polished.length > 10) reply = polished;
+    } catch {}
+
+    return reply;
+  } catch (err) {
+    console.error('[channels] AI reply error:', err.message);
+    return null;
+  }
+}
+
+// ─── 处理 incoming 消息的完整流程 ───
+// 返回值：{ conversation, message, aiSuggestion }
+async function handleIncoming({ account_id, platform, contact_name, contact_avatar, content, raw_data }) {
+  // 1. 获取或创建会话（账号不存在则跳过）
+  const conv = getOrCreateConversation({ account_id, platform, contact_name });
+  if (!conv) return { conversation: null, message: null, aiSuggestion: null };
+
+  // 2. 保存消息
+  const msg = saveMessage({
+    conversation_id: conv.id,
+    direction: 'incoming',
+    content,
+    reply_mode: conv.reply_mode,
+    raw_data: raw_data ? JSON.stringify(raw_data) : null
+  });
+
+  // 3. 根据回复模式处理
+  let aiSuggestion = null;
+  if (conv.reply_mode === 'auto') {
+    // AI 托管：自动生成并发送回复
+    aiSuggestion = await generateAIReply(conv.id, platform, conv.agent_id);
+    if (aiSuggestion) {
+      // 发送 AI 回复
+      await sendReply(conv.id, aiSuggestion, 'auto');
+    }
+  } else if (conv.reply_mode === 'assisted') {
+    // 协同模式：生成建议，不自动发送
+    aiSuggestion = await generateAIReply(conv.id, platform, conv.agent_id);
+  }
+  // manual 模式：什么也不做，等人手动回复
+
+  return { conversation: conv, message: msg, aiSuggestion };
+}
+
+// ─── 发送回复 ───
+async function sendReply(conversationId, content, replyMode) {
+  const conv = db.prepare('SELECT * FROM channel_conversations WHERE id=?').get(conversationId);
+  if (!conv) throw new Error('会话不存在');
+
+  // 保存 outgoing 消息
+  const msg = saveMessage({
+    conversation_id: conv.id,
+    direction: 'outgoing',
+    content,
+    reply_mode: replyMode || conv.reply_mode,
+    status: 'sent'
+  });
+
+  // 尝试通过 WebSocket 推送到渠道
+  const ws = channelSockets[conv.account_id];
+  if (ws && ws.readyState === 1) {
+    ws.send(JSON.stringify({
+      type: 'reply',
+      conversation_id: conv.id,
+      contact_name: conv.contact_name,
+      platform: conv.platform,
+      content
+    }));
+    console.log(`[channels] WS 推送回复 → ${conv.platform}/${conv.contact_name}`);
+  } else {
+    console.log(`[channels] ${conv.platform}/${conv.contact_name} 无在线渠道，消息仅入库`);
+  }
+
+  // 标记会话已读
+  db.prepare('UPDATE channel_conversations SET unread_count=0 WHERE id=?').run(conv.id);
+
+  return msg;
+}
+
+module.exports = {
+  registerSocket, unregisterSocket, kickSocket,
+  getOrCreateConversation, saveMessage, setConversationMode,
+  handleIncoming, sendReply, generateAIReply
+};

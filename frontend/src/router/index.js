@@ -20,7 +20,6 @@ const routes = [
       { path: 'security-protection', name: 'SecurityProtection', component: () => import('../views/SecurityProtection.vue') },
       { path: 'knowledge-base', name: 'KnowledgeBase', component: () => import('../views/KnowledgeBase.vue') },
       { path: 'internal', name: 'InternalMgmt', component: () => import('../views/InternalManagement.vue') },
-      { path: 'internal/crm', name: 'CRMMgmt', component: () => import('../views/internal/CRMManagement.vue') },
       { path: 'internal/sales', name: 'SalesMgmt', component: () => import('../views/internal/SalesManagement.vue') },
       { path: 'internal/inventory', name: 'InventoryMgmt', component: () => import('../views/internal/InventoryManagement.vue') },
       { path: 'internal/hr', name: 'HRMgmt', component: () => import('../views/internal/HRManagement.vue') },

@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const cors = require('cors');
+const http = require('http');
 const app = express();
 
 app.use(cors());
@@ -11,12 +12,7 @@ require('./db');
 // CRM
 app.use('/api/customers', require('./routes/customers'));
 app.use('/api/contacts', require('./routes/crm-contacts'));
-app.use('/api/leads', require('./routes/crm-leads'));
-app.use('/api/campaigns', require('./routes/crm-campaigns'));
-app.use('/api/quotations', require('./routes/crm-quotations'));
 app.use('/api/contracts', require('./routes/crm-contracts'));
-app.use('/api/tickets', require('./routes/crm-tickets'));
-app.use('/api/feedback', require('./routes/crm-feedback'));
 app.use('/api/opportunities', require('./routes/crm-opportunities'));
 app.use('/api/asset-ledger', require('./routes/asset-ledger'));
 
@@ -47,6 +43,16 @@ app.use('/api/model-configs', require('./routes/model-configs').router);
 app.use('/api/trending', require('./routes/trending'));
 app.use('/api/knowledge-base', require('./routes/knowledge-base'));
 app.use('/api/doc-import', require('./routes/doc-import'));
+app.use('/api/channel-accounts', require('./routes/channel-accounts'));
+app.use('/api/channel-conversations', require('./routes/channel-conversations'));
+
+// 爆款视频
+app.use('/api/hot-products', require('./routes/hot-products'));
+app.use('/api/hot-contents', require('./routes/hot-contents'));
+app.use('/api/hot-extract', require('./routes/hot-extract'));
+app.use('/api/hot-quick-reply', require('./routes/hot-quick-reply'));
+app.use('/api/hot-leads', require('./routes/hot-leads'));
+app.use('/api/hot-chanjing', require('./routes/hot-chanjing'));
 
 // 文档
 app.use('/api/documents', require('./routes/documents'));
@@ -64,7 +70,7 @@ function getHistory(agent) {
     const greetings = {
       'internal-agent': '你好老板！我是小内，您的企业内部管理助手。CRM、进销存、人事、文档，四大模块随时待命。请问有什么需要处理的？',
       'support-agent': '你好！我是小客，MClaw 售后客服助手。FAQ 问答、工单跟进、客户反馈，我都能帮您处理。请问有什么可以帮您的？',
-      'sales-agent': '你好老板！我是小销，您的销售管理助手。客户跟进、机会推进、合同签署，销售全流程我都能帮您盯着。请问今天需要处理什么？'
+      'sales-agent': '你好老板！我是小销，您的销售管理助手。客户跟进、机会推进、合同签署，销售全流程我都能帮您盯着。请问今天需要处理什么？',
     };
     const greeting = greetings[key] || greetings['internal-agent'];
     chatHistories[key] = [
@@ -372,10 +378,15 @@ app.get('/api/status', (req, res) => {
   res.json({ code: 200, data: { cpu: '12%', memory: '380MB', services: 3 } });
 });
 
-const PORT = 3666;
-app.listen(PORT, () => {
+const PORT = 3001;
+const server = http.createServer(app);
+
+// 启动统一 WebSocket 服务器（Sightflow + Events）
+try { require('./channels/ws-server').startWSServer(server); } catch (e) { console.log('[server] WS 启动失败:', e.message); }
+
+server.listen(PORT, () => {
   console.log(`MClaw 后端运行在 http://localhost:${PORT}`);
-  // 启动招投标定时采集（API每6小时，爬虫每1小时）
+  // 启动招投标定时采集（API 每6小时，爬虫每2小时）
   try { const { startScheduler } = require('./bid-collector'); startScheduler(6 * 60 * 60 * 1000); } catch {}
-  try { const { startScheduler: startCrawler } = require('./bid-crawler'); startCrawler(6 * 60 * 60 * 1000); } catch {}
+  try { const { startScheduler: startCrawler } = require('./bid-crawler'); startCrawler(120 * 60 * 1000); } catch {}
 });
