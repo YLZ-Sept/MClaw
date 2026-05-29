@@ -221,7 +221,7 @@
       <template #footer><el-button @click="opDlg.visible=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveOp">保存</el-button></template>
     </el-dialog>
     <!-- 合同 -->
-    <el-dialog v-model="cnDlg.visible" :title="cnDlg.ed?'编辑合同':'新增合同'" width="700px">
+    <el-dialog v-model="cnDlg.visible" :title="cnDlg.ed?'编辑合同':'新增合同'" width="700px" destroy-on-close>
       <el-form :model="cnDlg.form" label-width="90px">
         <el-row :gutter="12">
           <el-col :span="12"><el-form-item label="合同名称"><el-input v-model="cnDlg.form.title"/></el-form-item></el-col>
