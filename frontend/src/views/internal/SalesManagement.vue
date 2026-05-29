@@ -56,7 +56,7 @@
               <el-table-column prop="stage" label="阶段" width="90">
                 <template #default="{row}"><el-tag :type="stageType(row.stage)" size="small">{{ stageLabel(row.stage) }}</el-tag></template>
               </el-table-column>
-              <el-table-column label="操作" width="80"><template #default="{r}"><el-button size="small" type="danger" link @click="delOp(r.id)">删除</el-button></template></el-table-column>
+              <el-table-column label="操作" width="140"><template #default="{r}"><el-button size="small" type="primary" link @click="openOpDlg(r)">编辑</el-button><el-button size="small" type="danger" link @click="delOp(r.id)">删除</el-button></template></el-table-column>
             </el-table>
           </div>
           <!-- 合同订单 -->
@@ -64,15 +64,22 @@
             <div class="tb"><el-button type="primary" @click="cnDlg.visible=true">新增合同</el-button><el-button @click="handleExport('contracts')">导出</el-button><el-button @click="handleImport('contracts')">导入</el-button></div>
             <el-empty v-if="!loadingCrm&&contracts.length===0" description="暂无合同"/>
             <el-table v-loading="loadingCrm" :data="contracts" stripe border row-key="id" style="width:100%">
-              <el-table-column type="index" label="#" width="50"/>
-              <el-table-column prop="title" label="合同名称" width="160"/>
-              <el-table-column prop="contract_no" label="合同编号" width="130"/>
-              <el-table-column prop="sales_owner" label="所属销售" width="100"/>
-              <el-table-column prop="contact_name" label="客户联系人" width="110"/>
-              <el-table-column prop="amount" label="合同金额" width="100"/>
+              <el-table-column type="index" label="#" width="45" fixed/>
+              <el-table-column prop="title" label="合同名称" min-width="180" show-overflow-tooltip fixed/>
+              <el-table-column prop="contract_no" label="合同编号" width="140"/>
+              <el-table-column prop="sales_owner" label="所属销售" width="80"/>
+              <el-table-column prop="contact_name" label="客户联系人" width="100"/>
+              <el-table-column prop="contact_phone" label="联系电话" width="120"/>
+              <el-table-column prop="content" label="合同内容（产品/服务）" min-width="180" show-overflow-tooltip/>
+              <el-table-column prop="amount" label="合同金额" width="110" :formatter="fmtMoney"/>
               <el-table-column prop="signed_date" label="签订时间" width="110"/>
-              <el-table-column prop="delivery_progress" label="交付进度" width="100"/>
-              <el-table-column label="操作" width="80"><template #default="{r}"><el-button size="small" type="danger" link @click="delCn(r.id)">删除</el-button></template></el-table-column>
+              <el-table-column prop="warranty_period" label="质保期限" width="100"/>
+              <el-table-column prop="prepaid_amount" label="预付金额" width="100" :formatter="fmtMoney"/>
+              <el-table-column prop="receivable_amount" label="应收金额" width="100" :formatter="fmtMoney"/>
+              <el-table-column prop="invoice" label="发票开具" width="90"/>
+              <el-table-column prop="delivery_progress" label="交付进度" width="90"/>
+              <el-table-column prop="remark" label="备注" min-width="120" show-overflow-tooltip/>
+              <el-table-column label="操作" width="140" fixed="right"><template #default="{r}"><el-button size="small" type="primary" link @click="openCnDlg(r)">编辑</el-button><el-button size="small" type="danger" link @click="delCn(r.id)">删除</el-button></template></el-table-column>
             </el-table>
           </div>
         </div>
@@ -192,7 +199,7 @@
       <div style="display:flex;gap:8px;margin-top:12px"><el-input v-model="flwDlg.txt" placeholder="添加跟进内容"/><el-button type="primary" @click="addFlw">添加</el-button></div>
     </el-dialog>
     <!-- 商机 -->
-    <el-dialog v-model="opDlg.visible" title="新增商机" width="650px">
+    <el-dialog v-model="opDlg.visible" :title="opDlg.ed?'编辑商机':'新增商机'" width="650px">
       <el-form :model="opDlg.form" label-width="90px">
         <el-row :gutter="12">
           <el-col :span="12"><el-form-item label="商机名称"><el-input v-model="opDlg.form.title"/></el-form-item></el-col>
@@ -214,7 +221,7 @@
       <template #footer><el-button @click="opDlg.visible=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveOp">保存</el-button></template>
     </el-dialog>
     <!-- 合同 -->
-    <el-dialog v-model="cnDlg.visible" title="新增合同" width="700px">
+    <el-dialog v-model="cnDlg.visible" :title="cnDlg.ed?'编辑合同':'新增合同'" width="700px">
       <el-form :model="cnDlg.form" label-width="90px">
         <el-row :gutter="12">
           <el-col :span="12"><el-form-item label="合同名称"><el-input v-model="cnDlg.form.title"/></el-form-item></el-col>
@@ -417,17 +424,33 @@ async function addFlw() {
 }
 
 // ─── CRM 机会 ───
-const opDlg = reactive({ visible: false, form: {} })
+const opDlg = reactive({ visible: false, ed: false, editId: '', form: {} })
 const stageMap = { contact: '初步接触', demo: '需求确认', proposal: '方案报价', negotiation: '商务谈判', closed: '签约' }
 function stageLabel(s) { return stageMap[s] || s }
 function stageType(s) { return s === 'closed' ? 'success' : s === 'negotiation' ? 'warning' : 'info' }
-async function saveOp() { await opportunityApi.create(opDlg.form); opDlg.visible = false; opDlg.form = {}; await loadCrm(); ElMessage.success('OK') }
-async function delOp(id) { await opportunityApi.remove(id); await loadCrm() }
+function openOpDlg(r) { opDlg.ed = !!r; opDlg.editId = r?.id || ''; opDlg.form = r ? { ...r } : {}; opDlg.visible = true }
+async function saveOp() {
+  saving.value = true
+  opDlg.ed ? await opportunityApi.update(opDlg.editId, opDlg.form) : await opportunityApi.create(opDlg.form)
+  opDlg.visible = false; opDlg.form = {}
+  await loadCrm(); saving.value = false
+  ElMessage.success('OK')
+}
+async function delOp(id) { try { await ElMessageBox.confirm('确认删除?'); await opportunityApi.remove(id); await loadCrm() } catch {} }
 
 // ─── CRM 合同 ───
-const cnDlg = reactive({ visible: false, form: {} })
-async function saveCn() { await contractApi.create(cnDlg.form); cnDlg.visible = false; cnDlg.form = {}; await loadCrm(); ElMessage.success('OK') }
-async function delCn(id) { await contractApi.remove(id); await loadCrm() }
+const cnDlg = reactive({ visible: false, ed: false, editId: '', form: {} })
+function openCnDlg(r) { cnDlg.ed = !!r; cnDlg.editId = r?.id || ''; cnDlg.form = r ? { ...r } : {}; cnDlg.visible = true }
+async function saveCn() {
+  saving.value = true
+  cnDlg.ed ? await contractApi.update(cnDlg.editId, cnDlg.form) : await contractApi.create(cnDlg.form)
+  cnDlg.visible = false; cnDlg.form = {}
+  await loadCrm(); saving.value = false
+  ElMessage.success('OK')
+}
+async function delCn(id) { try { await ElMessageBox.confirm('确认删除?'); await contractApi.remove(id); await loadCrm() } catch {} }
+
+function fmtMoney(r,c,v) { if (v==null||v===0) return ''; return '¥'+Number(v).toLocaleString('zh-CN',{minimumFractionDigits:0,maximumFractionDigits:2}) }
 
 // ─── CRM 导入导出 ───
 const importVisible = ref(false), importKey = ref('')
