@@ -56,7 +56,7 @@
               <el-table-column prop="stage" label="阶段" width="90">
                 <template #default="{row}"><el-tag :type="stageType(row.stage)" size="small">{{ stageLabel(row.stage) }}</el-tag></template>
               </el-table-column>
-              <el-table-column label="操作" width="140"><template #default="{r}"><el-button size="small" type="primary" link @click="openOpDlg(r)">编辑</el-button><el-button size="small" type="danger" link @click="delOp(r.id)">删除</el-button></template></el-table-column>
+              <el-table-column label="操作" width="140"><template #default="{row}"><el-button size="small" type="primary" link @click="openOpDlg(row)">编辑</el-button><el-button size="small" type="danger" link @click="delOp(row.id)">删除</el-button></template></el-table-column>
             </el-table>
           </div>
           <!-- 合同订单 -->
@@ -79,7 +79,7 @@
               <el-table-column prop="invoice" label="发票开具" width="90"/>
               <el-table-column prop="delivery_progress" label="交付进度" width="90"/>
               <el-table-column prop="remark" label="备注" min-width="120" show-overflow-tooltip/>
-              <el-table-column label="操作" width="140" fixed="right"><template #default="{r}"><el-button size="small" type="primary" link @click="openCnDlg(r)">编辑</el-button><el-button size="small" type="danger" link @click="delCn(r.id)">删除</el-button></template></el-table-column>
+              <el-table-column label="操作" width="140" fixed="right"><template #default="{row}"><el-button size="small" type="primary" link @click="openCnDlg(row)">编辑</el-button><el-button size="small" type="danger" link @click="delCn(row.id)">删除</el-button></template></el-table-column>
             </el-table>
           </div>
         </div>
@@ -179,7 +179,7 @@
       <el-table :data="ctDlg.list" stripe border row-key="id" size="small">
         <el-table-column prop="name" label="姓名" width="100"/><el-table-column prop="position" label="职位" width="120"/>
         <el-table-column prop="phone" label="电话" width="140"/><el-table-column prop="email" label="邮箱" min-width="160"/>
-        <el-table-column label="操作" width="80"><template #default="{r}"><el-button size="small" type="danger" link @click="delCt(r.id)">删除</el-button></template></el-table-column>
+        <el-table-column label="操作" width="80"><template #default="{row}"><el-button size="small" type="danger" link @click="delCt(row.id)">删除</el-button></template></el-table-column>
       </el-table>
       <el-empty v-if="ctDlg.list.length===0" description="暂无联系人"/>
     </el-dialog>
@@ -221,8 +221,7 @@
       <template #footer><el-button @click="opDlg.visible=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveOp">保存</el-button></template>
     </el-dialog>
     <!-- 合同 -->
-    <el-dialog v-model="cnDlg.visible" :title="cnDlg.ed?'编辑合同':'新增合同'" width="700px" destroy-on-close @opened="console.log('dialog opened, form:', JSON.stringify(cnDlg.form))">
-      <div v-if="cnDlg.ed" style="background:#fef0f0;padding:4px 10px;margin-bottom:8px;border-radius:4px;font-size:12px;color:#f56c6c">🐛 编辑模式 | editId: {{ cnDlg.editId }} | title: "{{ cnDlg.form.title }}"</div>
+    <el-dialog v-model="cnDlg.visible" :title="cnDlg.ed?'编辑合同':'新增合同'" width="700px" destroy-on-close>
       <el-form :model="cnDlg.form" label-width="90px">
         <el-row :gutter="12">
           <el-col :span="12"><el-form-item label="合同名称"><el-input v-model="cnDlg.form.title"/></el-form-item></el-col>
