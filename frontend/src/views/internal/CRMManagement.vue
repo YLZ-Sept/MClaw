@@ -57,15 +57,22 @@
           <div class="tb"><el-button type="primary" @click="cnDlg.visible=true">新增合同</el-button><el-button @click="handleExport('contracts')">导出</el-button><el-button @click="handleImport('contracts')">导入</el-button></div>
           <el-empty v-if="!loading&&contracts.length===0" description="暂无合同"/>
           <el-table v-loading="loading" :data="contracts" stripe border row-key="id" style="width:100%">
-            <el-table-column type="index" label="#" width="50"/>
-            <el-table-column prop="title" label="合同名称" width="160"/>
-            <el-table-column prop="contract_no" label="合同编号" width="130"/>
-            <el-table-column prop="sales_owner" label="所属销售" width="100"/>
-            <el-table-column prop="contact_name" label="客户联系人" width="110"/>
-            <el-table-column prop="amount" label="合同金额" width="100"/>
+            <el-table-column type="index" label="#" width="45" fixed/>
+            <el-table-column prop="title" label="合同名称" min-width="180" show-overflow-tooltip fixed/>
+            <el-table-column prop="contract_no" label="合同编号" width="140"/>
+            <el-table-column prop="sales_owner" label="所属销售" width="80"/>
+            <el-table-column prop="contact_name" label="客户联系人" width="100"/>
+            <el-table-column prop="contact_phone" label="联系电话" width="120"/>
+            <el-table-column prop="content" label="合同内容（产品/服务）" min-width="180" show-overflow-tooltip/>
+            <el-table-column prop="amount" label="合同金额" width="110" :formatter="fmtMoney"/>
             <el-table-column prop="signed_date" label="签订时间" width="110"/>
-            <el-table-column prop="delivery_progress" label="交付进度" width="100"/>
-            <el-table-column label="操作" width="140"><template #default="{r}"><el-button size="small" type="primary" link @click="openCnDlg(r)">编辑</el-button><el-button size="small" type="danger" link @click="delCn(r.id)">删除</el-button></template></el-table-column>
+            <el-table-column prop="warranty_period" label="质保期限" width="100"/>
+            <el-table-column prop="prepaid_amount" label="预付金额" width="100" :formatter="fmtMoney"/>
+            <el-table-column prop="receivable_amount" label="应收金额" width="100" :formatter="fmtMoney"/>
+            <el-table-column prop="invoice" label="发票开具" width="90"/>
+            <el-table-column prop="delivery_progress" label="交付进度" width="90"/>
+            <el-table-column prop="remark" label="备注" min-width="120" show-overflow-tooltip/>
+            <el-table-column label="操作" width="140" fixed="right"><template #default="{r}"><el-button size="small" type="primary" link @click="openCnDlg(r)">编辑</el-button><el-button size="small" type="danger" link @click="delCn(r.id)">删除</el-button></template></el-table-column>
           </el-table>
         </div>
       </div>
@@ -269,6 +276,8 @@ async function saveCn(isEdit) {
   ElMessage.success('OK')
 }
 async function delCn(id) { try { await ElMessageBox.confirm('确认删除?'); await contractApi.remove(id); await ld() } catch {} }
+
+function fmtMoney(r,c,v) { if (v==null||v===0) return ''; return '¥'+Number(v).toLocaleString('zh-CN',{minimumFractionDigits:0,maximumFractionDigits:2}) }
 
 const loading = ref(false)
 async function ld() {
