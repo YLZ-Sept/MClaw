@@ -256,7 +256,7 @@ async function saveOp(isEdit) {
   await ld(); saving.value = false
   ElMessage.success('OK')
 }
-async function delOp(id) { await opportunityApi.remove(id); await ld() }
+async function delOp(id) { try { await ElMessageBox.confirm('确认删除?'); await opportunityApi.remove(id); await ld() } catch {} }
 
 // ─── 合同 ───
 const cnDlg = reactive({ visible: false, ed: false, editId: '', form: {} })
@@ -268,7 +268,7 @@ async function saveCn(isEdit) {
   await ld(); saving.value = false
   ElMessage.success('OK')
 }
-async function delCn(id) { await contractApi.remove(id); await ld() }
+async function delCn(id) { try { await ElMessageBox.confirm('确认删除?'); await contractApi.remove(id); await ld() } catch {} }
 
 const loading = ref(false)
 async function ld() {
