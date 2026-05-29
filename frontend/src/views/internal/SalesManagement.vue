@@ -45,7 +45,7 @@
           </div>
           <!-- 项目商机 -->
           <div v-else-if="crmTab==='opportunities'">
-            <div class="tb"><el-button type="primary" @click="opDlg.visible=true">新增商机</el-button><el-button @click="handleExport('opportunities')">导出</el-button><el-button @click="handleImport('opportunities')">导入</el-button></div>
+            <div class="tb"><el-button type="primary" @click="opDlg.ed=false;opDlg.visible=true">新增商机</el-button><el-button @click="handleExport('opportunities')">导出</el-button><el-button @click="handleImport('opportunities')">导入</el-button></div>
             <el-table v-loading="loadingCrm" :data="opportunities" stripe border row-key="id" style="width:100%">
               <el-table-column type="index" label="#" width="50"/>
               <el-table-column prop="title" label="商机名称" width="160"/>
@@ -61,7 +61,7 @@
           </div>
           <!-- 合同订单 -->
           <div v-else-if="crmTab==='contracts'">
-            <div class="tb"><el-button type="primary" @click="cnDlg.visible=true">新增合同</el-button><el-button @click="handleExport('contracts')">导出</el-button><el-button @click="handleImport('contracts')">导入</el-button></div>
+            <div class="tb"><el-button type="primary" @click="cnDlg.ed=false;cnDlg.visible=true">新增合同</el-button><el-button @click="handleExport('contracts')">导出</el-button><el-button @click="handleImport('contracts')">导入</el-button></div>
             <el-empty v-if="!loadingCrm&&contracts.length===0" description="暂无合同"/>
             <el-table v-loading="loadingCrm" :data="contracts" stripe border row-key="id" style="width:100%">
               <el-table-column type="index" label="#" width="45" fixed/>
