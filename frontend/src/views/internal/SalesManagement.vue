@@ -428,7 +428,7 @@ const opDlg = reactive({ visible: false, ed: false, editId: '', form: {} })
 const stageMap = { contact: '初步接触', demo: '需求确认', proposal: '方案报价', negotiation: '商务谈判', closed: '签约' }
 function stageLabel(s) { return stageMap[s] || s }
 function stageType(s) { return s === 'closed' ? 'success' : s === 'negotiation' ? 'warning' : 'info' }
-function openOpDlg(r) { opDlg.ed = !!r; opDlg.editId = r?.id || ''; opDlg.form = r ? { ...r } : {}; opDlg.visible = true }
+function openOpDlg(r) { opDlg.ed = !!r; opDlg.editId = r?.id || ''; Object.keys(opDlg.form).forEach(k=>delete opDlg.form[k]); if(r) Object.assign(opDlg.form, r); opDlg.visible = true }
 async function saveOp() {
   saving.value = true
   opDlg.ed ? await opportunityApi.update(opDlg.editId, opDlg.form) : await opportunityApi.create(opDlg.form)
