@@ -45,9 +45,14 @@ function _handle(resp) {
 }
 
 async function listPublicDp(page = 1, size = 20, tagIds) {
-  const params = { page, size };
-  if (tagIds) params.tag_ids = tagIds;
-  const resp = await fetch(`${BASE}/open/v1/list_common_dp?${new URLSearchParams(params)}`, {
+  const url = new URL(`${BASE}/open/v1/list_common_dp`);
+  url.searchParams.set('page', page);
+  url.searchParams.set('size', size);
+  if (tagIds) {
+    const ids = Array.isArray(tagIds) ? tagIds : [tagIds];
+    ids.forEach(id => url.searchParams.append('tag_ids', id));
+  }
+  const resp = await fetch(url.toString(), {
     headers: await _headers(), signal: AbortSignal.timeout(15000)
   });
   return _handle(await resp.json());
@@ -84,7 +89,7 @@ async function getVideo(videoId) {
 
 async function listVideos(page = 1, size = 20) {
   const resp = await fetch(`${BASE}/open/v1/video_list`, {
-    method: 'POST', headers: await _headers(), body: JSON.stringify({ page, size }),
+    method: 'POST', headers: await _headers(), body: JSON.stringify({ page, page_size: size }),
     signal: AbortSignal.timeout(15000)
   });
   return _handle(await resp.json());
@@ -100,4 +105,93 @@ async function downloadVideo(url, contentId, suffix = '') {
   return dest;
 }
 
-module.exports = { listPublicDp, listPublicAudio, listFonts, createVideo, getVideo, listVideos, downloadVideo };
+// TTS
+async function createTTS(params) {
+  const resp = await fetch(`${BASE}/open/v1/create_audio_task`, {
+    method: 'POST', headers: await _headers(), body: JSON.stringify(params),
+    signal: AbortSignal.timeout(15000)
+  });
+  return _handle(await resp.json()); // { task_id }
+}
+
+async function getTTS(taskId) {
+  const resp = await fetch(`${BASE}/open/v1/audio_task_state`, {
+    method: 'POST', headers: await _headers(), body: JSON.stringify({ task_id: taskId }),
+    signal: AbortSignal.timeout(15000)
+  });
+  return _handle(await resp.json());
+}
+
+// Lip Sync
+async function createLipSync(params) {
+  const resp = await fetch(`${BASE}/open/v1/video_lip_sync/create`, {
+    method: 'POST', headers: await _headers(), body: JSON.stringify(params),
+    signal: AbortSignal.timeout(30000)
+  });
+  return _handle(await resp.json()); // task_id
+}
+
+async function getLipSync(id) {
+  const resp = await fetch(`${BASE}/open/v1/video_lip_sync/detail?${new URLSearchParams({ id })}`, {
+    headers: await _headers(), signal: AbortSignal.timeout(15000)
+  });
+  return _handle(await resp.json());
+}
+
+async function listLipSync(page = 1, size = 20) {
+  const resp = await fetch(`${BASE}/open/v1/video_lip_sync/list`, {
+    method: 'POST', headers: await _headers(), body: JSON.stringify({ page, page_size: size }),
+    signal: AbortSignal.timeout(15000)
+  });
+  return _handle(await resp.json());
+}
+
+// File upload URL
+async function getUploadUrl(service, name) {
+  const params = { service };
+  if (name) params.name = name;
+  const resp = await fetch(`${BASE}/open/v1/common/create_upload_url?${new URLSearchParams(params)}`, {
+    headers: await _headers(), signal: AbortSignal.timeout(15000)
+  });
+  return _handle(await resp.json());
+}
+
+async function listTags(businessType) {
+  const url = new URL(`${BASE}/open/v1/common/tag_list`);
+  if (businessType) url.searchParams.append('business_type', businessType);
+  const resp = await fetch(url.toString(), {
+    headers: await _headers(), signal: AbortSignal.timeout(15000)
+  });
+  const text = await resp.text();
+  try {
+    return _handle(JSON.parse(text));
+  } catch (e) {
+    throw new Error(`Chanjing tags API returned invalid response: ${text.slice(0, 200)}`);
+  }
+}
+
+// Delete video
+async function deleteVideo(id) {
+  const resp = await fetch(`${BASE}/open/v1/delete_video`, {
+    method: 'POST', headers: await _headers(), body: JSON.stringify({ id }),
+    signal: AbortSignal.timeout(15000)
+  });
+  return _handle(await resp.json());
+}
+
+// User info
+async function getUserInfo() {
+  const resp = await fetch(`${BASE}/open/v1/user_info`, {
+    headers: await _headers(), signal: AbortSignal.timeout(15000)
+  });
+  return _handle(await resp.json());
+}
+
+async function getUserDuration() {
+  const resp = await fetch(`${BASE}/open/v1/user_duration`, {
+    headers: await _headers(), signal: AbortSignal.timeout(15000)
+  });
+  return _handle(await resp.json());
+}
+
+module.exports = { listPublicDp, listPublicAudio, listFonts, createVideo, getVideo, listVideos, downloadVideo, createTTS, getTTS, createLipSync, getLipSync, listLipSync, getUploadUrl, deleteVideo, getUserInfo, getUserDuration, listTags };

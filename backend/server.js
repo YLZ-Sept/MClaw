@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const cors = require('cors');
@@ -207,7 +208,8 @@ function makeMessages(config, history, faqMatches, escalate) {
   if (escalate) {
     systemContent = '【系统指令：用户表达了投诉/退款/赔偿等敏感诉求，你必须立即调用 handoff_to_human 工具转人工，不要做其他查询。】\n\n' + systemContent;
   }
-  return [{ role: 'system', content: systemContent }, ...history.slice(-10)];
+  // 使用 user 角色兼容不支持 system 角色的 API（如豆包等）
+  return [{ role: 'user', content: `[系统指令]\n${systemContent}` }, ...history.slice(-10)];
 }
 
 // SSE 辅助：发送事件

@@ -28,6 +28,7 @@ export const hotContentApi = {
 
 export const hotExtractApi = {
   extract: (url) => POST('/hot-extract/content', { url }),
+  crawl: (platform, keyword, limit) => POST('/hot-extract/crawl', { platform, keyword, limit }),
   rewrite: (d) => POST('/hot-extract/rewrite', d),
 }
 
@@ -40,9 +41,38 @@ export const hotLeadsApi = {
 }
 
 export const hotChanjingApi = {
-  digitalPersons: (page, size) => GET('/hot-chanjing/digital-persons', { params: { page, size } }),
+  digitalPersons: (page, size, tagIds) => GET('/hot-chanjing/digital-persons', { params: { page, size, tag_ids: tagIds?.join(',') || '' } }),
   voices: (page, size) => GET('/hot-chanjing/voices', { params: { page, size } }),
   fonts: () => GET('/hot-chanjing/fonts'),
+  tags: (businessType) => GET('/hot-chanjing/tags', { params: businessType ? { business_type: businessType } : {} }),
+  // TTS
+  createTTS: (d) => POST('/hot-chanjing/tts', d),
+  getTTSStatus: (taskId) => GET(`/hot-chanjing/tts/${taskId}`),
+  // 视频合成
   createVideo: (d) => POST('/hot-chanjing/create-video', d),
   getVideo: (id) => GET(`/hot-chanjing/video/${id}`),
+  listVideos: (page, size) => GET('/hot-chanjing/videos', { params: { page, size } }),
+  deleteVideo: (id) => DEL(`/hot-chanjing/videos/${id}`),
+  downloadVideo: (id) => GET(`/hot-chanjing/videos/${id}/download`),
+  // 对口型
+  createLipSync: (d) => POST('/hot-chanjing/lip-sync', d),
+  getLipSync: (id) => GET(`/hot-chanjing/lip-sync/${id}`),
+  listLipSync: (page, size) => GET('/hot-chanjing/lip-sync', { params: { page, size } }),
+  // 定制数字人
+  listCustomPersons: (page, size) => GET('/hot-chanjing/custom-persons', { params: { page, size } }),
+  getCustomPerson: (id) => GET(`/hot-chanjing/custom-persons/${id}`),
+  createCustomPerson: (d) => POST('/hot-chanjing/custom-persons', d),
+  deleteCustomPerson: (id) => DEL(`/hot-chanjing/custom-persons/${id}`),
+  // 定制声音
+  listCustomAudio: (page, size) => GET('/hot-chanjing/custom-audio', { params: { page, size } }),
+  getCustomAudio: (id) => GET(`/hot-chanjing/custom-audio/${id}`),
+  createCustomAudio: (d) => POST('/hot-chanjing/custom-audio', d),
+  deleteCustomAudio: (id) => DEL(`/hot-chanjing/custom-audio/${id}`),
+  // 文件管理
+  getUploadUrl: (service, name) => GET('/hot-chanjing/upload-url', { params: { service, name } }),
+  listFiles: (page, size) => GET('/hot-chanjing/files', { params: { page, size } }),
+  deleteFile: (id) => DEL(`/hot-chanjing/files/${id}`),
+  // 用户信息
+  getUserInfo: () => GET('/hot-chanjing/user/info'),
+  getUserDuration: () => GET('/hot-chanjing/user/duration'),
 }

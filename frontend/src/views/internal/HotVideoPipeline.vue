@@ -94,23 +94,11 @@
 
     <!-- === Step 2: Edit === -->
     <div v-show="step === 2">
-      <el-card header="编辑内容 & 上传素材" class="step-card">
+      <el-card header="编辑内容" class="step-card">
         <el-form :model="editForm" label-width="90px" style="max-width:700px">
           <el-form-item label="标题"><el-input v-model="editForm.title"/></el-form-item>
           <el-form-item label="正文"><el-input v-model="editForm.body" type="textarea" :rows="6"/></el-form-item>
           <el-form-item label="标签"><el-input v-model="editForm.tags" placeholder="逗号分隔"/></el-form-item>
-          <el-form-item label="BGM">
-            <el-upload :auto-upload="false" :limit="1" accept=".mp3,.wav,.m4a" @change="onBgmChange">
-              <el-button size="small">选择音频</el-button>
-            </el-upload>
-            <span v-if="bgmFile" style="color:#67c23a;font-size:12px">{{ bgmFile.name }}</span>
-          </el-form-item>
-          <el-form-item label="背景图">
-            <el-upload :auto-upload="false" :limit="1" accept=".jpg,.jpeg,.png" @change="onBgImgChange">
-              <el-button size="small">选择图片</el-button>
-            </el-upload>
-            <span v-if="bgImgFile" style="color:#67c23a;font-size:12px">{{ bgImgFile.name }}</span>
-          </el-form-item>
           <el-form-item>
             <el-button @click="step=1">上一步</el-button>
             <el-button type="primary" :loading="saving" @click="doSaveContent">保存为草稿</el-button>
@@ -130,27 +118,41 @@
           <el-form-item label="当前内容"><strong>{{ videoForm.title || '请先从内容列表选择' }}</strong></el-form-item>
           <el-form-item label="视频模式">
             <el-select v-model="videoForm.mode" style="width:100%">
-              <el-option label="标准 HUD 字幕 (FFmpeg)" value="standard"/>
-              <el-option label="Inference.sh FLUX+Wan" value="inference"/>
-              <el-option label="可灵 Kling AI" value="kling"/>
               <el-option label="蝉镜数字人" value="chanjing"/>
-              <el-option label="AI 图片序列" value="image_sequence"/>
-              <el-option label="HyperFrames 动态视频" value="hyperframes"/>
+              <el-option label="可灵 Kling AI" value="kling"/>
             </el-select>
           </el-form-item>
           <el-form-item label="画面方向">
             <el-radio-group v-model="videoForm.orientation"><el-radio label="portrait">竖屏 9:16</el-radio><el-radio label="landscape">横屏 16:9</el-radio></el-radio-group>
           </el-form-item>
-          <el-form-item label="语音"><el-input v-model="videoForm.voice" placeholder="zh-CN-YunxiNeural"/></el-form-item>
-          <el-form-item label="语速"><el-slider v-model="videoForm.speed" :min="0.5" :max="2.0" :step="0.1" show-input style="width:300px"/></el-form-item>
 
           <template v-if="videoForm.mode==='chanjing'">
-            <el-form-item label="数字人ID"><el-input v-model="videoForm.person_id"/></el-form-item>
-            <el-form-item label="音色ID"><el-input v-model="videoForm.audio_man_id"/></el-form-item>
+            <el-form-item label="数字人">
+              <div v-if="selectedPerson" class="pipe-sel">
+                <img v-if="selectedPerson.figures&&selectedPerson.figures[0]&&selectedPerson.figures[0].cover" :src="selectedPerson.figures[0].cover" class="pipe-sel-img"/>
+                <span v-else class="pipe-sel-icon">🤖</span>
+                <div class="pipe-sel-info"><strong>{{ selectedPerson.name }}</strong><span class="pipe-sel-sub">{{ selectedPerson.gender }}</span></div>
+                <el-button size="small" @click="showDpDialog=true">更换</el-button>
+              </div>
+              <el-button v-else @click="showDpDialog=true;loadDpList()">选择数字人</el-button>
+            </el-form-item>
+            <el-form-item label="音色">
+              <div v-if="selectedVoice" class="pipe-sel">
+                <span class="pipe-sel-icon">🎙️</span>
+                <div class="pipe-sel-info"><strong>{{ selectedVoice.name }}</strong><span class="pipe-sel-sub">{{ selectedVoice.gender }} · {{ selectedVoice.lang }}</span></div>
+                <el-button size="small" @click="showVoiceDialog=true">更换</el-button>
+              </div>
+              <el-button v-else @click="showVoiceDialog=true;loadVoices()">选择音色</el-button>
+            </el-form-item>
             <el-form-item label="音调"><el-slider v-model="videoForm.pitch" :min="0.5" :max="2.0" :step="0.1" show-input style="width:300px"/></el-form-item>
-            <el-form-item label="字体ID"><el-input v-model="videoForm.font_id" placeholder="可选"/></el-form-item>
-            <el-form-item label="数字人类型"><el-input v-model="videoForm.figure_type" placeholder="如: avatar"/></el-form-item>
-            <el-form-item label="数字人尺寸"><el-input-number v-model="videoForm.figure_width" :min="0"/> x <el-input-number v-model="videoForm.figure_height" :min="0"/></el-form-item>
+            <el-form-item label="字体">
+              <div v-if="selectedFont" class="pipe-sel">
+                <span class="pipe-sel-icon">🔤</span>
+                <div class="pipe-sel-info"><strong>{{ selectedFont.name || selectedFont.font_name || selectedFont.id }}</strong></div>
+                <el-button size="small" @click="showFontDialog=true">更换</el-button>
+              </div>
+              <el-button v-else @click="showFontDialog=true;loadFonts()">选择字体（可选）</el-button>
+            </el-form-item>
           </template>
 
           <el-form-item>
@@ -175,6 +177,53 @@
         <HistoryTable :data="videoHistory" :step="3" @go-step="goStep" @go-video="goToVideo" @publish="publishContent" @approve="approveContent" @reject="rejectContent" @delete="deleteContent"/>
       </el-card>
     </div>
+
+    <!-- 蝉镜资源选择弹窗 -->
+    <el-dialog v-model="showDpDialog" title="选择数字人" width="760px" top="5vh">
+      <div v-if="dpFilters.length" style="margin-bottom:12px">
+        <div v-for="cat in dpFilters" :key="cat.name" style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <span style="font-size:12px;color:#909399;flex-shrink:0;width:36px">{{ cat.name }}</span>
+          <el-button v-for="t in cat.items" :key="t.id" size="small" :type="t.active ? 'primary' : ''" plain @click="toggleDpTag(t.id)">{{ t.name }}</el-button>
+        </div>
+        <el-button v-if="dpFilterTags.length" size="small" type="danger" text @click="dpFilterTags=[];reloadDp()">清除筛选</el-button>
+      </div>
+      <div v-loading="dpLoading" class="resource-grid">
+        <div v-for="p in dpList" :key="p.id" class="resource-card" :class="{selected: videoForm.person_id===p.id}" @click="selectPerson(p)">
+          <img v-if="p.figures&&p.figures[0]&&p.figures[0].cover" :src="p.figures[0].cover" class="rc-img"/>
+          <div v-else class="rc-placeholder">🤖</div>
+          <div class="rc-body"><div class="rc-name">{{ p.name }}</div><div class="rc-meta">{{ p.gender }}</div></div>
+          <el-icon v-if="videoForm.person_id===p.id" class="rc-check"><CircleCheckFilled /></el-icon>
+        </div>
+      </div>
+      <div v-if="dpHasMore" style="text-align:center;padding:12px"><el-button :loading="dpLoading" @click="loadMoreDp">加载更多 ({{ dpList.length }}/723)</el-button></div>
+      <el-empty v-if="!dpLoading && dpList.length===0" description="暂无数字人"/>
+    </el-dialog>
+
+    <el-dialog v-model="showVoiceDialog" title="选择音色" width="700px" top="5vh">
+      <div v-loading="voiceLoading" class="resource-grid voice-grid">
+        <div v-for="v in voiceList" :key="v.id" class="resource-card voice-card" :class="{selected: videoForm.audio_man_id===v.id}" @click="selectVoice(v)">
+          <div class="rc-placeholder voice-icon">🎙️</div>
+          <div class="rc-body"><div class="rc-name">{{ v.name }}</div><div class="rc-meta">{{ v.gender }} · {{ v.lang }}</div></div>
+          <audio v-if="v.audition" :src="v.audition" controls style="width:100%;height:28px;margin-top:4px" @click.stop/>
+          <el-icon v-if="videoForm.audio_man_id===v.id" class="rc-check"><CircleCheckFilled /></el-icon>
+        </div>
+      </div>
+      <el-empty v-if="!voiceLoading && voiceList.length===0" description="暂无音色"/>
+    </el-dialog>
+
+    <el-dialog v-model="showFontDialog" title="选择字体" width="500px" top="5vh">
+      <el-table v-loading="fontLoading" :data="fontList" stripe border size="small" highlight-current-row max-height="50vh">
+        <el-table-column label="字体名称" min-width="160">
+          <template #default="{row}">{{ row.name || row.font_name || row.id }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="80">
+          <template #default="{row}">
+            <el-button size="small" type="primary" link @click="selectFont(row)">选择</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-if="!fontLoading && fontList.length===0" description="暂无字体"/>
+    </el-dialog>
 
     <!-- === Step 4: Publish === -->
     <div v-show="step === 4">
@@ -205,8 +254,8 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Check, ArrowRight } from '@element-plus/icons-vue'
-import { hotContentApi, hotExtractApi } from '../../api/hot-video'
+import { Check, ArrowRight, CircleCheckFilled } from '@element-plus/icons-vue'
+import { hotContentApi, hotExtractApi, hotChanjingApi } from '../../api/hot-video'
 import HistoryTable from './HistoryTable.vue'
 
 const step = ref(0)
@@ -312,25 +361,14 @@ async function doRewrite() {
 
 // ─── Step 2: Edit ───
 const editForm = reactive({ title: '', body: '', tags: '' })
-const bgmFile = ref(null), bgImgFile = ref(null)
 const saving = ref(false), savedContent = ref(null)
-function onBgmChange(file) { bgmFile.value = file?.raw || file }
-function onBgImgChange(file) { bgImgFile.value = file?.raw || file }
 async function doSaveContent() {
   if (!editForm.title || !editForm.body) return ElMessage.warning('标题和正文必填')
   saving.value = true
   try {
     const res = await hotContentApi.create({ title: editForm.title, body: editForm.body, tags: editForm.tags })
     savedContent.value = res.data.data
-    const id = savedContent.value.id
-    if (bgmFile.value || bgImgFile.value) {
-      const fd = new FormData()
-      if (bgmFile.value) fd.append('bgm', bgmFile.value)
-      if (bgImgFile.value) fd.append('bg_image', bgImgFile.value)
-      await hotContentApi.uploadAssets(id, fd)
-    }
     ElMessage.success('已保存为草稿')
-    bgmFile.value = null; bgImgFile.value = null
     await loadContents()
   } catch (e) {
     ElMessage.error(e.response?.data?.message || '保存失败')
@@ -369,8 +407,110 @@ async function deleteContent(id) {
 }
 
 // ─── Step 3: Video ───
-const videoForm = reactive({ contentId: '', title: '', mode: 'standard', orientation: 'portrait', voice: 'zh-CN-YunxiNeural', speed: 1.0, person_id: '', audio_man_id: '', pitch: 1.0, font_id: '', figure_type: '', figure_width: 0, figure_height: 0 })
+const videoForm = reactive({ contentId: '', title: '', mode: 'chanjing', orientation: 'portrait', speed: 1.0, person_id: '', audio_man_id: '', pitch: 1.0, font_id: '', figure_type: '', figure_width: 0, figure_height: 0 })
 const generating = ref(false), videoStatus = ref(null), videoError = ref(''), videoUrl = ref('')
+
+// ─── 蝉镜资源选择 ───
+const dpList = ref([]), voiceList = ref([]), fontList = ref([])
+const dpLoading = ref(false), voiceLoading = ref(false), fontLoading = ref(false)
+const showDpDialog = ref(false), showVoiceDialog = ref(false), showFontDialog = ref(false)
+
+const selectedPerson = computed(() => dpList.value.find(p => p.id === videoForm.person_id))
+const selectedVoice = computed(() => voiceList.value.find(v => v.id === videoForm.audio_man_id))
+const selectedFont = computed(() => fontList.value.find(f => f.id === videoForm.font_id))
+const dpPage = ref(1), dpHasMore = ref(true)
+const dpFilterTags = ref([]) // selected tag_ids
+const dpTagMap = ref({}) // name → id mapping extracted from data
+
+const FILTER_CATEGORIES = [
+  { name: '性别', keys: ['男性', '女性'] },
+  { name: '年龄', keys: ['青年', '中年', '老年'] },
+  { name: '职业', keys: ['教师', '主持人', '商务', '律师', '金融', '医生', '厨师', '农民', '家政', '学生', '工程师', '带货博主', '程序员'] },
+]
+const dpFilters = computed(() => {
+  return FILTER_CATEGORIES.map(cat => ({
+    name: cat.name,
+    items: cat.keys.filter(k => dpTagMap.value[k] != null).map(k => ({
+      name: k, id: dpTagMap.value[k], active: dpFilterTags.value.includes(dpTagMap.value[k])
+    }))
+  })).filter(c => c.items.length)
+})
+
+function _extractTags(list) {
+  for (const p of list) {
+    if (p.tag_ids && p.tag_names) {
+      for (let i = 0; i < p.tag_ids.length; i++) {
+        if (!dpTagMap.value[p.tag_names[i]]) dpTagMap.value[p.tag_names[i]] = p.tag_ids[i]
+      }
+    }
+  }
+}
+
+function toggleDpTag(tagId) {
+  const idx = dpFilterTags.value.indexOf(tagId)
+  if (idx >= 0) dpFilterTags.value.splice(idx, 1)
+  else dpFilterTags.value.push(tagId)
+  reloadDp()
+}
+
+async function reloadDp() {
+  dpPage.value = 1; dpHasMore.value = true; dpLoading.value = true
+  try {
+    const d = (await hotChanjingApi.digitalPersons(1, 50, dpFilterTags.value)).data.data
+    dpList.value = d?.list || []
+    dpHasMore.value = (d?.list?.length || 0) >= 50
+    _extractTags(dpList.value)
+  } catch (e) { ElMessage.error('加载数字人失败: ' + (e.response?.data?.message || e.message)) }
+  dpLoading.value = false
+}
+
+async function loadDpList() {
+  if (dpList.value.length) return
+  dpPage.value = 1; dpHasMore.value = true; dpFilterTags.value = []
+  dpLoading.value = true
+  try {
+    const d = (await hotChanjingApi.digitalPersons(1, 50)).data.data
+    dpList.value = d?.list || []
+    dpHasMore.value = (d?.list?.length || 0) >= 50
+    _extractTags(dpList.value)
+  } catch (e) { ElMessage.error('加载数字人失败: ' + (e.response?.data?.message || e.message)) }
+  dpLoading.value = false
+}
+async function loadMoreDp() {
+  dpLoading.value = true; dpPage.value++
+  try {
+    const d = (await hotChanjingApi.digitalPersons(dpPage.value, 50, dpFilterTags.value)).data.data
+    const more = d?.list || []
+    dpList.value = [...dpList.value, ...more]
+    dpHasMore.value = more.length >= 50
+  } catch (e) { ElMessage.error('加载数字人失败: ' + (e.response?.data?.message || e.message)) }
+  dpLoading.value = false
+}
+async function loadVoices() {
+  if (voiceList.value.length) return
+  voiceLoading.value = true
+  try { const d = (await hotChanjingApi.voices(1, 100)).data.data; voiceList.value = d?.list || [] } catch (e) { ElMessage.error('加载音色失败: ' + (e.response?.data?.message || e.message)) }
+  voiceLoading.value = false
+}
+async function loadFonts() {
+  if (fontList.value.length) return
+  fontLoading.value = true
+  try { const d = (await hotChanjingApi.fonts()).data.data; fontList.value = Array.isArray(d) ? d : (d?.list || []) } catch (e) { ElMessage.error('加载字体失败: ' + (e.response?.data?.message || e.message)) }
+  fontLoading.value = false
+}
+function selectPerson(p) {
+  videoForm.person_id = p.id
+  if (p.audio_man_id && !videoForm.audio_man_id) videoForm.audio_man_id = p.audio_man_id
+  const firstFig = p.figures?.[0]
+  if (firstFig) {
+    videoForm.figure_type = firstFig.type
+    videoForm.figure_width = firstFig.width || 0
+    videoForm.figure_height = firstFig.height || 0
+  }
+  showDpDialog.value = false
+}
+function selectVoice(v) { videoForm.audio_man_id = v.id; showVoiceDialog.value = false }
+function selectFont(f) { videoForm.font_id = f.id; showFontDialog.value = false }
 
 async function doGenerateVideo() {
   if (!videoForm.contentId) return ElMessage.warning('请先从内容列表选择要生成视频的内容')
@@ -380,7 +520,6 @@ async function doGenerateVideo() {
     const params = {
       orientation: videoForm.orientation,
       video_mode: videoForm.mode,
-      voice: videoForm.voice,
       speed: videoForm.speed,
       person_id: videoForm.person_id,
       audio_man_id: videoForm.audio_man_id,
@@ -522,4 +661,31 @@ onMounted(loadContents)
 .step-card {
   border-top: 3px solid #409eff;
 }
+
+/* ─── 蝉镜资源选择 ─── */
+.pipe-sel {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; background: #f8f7ff; border-radius: 8px;
+  border: 1px solid #ece8f8; max-width: 420px;
+}
+.pipe-sel-img { width: 44px; height: 44px; border-radius: 6px; object-fit: cover; }
+.pipe-sel-icon { width: 44px; height: 44px; border-radius: 6px; background: #f0ecfc; display: flex; align-items: center; justify-content: center; font-size: 20px; }
+.pipe-sel-info { flex: 1; min-width: 0; }
+.pipe-sel-info strong { display: block; font-size: 14px; }
+.pipe-sel-sub { font-size: 12px; color: #909399; }
+
+.resource-grid { display: flex; flex-wrap: wrap; gap: 12px; max-height: 60vh; overflow-y: auto; }
+.resource-card {
+  width: 190px; border: 2px solid #ebeef5; border-radius: 10px; padding: 10px;
+  cursor: pointer; position: relative; transition: all 0.2s; text-align: center;
+}
+.resource-card:hover { border-color: #409eff; box-shadow: 0 2px 12px rgba(64,158,255,0.1); }
+.resource-card.selected { border-color: #409eff; background: #ecf5ff; }
+.rc-img { width: 100%; height: 160px; object-fit: cover; border-radius: 6px; }
+.rc-placeholder { width: 100%; height: 120px; border-radius: 6px; background: #f0ecfc; display: flex; align-items: center; justify-content: center; font-size: 48px; }
+.voice-card .rc-placeholder { height: 80px; font-size: 36px; }
+.rc-body { margin-top: 8px; text-align: left; }
+.rc-name { font-weight: 600; font-size: 14px; }
+.rc-meta { font-size: 12px; color: #909399; margin-top: 2px; }
+.rc-check { position: absolute; top: 8px; right: 8px; font-size: 22px; color: #409eff; }
 </style>

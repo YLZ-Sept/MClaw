@@ -6,6 +6,7 @@ const os = require('os');
 const config = require('../config');
 const { chat } = require('./llm');
 const { tts: edgeTts, sanitizeText } = require('./tts');
+const { createTTS, getTTS } = require('./chanjing-api');
 
 const VIDEOS_DIR = path.join(__dirname, '..', 'videos');
 
@@ -21,8 +22,42 @@ function _getDimensions(orientation) {
 }
 
 // ─── TTS ───
-async function _tts(text, voice, speed) {
+async function _tts(text, voice, speed, ttsProvider = 'edge') {
+  if (ttsProvider === 'chanjing') {
+    return _chanjingTts(text, voice, speed);
+  }
   return edgeTts(text, voice, speed);
+}
+
+async function _chanjingTts(text, voice, speed) {
+  const { createTTS, getTTS } = require('./chanjing-api');
+  // Submit TTS task
+  const { task_id } = await createTTS({
+    audio_man: voice,
+    speed: speed || 1.0,
+    pitch: 1.0,
+    text: { text, plain_text: text },
+  });
+  // Poll for completion
+  for (let i = 0; i < 60; i++) {
+    await new Promise(r => setTimeout(r, 2000));
+    const state = await getTTS(task_id);
+    if (state.status === 1) {
+      const audioUrl = state.full?.url || state.full?.path;
+      if (!audioUrl) throw new Error('蝉镜 TTS 未返回音频地址');
+      // Download audio
+      const dest = path.join(VIDEOS_DIR, `tts_${task_id}.wav`);
+      const resp = await fetch(audioUrl, { signal: AbortSignal.timeout(60000) });
+      if (!resp.ok) throw new Error(`下载蝉镜 TTS 音频失败: HTTP ${resp.status}`);
+      const buffer = Buffer.from(await resp.arrayBuffer());
+      fs.writeFileSync(dest, buffer);
+      return dest;
+    }
+    if (state.status === -1) {
+      throw new Error(`蝉镜 TTS 失败: ${state.errMsg || state.errReason || '未知错误'}`);
+    }
+  }
+  throw new Error('蝉镜 TTS 超时（2分钟）');
 }
 
 // ─── Translation ───
@@ -103,9 +138,89 @@ function _escapeFfmpegText(text) {
   return String(text).replace(/\\/g, '\\\\').replace(/:/g, '\\:').replace(/'/g, "\\'").replace(/%/g, '\\%');
 }
 
+function _extractFfmpegError(stderr) {
+  // Find the first actual error line, skipping the config banner
+  const lines = stderr.split('\n');
+  const errIdx = lines.findIndex(l => l.includes('Error') || l.includes('Invalid') || l.includes('No such'));
+  if (errIdx >= 0) {
+    const start = Math.max(0, errIdx - 3);
+    const end = Math.min(lines.length, errIdx + 5);
+    return lines.slice(start, end).join('\n');
+  }
+  // Fallback: last meaningful lines before the filter dump
+  return lines.slice(-10).join('\n');
+}
+
 function _escapeFontPath(p) {
+  // TTC fonts cause issues with drawtext — prefer simhei.ttf
+  if (p.toLowerCase().endsWith('.ttc')) {
+    const ttf = p.replace(/msyh\.ttc$/i, 'simhei.ttf').replace(/msyhbd\.ttc$/i, 'simhei.ttf');
+    if (require('fs').existsSync(ttf)) p = ttf;
+  }
   const safe = p.replace(/\\/g, '/').replace(/:/g, '\\:');
   return `'${safe}'`;
+}
+
+// ─── Ken Burns zoompan for a single image ───
+function _kenBurnsFilter(imgIdx, W, H, fps, segFrames, direction) {
+  // direction: 1 = zoom in, -1 = zoom out
+  const zoomStart = direction === 1 ? 1.0 : 1.12;
+  const zoomEnd = direction === 1 ? 1.12 : 1.0;
+  const zoomStep = (zoomEnd - zoomStart) / segFrames;
+  return `[${imgIdx}:v]zoompan=z='min(max(zoom+${zoomStep.toFixed(6)},1.0),1.15)':` +
+    `d=${segFrames}:` +
+    `x='iw/2-(iw/zoom/2)+sin(on*0.04)*15':` +
+    `y='ih/2-(ih/zoom/2)+cos(on*0.03)*10':` +
+    `s=${W}x${H}:fps=${fps}[v${imgIdx}]`;
+}
+
+// ─── Multi-image slideshow with Ken Burns + crossfade ───
+function _buildSlideshow(imagePaths, W, H, fps, totalDuration, xfadeDuration) {
+  const n = imagePaths.length;
+  if (n === 0) return null;
+  if (n === 1) {
+    // Single image: just Ken Burns, no xfade needed
+    const segFrames = Math.ceil(totalDuration * fps);
+    return {
+      inputs: imagePaths.map(p => ({ path: p, loop: true })),
+      filter: _kenBurnsFilter(0, W, H, fps, segFrames, 1) + `;[v0]trim=duration=${totalDuration}[bg]`,
+    };
+  }
+  // Multiple images with crossfade
+  const segmentDur = (totalDuration - xfadeDuration * (n - 1)) / n;
+  if (segmentDur < 1) {
+    // Too short, just concat without xfade
+    const segFrames = Math.ceil(totalDuration / n * fps);
+    const inputs = imagePaths.map(p => ({ path: p, loop: true }));
+    let filter = imagePaths.map((_, i) =>
+      _kenBurnsFilter(i, W, H, fps, segFrames, i % 2 === 0 ? 1 : -1)
+    ).join(';') + ';';
+    // concat
+    filter += imagePaths.map((_, i) => `[v${i}]`).join('') + `concat=n=${n}:v=1:a=0,trim=duration=${totalDuration}[bg]`;
+    return { inputs, filter };
+  }
+
+  const segFrames = Math.ceil(segmentDur * fps);
+  const xfadeFrames = Math.ceil(xfadeDuration * fps);
+  const inputs = imagePaths.map(p => ({ path: p, loop: true }));
+
+  // Build Ken Burns segments
+  let filter = imagePaths.map((_, i) =>
+    _kenBurnsFilter(i, W, H, fps, segFrames, i % 2 === 0 ? 1 : -1)
+  ).join(';') + ';';
+
+  // Chain xfade
+  const offset = segmentDur - xfadeDuration;
+  let prev = 'v0';
+  for (let i = 1; i < n; i++) {
+    const next = `x${i}`;
+    const off = offset * i;
+    filter += `[${prev}][v${i}]xfade=transition=fade:duration=${xfadeDuration}:offset=${off.toFixed(2)}[${next}];`;
+    prev = next;
+  }
+  filter += `[${prev}]trim=duration=${totalDuration}[bg]`;
+
+  return { inputs, filter };
 }
 
 // ─── Render video (standard mode) ───
@@ -161,26 +276,44 @@ function _renderVideo({ duration, audioPath, srtCnPath, srtEnPath, title, brand,
       `[out]`;
 
     let cmdArgs = [config.ffmpegBin, '-y'];
-    let audioInputIdx = 0;
 
+    // Parse bg images: support comma-separated paths or JSON array
+    let bgImages = [];
     if (bgImagePath) {
-      const imgAbs = path.resolve(bgImagePath).replace(/\\/g, '/');
-      cmdArgs.push('-stream_loop', '-1', '-loop', '1', '-i', imgAbs);
-      const filterChain = `[0:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},fps=${FPS}[bg];[bg]` + hudAndText;
-      audioInputIdx = 1;
+      try { bgImages = JSON.parse(bgImagePath); } catch {
+        bgImages = bgImagePath.split(',').map(p => p.trim()).filter(Boolean);
+      }
+    }
+
+    let audioInputIdx;
+    let ttsIdx;
+
+    if (bgImages.length > 0) {
+      const slideshow = _buildSlideshow(bgImages, W, H, FPS, duration, 0.8);
+      // Add image inputs
+      for (const img of slideshow.inputs) {
+        const imgAbs = path.resolve(img.path).replace(/\\/g, '/');
+        cmdArgs.push('-loop', '1', '-i', imgAbs);
+      }
+      audioInputIdx = bgImages.length;
       cmdArgs.push('-i', audioAbs);
-      const ttsIdx = audioInputIdx;
+      ttsIdx = audioInputIdx;
+
+      const filterChain = slideshow.filter + ';[bg]' + hudAndText;
 
       if (bgmPath) {
         const bgmAbs = path.resolve(bgmPath).replace(/\\/g, '/');
         const bgmIdx = audioInputIdx + 1;
         cmdArgs.push('-i', bgmAbs);
-        const fullFilter = filterChain + `;[${ttsIdx}:a]volume=1.0[tts];[${bgmIdx}:a]volume=0.15[bgm];[tts][bgm]amix=inputs=2:duration=first:dropout_transition=2[outa]`;
+        const fullFilter = filterChain +
+          `;[${ttsIdx}:a]volume=1.0[tts];[${bgmIdx}:a]volume=0.18[bgm];` +
+          `[bgm][tts]sidechaincompress=threshold=0.06:ratio=3:attack=80:release=300[outa]`;
         cmdArgs.push('-filter_complex', fullFilter, '-map', '[out]', '-map', '[outa]');
       } else {
         cmdArgs.push('-filter_complex', filterChain, '-map', '[out]', '-map', `${ttsIdx}:a`);
       }
     } else {
+      // No images: gradient + cell auto background
       cmdArgs.push(
         '-f', 'lavfi',
         '-i', `gradients=s=${W}x${H}:c0=0x080f1a:c1=0x0c1f38:c2=0x0a1830:n=3:x0=${Math.floor(W / 2)}:y0=0:x1=${Math.floor(W / 2)}:y1=${H}:speed=0.002:r=${FPS}:d=${dur}`,
@@ -189,14 +322,16 @@ function _renderVideo({ duration, audioPath, srtCnPath, srtEnPath, title, brand,
         '-i', audioAbs
       );
       audioInputIdx = 2;
-      const ttsIdx = audioInputIdx;
+      ttsIdx = audioInputIdx;
       const filterChain = `[0:v][1:v]blend=all_mode=screen:all_opacity=0.22[bg];[bg]` + hudAndText;
 
       if (bgmPath) {
         const bgmAbs = path.resolve(bgmPath).replace(/\\/g, '/');
         const bgmIdx = audioInputIdx + 1;
         cmdArgs.push('-i', bgmAbs);
-        const fullFilter = filterChain + `;[${ttsIdx}:a]volume=1.0[tts];[${bgmIdx}:a]volume=0.15[bgm];[tts][bgm]amix=inputs=2:duration=first:dropout_transition=2[outa]`;
+        const fullFilter = filterChain +
+          `;[${ttsIdx}:a]volume=1.0[tts];[${bgmIdx}:a]volume=0.18[bgm];` +
+          `[bgm][tts]sidechaincompress=threshold=0.06:ratio=3:attack=80:release=300[outa]`;
         cmdArgs.push('-filter_complex', fullFilter, '-map', '[out]', '-map', '[outa]');
       } else {
         cmdArgs.push('-filter_complex', filterChain, '-map', '[out]', '-map', `${ttsIdx}:a`);
@@ -211,7 +346,7 @@ function _renderVideo({ duration, audioPath, srtCnPath, srtEnPath, title, brand,
 
     const proc = execFile(cmdArgs.shift(), cmdArgs, { timeout: 900000, windowsHide: true }, (err, stdout, stderr) => {
       if (err) {
-        const msg = stderr ? stderr.slice(-800) : err.message;
+        const msg = stderr ? _extractFfmpegError(stderr) : err.message;
         reject(new Error(`FFmpeg failed: ${msg}`));
         return;
       }
@@ -276,7 +411,7 @@ function _renderVideoWithAiBg({ duration, audioPath, srtPath, aiVideoPath, title
 
     execFile(cmdArgs.shift(), cmdArgs, { timeout: 900000, windowsHide: true }, (err, stdout, stderr) => {
       if (err) {
-        const msg = stderr ? stderr.slice(-800) : err.message;
+        const msg = stderr ? _extractFfmpegError(stderr) : err.message;
         reject(new Error(`FFmpeg AI video failed: ${msg}`));
         return;
       }
@@ -286,14 +421,14 @@ function _renderVideoWithAiBg({ duration, audioPath, srtPath, aiVideoPath, title
 }
 
 // ─── Main generate functions ───
-async function generateVideo(contentId, contentTitle, contentBody, brandName, orientation = 'portrait', voice = 'zh-CN-YunxiNeural', speed = 1.0, bgmPath = null, bgImagePath = null) {
+async function generateVideo(contentId, contentTitle, contentBody, brandName, orientation = 'portrait', voice = 'zh-CN-YunxiNeural', speed = 1.0, bgmPath = null, bgImagePath = null, ttsProvider = 'edge') {
   if (!fs.existsSync(VIDEOS_DIR)) fs.mkdirSync(VIDEOS_DIR, { recursive: true });
 
   const ttsText = sanitizeText(`${contentTitle}。${contentBody}`);
   const safeTitle = sanitizeText(contentTitle);
   const safeBrand = sanitizeText(brandName);
   const [audioPath, enText] = await Promise.all([
-    _tts(ttsText, voice, speed),
+    _tts(ttsText, voice, speed, ttsProvider),
     _translateEn(ttsText)
   ]);
 

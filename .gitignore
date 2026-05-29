@@ -11,3 +11,5 @@ backend/browser-profile/
 backend/test-hf-output.html
 *.traineddata
 .vite/deps/
+backend/.env
+__pycache__/

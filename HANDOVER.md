@@ -12,7 +12,7 @@
 | 后端 | Node.js + Express |
 | 数据库 | SQLite (better-sqlite3) |
 | AI | OpenAI 兼容 API（DeepSeek/小米 MiMo/Anthropic/智谱/Kimi 等） |
-| 视频 | FFmpeg + edge-tts + HyperFrames + 可灵/蝉镜/Inference.sh |
+| 视频 | FFmpeg + edge-tts + 可灵/蝉镜 |
 | 浏览器自动化 | Playwright |
 
 ## 目录结构
@@ -43,10 +43,8 @@ MClaw/
 │   │   ├── video-generator.js     # FFmpeg 视频合成引擎
 │   │   ├── hyperframes-video.js   # HyperFrames 动态视频
 │   │   ├── tts.js + tts.py        # edge-tts 语音合成
-│   │   ├── chanjing-api.js        # 蝉镜数字人 API
+│   │   ├── chanjing-api.js        # 蝉镜 API（16 函数：TTS/对口型/视频/数字人）
 │   │   ├── kling-video.js         # 可灵 AI 视频
-│   │   ├── ai-video.js            # Inference.sh AI 视频
-│   │   ├── image-sequence-video.js # 图片序列转视频
 │   │   ├── content-*.js           # 内容提取/改写/生成
 │   │   ├── intent-classifier.js   # 意图分类
 │   │   ├── auto-reply.js          # 自动回复
@@ -84,6 +82,7 @@ MClaw/
 │               ├── HotLeads.vue            # 线索管理
 │               ├── HotQuickReply.vue       # 快捷回复
 │               └── HistoryTable.vue        # 历史表格组件
+│           ├── ChanjingStudio.vue   # 蝉镜工作室（8 个 Tab）
 ```
 
 ## 启动方式
@@ -97,6 +96,8 @@ cd frontend && npx vite --host 0.0.0.0
 ```
 
 前端 Vite 代理 `/api` → `http://localhost:3001`
+
+**注意**: 后端启动前需在 `backend/.env` 配置 API 密钥，`server.js` 通过 `require('dotenv').config()` 加载。
 
 ## 数据库核心表
 
@@ -125,20 +126,25 @@ cd frontend && npx vite --host 0.0.0.0
 ### 1. 爆款视频流水线（5 步）
 
 ```
-[Step 1 提取] → [Step 2 改写] → [Step 3 视频] → [Step 4 发布] → [Step 5 监控]
-   粘贴链接         AI 改写         生成视频         发布平台         数据看板
+[Step 1 提取] → [Step 2 改写] → [Step 3 编辑] → [Step 4 视频] → [Step 5 发布]
+   粘贴链接         AI 改写         编辑文案         生成视频         发布平台
 ```
 
-**6 种视频模式**：
+**2 种视频模式**：
 
 | 模式 | 说明 | 需要的 API Key |
 |---|---|---|
-| `standard` | FFmpeg 标准合成（HUD 字幕 + BGM） | FFmpeg + edge-tts |
-| `hyperframes` | HTML 模板 → Chrome 渲染动画视频 | 无（本地 npx） |
-| `inference` | FLUX 生图 + Wan 生成视频 | `INFERENCE_API_KEY` |
+| `chanjing` | 蝉镜数字人播报（默认） | `CHANJING_APP_ID` + `SECRET_KEY` |
 | `kling` | 可灵 AI 视频生成 | `KLINGAI_ACCESS_KEY` + `SECRET_KEY` |
-| `chanjing` | 蝉镜数字人播报 | `CHANJING_APP_ID` + `SECRET_KEY` |
-| `image_sequence` | AI 图片序列幻灯片 | FFmpeg + AI 图片 API |
+
+> 已移除：`standard`（FFmpeg 标准字幕合成）、`inference`、`hyperframes`、`image_sequence`。
+
+**蝉镜数字人选择界面**（Step 4）：
+- 数字人/音色/字体弹窗卡片网格选择，从蝉镜 API 实时拉取
+- 723 个数字人，分页加载（50/页），支持标签筛选（性别/年龄/职业）
+- 选中数字人后自动带出默认音色、figure 类型和尺寸（类型和尺寸隐藏不显示）
+- 字幕默认位于画面底部（y=1680）
+- 音色库 91 个，支持试听预览
 
 ### 2. Agent 聊天流程
 
@@ -162,13 +168,13 @@ POST /api/chat/send {content, agent, stream}
 
 ## 关键配置
 
-`backend/config.js` 需要配置的环境变量：
+`backend/config.js` 从 `backend/.env` 加载环境变量（`server.js` 启动时调用 `dotenv.config()`）：
 
 | 变量 | 必需 | 说明 |
 |---|---|---|
 | `FFMPEG_BIN` | 否 | FFmpeg 路径，默认 `ffmpeg` |
 | `FFPROBE_BIN` | 否 | FFprobe 路径，默认 `ffprobe` |
-| `FONT_PATH` | 推荐 | 中文字体，默认微软雅黑 |
+| `FONT_PATH` | 否 | 中文字体，默认 `simhei.ttf`（黑体，不用微软雅黑 .ttc） |
 | `KLINGAI_ACCESS_KEY` / `SECRET_KEY` | kling 模式需 | 可灵 API |
 | `CHANJING_APP_ID` / `SECRET_KEY` | chanjing 模式需 | 蝉镜 API |
 | `INFERENCE_API_KEY` | inference 模式需 | Inference.sh |
@@ -185,6 +191,41 @@ POST /api/chat/send {content, agent, stream}
 
 自定义 Agent 通过 UI（AgentManagement.vue）创建，存储在 `agent_apps` 表。
 
+## 蝉镜 API 集成
+
+蝉镜（open-api.chanjing.cc）提供数字人视频合成能力，`hot-chanjing.js` 路由代理了 16 个端点：
+
+### 已接通功能
+
+| 分类 | 路由 | 功能 |
+|---|---|---|
+| 公共资源 | `GET /digital-persons` | 723 个公共数字人（分页/标签筛选） |
+| 公共资源 | `GET /voices` | 100+ 公共音色（试听预览） |
+| 公共资源 | `GET /fonts` | 平台字体列表 |
+| 公共资源 | `GET /tags` | 标签字典 |
+| 视频合成 | `POST /create-video` | 创建数字人视频合成任务 |
+| 视频合成 | `GET /video/:id` | 查询任务状态/结果 |
+| 视频合成 | `GET /videos` | 视频列表（分页） |
+| 视频合成 | `DELETE /videos/:id` | 删除视频 |
+| 视频合成 | `GET /videos/:id/download` | 下载视频（302 重定向） |
+| 对口型 | `POST /lip-sync` | 照片说话 — 图片+音频合成对口型视频 |
+| 对口型 | `GET /lip-sync/:id` | 查询对口型任务状态 |
+| 对口型 | `GET /lip-sync` | 对口型任务列表 |
+| TTS | `POST /tts` | 文字转语音 |
+| TTS | `GET /tts/:taskId` | 查询 TTS 任务状态 |
+| 文件 | `GET /upload-url` | 获取 OSS 预签名上传 URL |
+| 用户 | `GET /user/info` | 用户信息/配额 |
+| 用户 | `GET /user/duration` | 蝉豆余额 |
+
+### 前端集成
+
+- **爆款流水线 Step 3**：蝉镜模式 — 数字人/音色/字体弹窗卡片选择，自动填充 figure 类型和尺寸
+- **ChanjingStudio.vue**（8 个 Tab）：文案提取、文案创作、智能成片、照片说话、数字人库、声音库、批量生成、我的视频
+
+### 配置
+
+`backend/.env` 中的 `CHANJING_APP_ID` + `CHANJING_SECRET_KEY`，`server.js` 启动时通过 `require('dotenv').config()` 加载。
+
 ## 常见问题
 
 **Q: 视频生成报 `ffmpeg: command not found`**
@@ -196,14 +237,14 @@ A: 已修复（`sanitizeText()` 过滤孤立代理字符 + Python 端 `surrogate
 **Q: FFmpeg 内存暴增到 7-8GB**
 A: 已修复（`loop=-1:32767` 改为 `-stream_loop -1` 输入选项），如再出现检查 filter 链中是否误用了 loop 滤镜。
 
-**Q: HyperFrames 视频没内容/没效果**
-A: 已修复（CSS 动画替代 GSAP CDN、中文字体映射、分句逻辑重写），渲染日志无报错即可正常生成。
-
-**Q: `npx hyperframes render` 报 ENOENT**
-A: Windows 下使用 `exec(cmd, {shell: true})` 而非 `execFile`，已修复。
-
 **Q: `.db` 文件冲突**
 A: `internal.db` 已加入 `.gitignore`，但如已被 Git 跟踪需手动 `git rm --cached` 移除。
+
+**Q: 蝉镜数字人/音色库加载为空**
+A: 检查 `backend/.env` 是否配置了 `CHANJING_APP_ID` 和 `CHANJING_SECRET_KEY`，确认 `server.js` 有 `require('dotenv').config()`。重启后端后刷新页面。
+
+**Q: FFmpeg 报 `font_index` Option not found 或字体错误**
+A: 默认字体已改为 `C:/Windows/Fonts/simhei.ttf`（黑体），避免微软雅黑 `.ttc` 字体集合兼容问题。`_escapeFontPath()` 会自动检测 `.ttc` 并替换。
 
 ## 模型配置
 

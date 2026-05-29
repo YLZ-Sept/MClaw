@@ -88,7 +88,7 @@ router.post('/generate', async (req, res) => {
 
 // ─── 上传素材 ───
 
-router.post('/:id/assets', upload.fields([{ name: 'bgm', maxCount: 1 }, { name: 'bg_image', maxCount: 1 }]), (req, res) => {
+router.post('/:id/assets', upload.fields([{ name: 'bgm', maxCount: 1 }, { name: 'bg_image', maxCount: 5 }]), (req, res) => {
   const cur = db.prepare('SELECT * FROM hot_contents WHERE id=?').get(req.params.id);
   if (!cur) return res.status(404).json({ code: 404, message: '内容不存在' });
 
@@ -101,11 +101,15 @@ router.post('/:id/assets', upload.fields([{ name: 'bgm', maxCount: 1 }, { name: 
     db.prepare('UPDATE hot_contents SET bgm_path=? WHERE id=?').run(dest, req.params.id);
   }
 
-  if (files.bg_image?.[0]) {
-    const ext = path.extname(files.bg_image[0].originalname) || '.jpg';
-    const dest = path.join(VIDEOS_DIR, `bgimg_${req.params.id}${ext}`);
-    fs.renameSync(files.bg_image[0].path, dest);
-    db.prepare('UPDATE hot_contents SET bg_image_path=? WHERE id=?').run(dest, req.params.id);
+  if (files.bg_image?.length) {
+    const paths = [];
+    files.bg_image.forEach((f, i) => {
+      const ext = path.extname(f.originalname) || '.jpg';
+      const dest = path.join(VIDEOS_DIR, `bgimg_${req.params.id}_${i}${ext}`);
+      fs.renameSync(f.path, dest);
+      paths.push(dest);
+    });
+    db.prepare('UPDATE hot_contents SET bg_image_path=? WHERE id=?').run(JSON.stringify(paths), req.params.id);
   }
 
   const row = db.prepare('SELECT * FROM hot_contents WHERE id=?').get(req.params.id);
@@ -164,6 +168,7 @@ router.post('/:id/generate-video', (req, res) => {
   const figureType = req.query.figure_type || '';
   const figureWidth = parseInt(req.query.figure_width) || 0;
   const figureHeight = parseInt(req.query.figure_height) || 0;
+  const ttsProvider = req.query.tts_provider || 'edge'; // 'edge' | 'chanjing'
 
   // Validate mode configuration
   if (videoMode === 'inference' && !require('../config').inferenceApiKey) {
@@ -208,7 +213,7 @@ router.post('/:id/generate-video', (req, res) => {
           person: { id: personId, height: figureHeight, width: figureWidth, x: 0, y: 0, figure_type: figureType },
           audio: { type: 'tts', tts: { audio_man: audioManId, speed, pitch, text: [text] }, volume: 100 },
           subtitle_config: {
-            show: true, font_size: 36, x: 0, y: 0, width: 1080, height: 240,
+            show: true, font_size: 36, x: 0, y: 1680, width: 1080, height: 240,
             color: '#E8954C', stroke_color: '#080F1A', stroke_width: 2.0, asr_type: 0,
             ...(fontId ? { font_id: fontId } : {})
           },
@@ -233,7 +238,7 @@ router.post('/:id/generate-video', (req, res) => {
       } else if (videoMode === 'hyperframes') {
         videoPath = await hyperframesVideo.generateHyperFramesVideo(contentId, cur.title, cur.body, brand, orientation, voice, speed);
       } else {
-        const result = await videoGen.generateVideo(contentId, cur.title, cur.body, brand, orientation, voice, speed, bgm, bgImg);
+        const result = await videoGen.generateVideo(contentId, cur.title, cur.body, brand, orientation, voice, speed, bgm, bgImg, ttsProvider);
         videoPath = result.videoPath;
       }
 

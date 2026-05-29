@@ -4,7 +4,7 @@ module.exports = {
   ffmpegBin: process.env.FFMPEG_BIN || 'ffmpeg',
   ffprobeBin: process.env.FFPROBE_BIN || 'ffprobe',
   // Video rendering
-  fontPath: process.env.FONT_PATH || 'C:/Windows/Fonts/msyh.ttc',
+  fontPath: process.env.FONT_PATH || 'C:/Windows/Fonts/simhei.ttf',
   videoWidth: parseInt(process.env.VIDEO_WIDTH) || 1080,
   videoHeight: parseInt(process.env.VIDEO_HEIGHT) || 1920,
   videoFps: parseInt(process.env.VIDEO_FPS) || 24,
