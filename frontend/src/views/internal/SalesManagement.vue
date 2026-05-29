@@ -440,7 +440,7 @@ async function delOp(id) { try { await ElMessageBox.confirm('确认删除?'); aw
 
 // ─── CRM 合同 ───
 const cnDlg = reactive({ visible: false, ed: false, editId: '', form: {} })
-function openCnDlg(r) { cnDlg.ed = !!r; cnDlg.editId = r?.id || ''; cnDlg.form = r ? { ...r } : {}; cnDlg.visible = true }
+function openCnDlg(r) { cnDlg.ed = !!r; cnDlg.editId = r?.id || ''; Object.keys(cnDlg.form).forEach(k=>delete cnDlg.form[k]); if(r) Object.assign(cnDlg.form, r); cnDlg.visible = true }
 async function saveCn() {
   saving.value = true
   cnDlg.ed ? await contractApi.update(cnDlg.editId, cnDlg.form) : await contractApi.create(cnDlg.form)
