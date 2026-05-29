@@ -14,9 +14,6 @@ db.exec(`DROP TABLE IF EXISTS inventory`);
 
 db.exec(`
   -- ========== CRM ==========
-  DROP TABLE IF EXISTS follow_ups;
-  DROP TABLE IF EXISTS contacts;
-  DROP TABLE IF EXISTS customers;
   CREATE TABLE IF NOT EXISTS customers (
     id TEXT PRIMARY KEY, name TEXT NOT NULL, phone TEXT,
     company TEXT, position TEXT, gender TEXT,
@@ -38,15 +35,6 @@ db.exec(`
     created_at TEXT DEFAULT (datetime('now','localtime'))
   );
 
-  DROP TABLE IF EXISTS leads;
-
-  DROP TABLE IF EXISTS marketing_campaigns;
-  DROP TABLE IF EXISTS quotations;
-  DROP TABLE IF EXISTS quotation_items;
-  DROP TABLE IF EXISTS tickets;
-  DROP TABLE IF EXISTS customer_feedback;
-
-  DROP TABLE IF EXISTS contracts;
   CREATE TABLE IF NOT EXISTS contracts (
     id TEXT PRIMARY KEY, title TEXT NOT NULL,
     contract_no TEXT, sales_owner TEXT,
@@ -57,8 +45,6 @@ db.exec(`
     invoice TEXT, delivery_progress TEXT, remark TEXT,
     created_at TEXT DEFAULT (datetime('now','localtime'))
   );
-
-  DROP TABLE IF EXISTS opportunities;
 
   -- ========== 进销存 ==========
   CREATE TABLE IF NOT EXISTS products (

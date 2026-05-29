@@ -40,10 +40,24 @@
         <el-card header="文字智能成片">
           <el-form label-width="90px" style="max-width:650px">
             <el-form-item label="文案"><el-input v-model="smartForm.text" type="textarea" :rows="5" placeholder="输入要生成视频的口播文案"/></el-form-item>
-            <el-row :gutter="12">
-              <el-col :span="12"><el-form-item label="数字人"><el-select v-model="smartForm.personId" filterable placeholder="选择数字人" style="width:100%"><el-option v-for="p in dpList" :key="p.id" :label="p.name" :value="p.id"/></el-select></el-form-item></el-col>
-              <el-col :span="12"><el-form-item label="声音"><el-select v-model="smartForm.audioId" filterable placeholder="选择声音" style="width:100%"><el-option v-for="v in voiceList" :key="v.id" :label="`${v.name} (${v.gender||''})`" :value="v.id"/></el-select></el-form-item></el-col>
-            </el-row>
+            <el-form-item label="数字人">
+              <div v-if="smartSelectedPerson" class="pipe-sel" style="max-width:420px">
+                <img v-if="smartSelectedPerson.figures&&smartSelectedPerson.figures[0]&&smartSelectedPerson.figures[0].cover" :src="smartSelectedPerson.figures[0].cover" class="pipe-sel-img"/>
+                <span v-else class="pipe-sel-icon">🤖</span>
+                <div class="pipe-sel-info"><strong>{{ smartSelectedPerson.name }}</strong><span class="pipe-sel-sub">{{ smartSelectedPerson.gender }}</span></div>
+                <el-button size="small" @click="showSmartDpDialog=true">更换</el-button>
+              </div>
+              <el-button v-else @click="showSmartDpDialog=true;reloadDpSmart()">选择数字人</el-button>
+              <span style="font-size:12px;color:#909399;margin-left:8px" v-if="smartForm.personId">已选: {{ smartSelectedPerson?.name }}</span>
+            </el-form-item>
+            <el-form-item label="声音">
+              <div v-if="smartSelectedVoice" class="pipe-sel" style="max-width:420px">
+                <span class="pipe-sel-icon">🎙️</span>
+                <div class="pipe-sel-info"><strong>{{ smartSelectedVoice.name }}</strong><span class="pipe-sel-sub">{{ smartSelectedVoice.gender }} · {{ smartSelectedVoice.lang }}</span></div>
+                <el-button size="small" @click="showSmartVoiceDialog=true">更换</el-button>
+              </div>
+              <el-button v-else @click="showSmartVoiceDialog=true;loadVoices()">选择声音</el-button>
+            </el-form-item>
             <el-row :gutter="12">
               <el-col :span="8"><el-form-item label="语速"><el-slider v-model="smartForm.speed" :min="0.5" :max="2" :step="0.1" show-input style="width:100%"/></el-form-item></el-col>
               <el-col :span="8"><el-form-item label="音调"><el-slider v-model="smartForm.pitch" :min="0.5" :max="2" :step="0.1" show-input style="width:100%"/></el-form-item></el-col>
@@ -54,6 +68,40 @@
           </el-form>
           <div v-if="smartTaskId" style="margin-top:12px;color:#409eff">任务ID: {{ smartTaskId }} | <el-button link type="primary" @click="checkSmartStatus">刷新状态</el-button></div>
         </el-card>
+
+        <!-- 智能成片-数字人弹窗 -->
+        <el-dialog v-model="showSmartDpDialog" title="选择数字人" width="760px" top="5vh">
+          <div v-if="smartDpFilters.length" style="margin-bottom:12px">
+            <div v-for="cat in smartDpFilters" :key="cat.name" style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+              <span style="font-size:12px;color:#909399;flex-shrink:0;width:36px">{{ cat.name }}</span>
+              <el-button v-for="t in cat.items" :key="t.id" size="small" :type="t.active ? 'primary' : ''" plain @click="toggleSmartDpTag(t.id)">{{ t.name }}</el-button>
+            </div>
+            <el-button v-if="smartDpFilterTags.length" size="small" type="danger" text @click="smartDpFilterTags=[];reloadDpSmart()">清除筛选</el-button>
+          </div>
+          <div v-loading="dpLoading" class="resource-grid">
+            <div v-for="p in dpList" :key="p.id" class="resource-card" :class="{selected: smartForm.personId===p.id}" @click="selectSmartPerson(p)">
+              <img v-if="p.figures&&p.figures[0]&&p.figures[0].cover" :src="p.figures[0].cover" class="rc-img"/>
+              <div v-else class="rc-placeholder">🤖</div>
+              <div class="rc-body"><div class="rc-name">{{ p.name }}</div><div class="rc-meta">{{ p.gender }}</div></div>
+              <el-icon v-if="smartForm.personId===p.id" class="rc-check"><CircleCheckFilled /></el-icon>
+            </div>
+          </div>
+          <div v-if="dpHasMore" style="text-align:center;padding:12px"><el-button :loading="dpLoading" @click="loadMoreDp">加载更多 ({{ dpList.length }})</el-button></div>
+          <el-empty v-if="!dpLoading && dpList.length===0" description="暂无数字人"/>
+        </el-dialog>
+
+        <!-- 智能成片-音色弹窗 -->
+        <el-dialog v-model="showSmartVoiceDialog" title="选择音色" width="700px" top="5vh">
+          <div v-loading="voiceLoading" class="resource-grid voice-grid">
+            <div v-for="v in voiceList" :key="v.id" class="resource-card voice-card" :class="{selected: smartForm.audioId===v.id}" @click="selectSmartVoice(v)">
+              <div class="rc-placeholder voice-icon">🎙️</div>
+              <div class="rc-body"><div class="rc-name">{{ v.name }}</div><div class="rc-meta">{{ v.gender }} · {{ v.lang }} {{ v.grade?'⭐'.repeat(Math.min(v.grade,5)):'' }}</div></div>
+              <audio v-if="v.audition" :src="v.audition" controls style="width:100%;height:28px;margin-top:4px" @click.stop/>
+              <el-icon v-if="smartForm.audioId===v.id" class="rc-check"><CircleCheckFilled /></el-icon>
+            </div>
+          </div>
+          <el-empty v-if="!voiceLoading && voiceList.length===0" description="暂无音色"/>
+        </el-dialog>
       </el-tab-pane>
 
       <!-- ④ 照片说话 -->
@@ -104,16 +152,26 @@
       <!-- ⑤ 数字人库 -->
       <el-tab-pane label="数字人库" name="dpLib">
         <el-card>
-          <template #header><div style="display:flex;align-items:center;gap:12px"><span>公共数字人</span><el-button size="small" @click="loadDpList">刷新</el-button></div></template>
+          <template #header><div style="display:flex;align-items:center;gap:12px"><span>公共数字人</span><el-button size="small" @click="reloadDpSmart">刷新</el-button><span style="font-size:12px;color:#909399">共 {{ dpList.length }} 个</span></div></template>
+          <div v-if="smartDpFilters.length" style="margin-bottom:12px">
+            <div v-for="cat in smartDpFilters" :key="cat.name" style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+              <span style="font-size:12px;color:#909399;flex-shrink:0;width:36px">{{ cat.name }}</span>
+              <el-button v-for="t in cat.items" :key="t.id" size="small" :type="t.active ? 'primary' : ''" plain @click="toggleSmartDpTag(t.id)">{{ t.name }}</el-button>
+            </div>
+            <el-button v-if="smartDpFilterTags.length" size="small" type="danger" text @click="smartDpFilterTags=[];reloadDpSmart()">清除筛选</el-button>
+          </div>
           <div v-loading="dpLoading" style="display:flex;flex-wrap:wrap;gap:16px">
-            <div v-for="p in dpList" :key="p.id" style="width:200px;border:1px solid #ebeef5;border-radius:8px;padding:12px;text-align:center">
+            <div v-for="p in dpList" :key="p.id" class="resource-card" :class="{selected: smartForm.personId===p.id}" @click="selectSmartPerson(p)">
               <div style="font-weight:600;margin-bottom:4px">{{ p.name }}</div>
               <div style="font-size:12px;color:#909399">{{ p.gender }} | {{ p.audio_name }}</div>
               <div v-if="p.figures && p.figures[0] && p.figures[0].cover" style="margin:8px 0"><img :src="p.figures[0].cover" style="width:100%;height:120px;object-fit:cover;border-radius:4px"/></div>
-              <el-button size="small" type="primary" link @click="smartForm.personId=p.id;tab='smartVideo'">去成片</el-button>
+              <div v-else style="margin:8px 0;width:100%;height:120px;border-radius:4px;background:#f0ecfc;display:flex;align-items:center;justify-content:center;font-size:48px">🤖</div>
+              <el-button size="small" type="primary" link @click.stop="smartForm.personId=p.id;tab='smartVideo'">去成片</el-button>
+              <el-icon v-if="smartForm.personId===p.id" class="rc-check"><CircleCheckFilled /></el-icon>
             </div>
           </div>
-          <el-empty v-if="!dpLoading && dpList.length===0" description="加载中..."/>
+          <div v-if="dpHasMore" style="text-align:center;padding:12px"><el-button :loading="dpLoading" @click="loadMoreDp">加载更多 ({{ dpList.length }})</el-button></div>
+          <el-empty v-if="!dpLoading && dpList.length===0" description="暂无数字人"/>
         </el-card>
         <el-card style="margin-top:16px" header="我的定制数字人">
           <el-table v-loading="customDpLoading" :data="customDpList" stripe border size="small">
@@ -129,14 +187,16 @@
       <!-- ⑥ 声音库 -->
       <el-tab-pane label="声音库" name="voiceLib">
         <el-card header="公共声音">
-          <div v-loading="voiceLoading" style="display:flex;flex-wrap:wrap;gap:12px">
-            <div v-for="v in voiceList" :key="v.id" style="width:220px;border:1px solid #ebeef5;border-radius:8px;padding:12px">
-              <div style="font-weight:600">{{ v.name }}</div>
-              <div style="font-size:12px;color:#909399">{{ v.gender }} | {{ v.lang }}</div>
-              <div v-if="v.audition" style="margin-top:4px"><audio :src="v.audition" controls style="width:100%;height:28px"/></div>
-              <el-button size="small" type="primary" link @click="smartForm.audioId=v.id;tab='smartVideo'">去成片</el-button>
+          <div v-loading="voiceLoading" class="resource-grid">
+            <div v-for="v in voiceList" :key="v.id" class="resource-card voice-card" :class="{selected: smartForm.audioId===v.id}" @click="selectSmartVoice(v)">
+              <div class="rc-placeholder voice-icon">🎙️</div>
+              <div class="rc-body"><div class="rc-name">{{ v.name }}</div><div class="rc-meta">{{ v.gender }} · {{ v.lang }} {{ v.grade?'⭐'.repeat(Math.min(v.grade,5)):'' }}</div></div>
+              <audio v-if="v.audition" :src="v.audition" controls style="width:100%;height:28px;margin-top:4px" @click.stop/>
+              <el-icon v-if="smartForm.audioId===v.id" class="rc-check"><CircleCheckFilled /></el-icon>
+              <el-button size="small" type="primary" link @click.stop="smartForm.audioId=v.id;tab='smartVideo'">去成片</el-button>
             </div>
           </div>
+          <el-empty v-if="!voiceLoading && voiceList.length===0" description="暂无声音"/>
         </el-card>
       </el-tab-pane>
 
@@ -219,7 +279,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Delete, CircleCheckFilled, Search } from '@element-plus/icons-vue'
 import { hotChanjingApi, hotExtractApi } from '../api/hot-video'
@@ -342,15 +402,84 @@ async function checkLipStatus() {
   catch (e) { ElMessage.error('查询失败') }
 }
 
-// ─── ⑤ 数字人库 ───
-const dpList = ref([]), dpLoading = ref(false)
-const customDpList = ref([]), customDpLoading = ref(false)
-async function loadDpList() {
-  dpLoading.value = true
-  try { const d = (await hotChanjingApi.digitalPersons(1, 200)).data.data; dpList.value = d?.list || [] }
-  catch {}
+// ─── 共享：数字人/声音/字体资源 ───
+const dpList = ref([]), voiceList = ref([]), dpLoading = ref(false), voiceLoading = ref(false)
+const dpPage = ref(1), dpHasMore = ref(true)
+const dpFilterTags = ref([]), dpTagMap = ref({})
+
+const FILTER_CATEGORIES = [
+  { name: '性别', keys: ['男性', '女性'] },
+  { name: '年龄', keys: ['青年', '中年', '老年'] },
+  { name: '职业', keys: ['教师', '主持人', '商务', '律师', '金融', '医生', '厨师', '农民', '家政', '学生', '工程师', '带货博主', '程序员'] },
+]
+const smartDpFilters = computed(() => {
+  return FILTER_CATEGORIES.map(cat => ({
+    name: cat.name,
+    items: cat.keys.filter(k => dpTagMap.value[k] != null).map(k => ({
+      name: k, id: dpTagMap.value[k], active: dpFilterTags.value.includes(dpTagMap.value[k])
+    }))
+  })).filter(c => c.items.length)
+})
+const smartDpFilterTags = computed({
+  get: () => dpFilterTags.value,
+  set: (v) => { dpFilterTags.value = v }
+})
+
+function _extractTags(list) {
+  for (const p of list) {
+    if (p.tag_ids && p.tag_names) {
+      for (let i = 0; i < p.tag_ids.length; i++) {
+        if (!dpTagMap.value[p.tag_names[i]]) dpTagMap.value[p.tag_names[i]] = p.tag_ids[i]
+      }
+    }
+  }
+}
+
+function toggleSmartDpTag(tagId) {
+  const idx = dpFilterTags.value.indexOf(tagId)
+  if (idx >= 0) dpFilterTags.value.splice(idx, 1)
+  else dpFilterTags.value.push(tagId)
+  reloadDpSmart()
+}
+
+async function reloadDpSmart() {
+  dpPage.value = 1; dpHasMore.value = true; dpLoading.value = true
+  try {
+    const d = (await hotChanjingApi.digitalPersons(1, 50, dpFilterTags.value)).data.data
+    dpList.value = d?.list || []
+    dpHasMore.value = (d?.list?.length || 0) >= 50
+    _extractTags(dpList.value)
+  } catch (e) { ElMessage.error('加载数字人失败: ' + (e.response?.data?.message || e.message)) }
   dpLoading.value = false
 }
+
+async function loadMoreDp() {
+  dpLoading.value = true; dpPage.value++
+  try {
+    const d = (await hotChanjingApi.digitalPersons(dpPage.value, 50, dpFilterTags.value)).data.data
+    const more = d?.list || []
+    dpList.value = [...dpList.value, ...more]
+    dpHasMore.value = more.length >= 50
+  } catch (e) { ElMessage.error('加载数字人失败: ' + (e.response?.data?.message || e.message)) }
+  dpLoading.value = false
+}
+
+// ─── 智能成片-资源选择 ───
+const showSmartDpDialog = ref(false), showSmartVoiceDialog = ref(false)
+const smartSelectedPerson = computed(() => dpList.value.find(p => p.id === smartForm.personId))
+const smartSelectedVoice = computed(() => voiceList.value.find(v => v.id === smartForm.audioId))
+
+function selectSmartPerson(p) {
+  smartForm.personId = p.id
+  showSmartDpDialog.value = false
+}
+function selectSmartVoice(v) {
+  smartForm.audioId = v.id
+  showSmartVoiceDialog.value = false
+}
+
+// ─── ⑤ 数字人库 ───
+const customDpList = ref([]), customDpLoading = ref(false)
 async function loadCustomDp() {
   customDpLoading.value = true
   try { const d = (await hotChanjingApi.listCustomPersons(1, 50)).data.data; customDpList.value = d?.list || [] }
@@ -359,7 +488,6 @@ async function loadCustomDp() {
 }
 
 // ─── ⑥ 声音库 ───
-const voiceList = ref([]), voiceLoading = ref(false)
 async function loadVoices() {
   voiceLoading.value = true
   try { const d = (await hotChanjingApi.voices(1, 100)).data.data; voiceList.value = d?.list || [] }
@@ -458,7 +586,7 @@ async function doDeleteVideo(id) {
 
 function fmtTime(ts) { if (!ts) return ''; const d = new Date(ts * 1000); return d.toLocaleString('zh-CN') }
 
-onMounted(() => { loadDpList(); loadCustomDp(); loadVoices() })
+onMounted(() => { reloadDpSmart(); loadCustomDp(); loadVoices() })
 </script>
 
 <style scoped>
@@ -468,6 +596,14 @@ onMounted(() => { loadDpList(); loadCustomDp(); loadVoices() })
 .platform-chip { display:flex;align-items:center;gap:6px;padding:8px 16px;border:2px solid #ebeef5;border-radius:10px;cursor:pointer;transition:all 0.2s;user-select:none;font-size:14px;font-weight:500; }
 .platform-chip:hover { border-color:#409eff;background:#ecf5ff; }
 .platform-chip.active { border-color:#409eff;background:#ecf5ff;color:#409eff; }
+
+/* Pipe-sel — inline selected resource bar (HotVideoPipeline style) */
+.pipe-sel { display:flex;align-items:center;gap:10px;padding:8px 12px;background:#f8f7ff;border-radius:8px;border:1px solid #ece8f8;max-width:420px; }
+.pipe-sel-img { width:44px;height:44px;border-radius:6px;object-fit:cover; }
+.pipe-sel-icon { width:44px;height:44px;border-radius:6px;background:#f0ecfc;display:flex;align-items:center;justify-content:center;font-size:20px; }
+.pipe-sel-info { flex:1;min-width:0; }
+.pipe-sel-info strong { display:block;font-size:14px; }
+.pipe-sel-sub { font-size:12px;color:#909399; }
 
 /* Selected resource pill */
 .selected-resource { display:flex;align-items:center;gap:10px;padding:8px 12px;background:#f8f7ff;border-radius:8px;border:1px solid #ece8f8; }
