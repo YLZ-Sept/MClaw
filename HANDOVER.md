@@ -1,5 +1,7 @@
 # MClaw 蛙蔻面板 — 接手文档
 
+> 最后更新：2026-05-29（合同模块修复 + 蝉镜升级 + DB 毒丸清理）
+
 ## 项目概述
 
 企业智能体管理平台，集成 CRM、进销存、人事、招投标、爆款视频营销等模块，支持多模型 AI 聊天。
@@ -72,11 +74,10 @@ MClaw/
 │           ├── ModelConfig.vue   # 多模型配置
 │           ├── MessageChannels.vue # 渠道消息
 │           └── internal/
-│               ├── CRMManagement.vue       # 9 个 Tab
 │               ├── InventoryManagement.vue # 5 个 Tab
 │               ├── HRManagement.vue        # 10 个 Tab
 │               ├── DocumentManagement.vue
-│               ├── SalesManagement.vue     # 招投标 + 爆款视频
+│               ├── SalesManagement.vue     # CRM(客户/商机/合同) + 招投标 + 内容发布（⚠️ /internal/sales 路由目标）
 │               ├── HotVideoPipeline.vue    # 5 步视频流水线
 │               ├── HotProductConfig.vue    # 产品配置
 │               ├── HotLeads.vue            # 线索管理
@@ -226,6 +227,50 @@ POST /api/chat/send {content, agent, stream}
 
 `backend/.env` 中的 `CHANJING_APP_ID` + `CHANJING_SECRET_KEY`，`server.js` 启动时通过 `require('dotenv').config()` 加载。
 
+**⚠️ Token 轮换**：蝉镜 API 每次请求 `access_token` 会令旧 token 失效。如果另开进程或用 curl 测试获取了新 token，运行中的服务器缓存的旧 token 会立即失效，报 `AccessToken已失效`。此时需重启后端。
+
+## 2026-05-29 修复记录
+
+### 🔴 db.js 破坏性 DROP TABLE（数据丢失）
+
+**问题**：`db.js` 第 15-61 行在每次 `require('./db')` 时无条件执行 11 个 `DROP TABLE IF EXISTS`，导致 contracts/customers/opportunities 等表在每次服务重启或新 node 进程启动时被清空。
+
+**修复**：删除所有 `DROP TABLE IF EXISTS`（除 `inventory` 迁移用的那一个），保留 `CREATE TABLE IF NOT EXISTS`。
+
+### 🔴 io-configs.js contracts 列配置错位
+
+**问题**：`contracts` 的导入导出配置用了不存在的字段（customer_id/total/status/start_date/end_date），与实际 DB schema（14 个业务字段）完全不匹配。导致「下载模板」「导出」「导入」全部生成错误列。
+
+**修复**：重写 `contracts` 配置，14 列对齐 DB schema + Excel 模板。
+
+### 🔴 SalesManagement.vue slot 变量 bug（编辑/删除失效）
+
+**问题**：表格 `el-table-column` 的 slot 用了 `#default="{r}"`，但 Element Plus 的 slot scope 属性是 `row`，`r` 恒为 `undefined`。导致编辑按钮永远不触发编辑模式、删除按钮永远拿不到 id。
+
+**修复**：`{r}` → `{row}`，涉及合同、商机、联系人三处表格。
+
+### 🟡 合同订单表 13 条数据导入
+
+从 `G:/桌面/客户关系管理模块/合同订单表V1.0(1).xlsx` 导入到 `contracts` 表，字段完全匹配。
+
+### 🟡 CRM 功能补全
+
+- 商机表格：加编辑按钮 + 编辑对话框 + update API
+- 合同表格：加编辑按钮 + 编辑对话框 + update API  
+- 合同表格从 7 列扩展到 14 列（对齐 DB schema）
+- 商机/合同删除增加确认弹窗（ElMessageBox.confirm）
+- 金额列 ¥ 格式化
+
+### 🟡 蝉镜工作室升级
+
+- 智能成片 Tab：数字人/声音从 `el-select` 下拉 → `pipe-sel` 预览条 + 卡片弹窗选择
+- 数字人库 Tab：加性别/年龄/职业筛选标签 + 分页加载
+- 声音库 Tab：统一 `resource-card voice-card` 风格 + 选中高亮 + 试听
+
+### 🟡 API 兼容：system role → user
+
+`server.js` `makeMessages()` 将 `role: 'system'` 改为 `role: 'user'`，兼容不支持 system 角色的模型 API（豆包等）。
+
 ## 常见问题
 
 **Q: 视频生成报 `ffmpeg: command not found`**
@@ -240,8 +285,11 @@ A: 已修复（`loop=-1:32767` 改为 `-stream_loop -1` 输入选项），如再
 **Q: `.db` 文件冲突**
 A: `internal.db` 已加入 `.gitignore`，但如已被 Git 跟踪需手动 `git rm --cached` 移除。
 
-**Q: 蝉镜数字人/音色库加载为空**
-A: 检查 `backend/.env` 是否配置了 `CHANJING_APP_ID` 和 `CHANJING_SECRET_KEY`，确认 `server.js` 有 `require('dotenv').config()`。重启后端后刷新页面。
+**Q: 蝉镜数字人/音色库加载为空 或 AccessToken已失效**
+A: ①检查 `backend/.env` 配置了 `CHANJING_APP_ID`/`SECRET_KEY`。②Token 会因重新获取而失效，直接重启后端即可刷新。
+
+**Q: 表格的编辑/删除按钮点击无反应**
+A: 检查 `el-table-column` 的 `#default` slot 是否用了 `{row}` 而非 `{r}`。Element Plus 的 scope 属性名是 `row`，写成 `{r}` 会导致变量恒为 undefined。
 
 **Q: FFmpeg 报 `font_index` Option not found 或字体错误**
 A: 默认字体已改为 `C:/Windows/Fonts/simhei.ttf`（黑体），避免微软雅黑 `.ttc` 字体集合兼容问题。`_escapeFontPath()` 会自动检测 `.ttc` 并替换。
