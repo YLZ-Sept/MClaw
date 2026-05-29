@@ -36,8 +36,10 @@ export const attendanceApi = {
   importReports: (formData) => POST('/attendance/reports/import', formData, {
     headers: { 'Content-Type': 'multipart/form-data' }
   }),
+  updateReport: (id, data) => PUT(`/attendance/reports/${id}`, data),
   deleteReport: (id) => DEL(`/attendance/reports/${id}`),
-  monthlyReport: (params) => GET('/attendance/report/monthly', { params })
+  monthlyReport: (params) => GET('/attendance/report/monthly', { params }),
+  exportUrl: (month) => `/api/attendance/export?month=${month}`
 }
 
 export const performanceApi = {
@@ -46,6 +48,8 @@ export const performanceApi = {
     headers: { 'Content-Type': 'multipart/form-data' }
   }),
   batchInsert: (d) => POST('/performance/batch', d),
+  aggregate: (month) => POST('/performance/aggregate', { month }),
+  updateReport: (id, d) => PUT(`/performance/reports/${id}`, d),
   deleteReport: (id) => DEL(`/performance/reports/${id}`),
-  exportUrl: (month) => `/api/performance/export?month=${month}`
+  exportUrl: (month, category) => `/api/performance/export?month=${month}&category=${category || 'monthly'}`
 }
