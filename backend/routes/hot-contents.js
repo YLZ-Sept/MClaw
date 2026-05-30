@@ -213,7 +213,7 @@ router.post('/:id/generate-video', (req, res) => {
           person: { id: personId, height: figureHeight, width: figureWidth, x: 0, y: 0, figure_type: figureType },
           audio: { type: 'tts', tts: { audio_man: audioManId, speed, pitch, text: [text] }, volume: 100 },
           subtitle_config: {
-            show: true, font_size: 36, x: 0, y: 1680, width: 1080, height: 240,
+            show: true, font_size: 52, x: 0, y: 1740, width: 1080, height: 180,
             color: '#E8954C', stroke_color: '#080F1A', stroke_width: 2.0, asr_type: 0,
             ...(fontId ? { font_id: fontId } : {})
           },

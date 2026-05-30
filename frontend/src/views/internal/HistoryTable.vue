@@ -23,6 +23,8 @@
         <el-button v-if="row.status==='approved' && row.video_status!=='generating'" size="small" type="primary" link @click="$emit('goVideo', row)">生成视频</el-button>
         <el-button v-if="row.status==='approved' && row.video_status==='done'" size="small" type="warning" link @click="$emit('publish', row)">发布</el-button>
         <el-button v-if="row.status==='published' && row.video_status==='done'" size="small" type="success" link @click="$emit('goStep', row, 4)">查看</el-button>
+        <el-button v-if="step===3 && row.video_status==='done'" size="small" type="primary" link @click="$emit('viewVideo', row)">查看</el-button>
+        <el-button v-if="step===3 && row.video_status==='done'" size="small" type="success" link @click="$emit('downloadVideo', row)">下载</el-button>
         <el-button v-if="step<=3" size="small" type="danger" link @click="$emit('delete', row.id)">删除</el-button>
       </template>
     </el-table-column>
@@ -32,7 +34,7 @@
 
 <script setup>
 defineProps({ data: Array, step: Number })
-defineEmits(['goStep', 'goVideo', 'publish', 'approve', 'reject', 'delete'])
+defineEmits(['goStep', 'goVideo', 'publish', 'approve', 'reject', 'delete', 'viewVideo', 'downloadVideo'])
 
 const statusType = s => s === 'approved' ? 'success' : s === 'rejected' ? 'danger' : s === 'published' ? '' : 'info'
 const statusLabel = s => ({ draft: '草稿', approved: '已通过', rejected: '已驳回', published: '已发布' }[s] || s)

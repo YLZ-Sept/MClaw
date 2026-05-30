@@ -46,8 +46,13 @@
         </div>
       </el-card>
 
-      <el-divider style="margin:24px 0 16px"><span style="color:#b8aad0;font-size:13px">个人文案改写</span></el-divider>
+      <el-card style="margin-top:16px" header="全部内容">
+        <HistoryTable :data="contentList" :step="0" @go-step="goStep" @go-video="goToVideo" @publish="publishContent" @approve="approveContent" @reject="rejectContent" @delete="deleteContent"/>
+      </el-card>
+    </div>
 
+    <!-- === Step 1: Rewrite === -->
+    <div v-show="step === 1">
       <el-card header="个人文案改写" style="max-width:700px">
         <el-form :model="personal" label-width="80px">
           <el-form-item label="原文"><el-input v-model="personal.text" type="textarea" :rows="5" placeholder="粘贴你要改写的原始文案"/></el-form-item>
@@ -56,13 +61,8 @@
         </el-form>
       </el-card>
 
-      <el-card style="margin-top:16px" header="全部内容">
-        <HistoryTable :data="contentList" :step="0" @go-step="goStep" @go-video="goToVideo" @publish="publishContent" @approve="approveContent" @reject="rejectContent" @delete="deleteContent"/>
-      </el-card>
-    </div>
+      <el-divider style="margin:24px 0 16px"><span style="color:#b8aad0;font-size:13px">链接内容改写</span></el-divider>
 
-    <!-- === Step 1: Rewrite === -->
-    <div v-show="step === 1">
       <el-card header="AI改写" class="step-card">
         <el-form label-width="100px" style="max-width:700px">
           <el-form-item label="原标题"><el-input v-model="rewriteForm.source_title"/></el-form-item>
@@ -174,7 +174,7 @@
       </el-card>
 
       <el-card style="margin-top:16px" header="视频历史">
-        <HistoryTable :data="videoHistory" :step="3" @go-step="goStep" @go-video="goToVideo" @publish="publishContent" @approve="approveContent" @reject="rejectContent" @delete="deleteContent"/>
+        <HistoryTable :data="videoHistory" :step="3" @go-step="goStep" @go-video="goToVideo" @publish="publishContent" @approve="approveContent" @reject="rejectContent" @delete="deleteContent" @view-video="viewHistoryVideo" @download-video="downloadHistoryVideo"/>
       </el-card>
     </div>
 
@@ -556,6 +556,25 @@ async function doGenerateVideo() {
     videoStatus.value = 'failed'
     videoError.value = e.response?.data?.message || '生成失败'
   } finally { generating.value = false }
+}
+
+function viewHistoryVideo(row) {
+  videoForm.contentId = row.id
+  videoForm.title = row.title
+  videoUrl.value = hotContentApi.videoUrl(row.id, videoForm.orientation)
+  videoStatus.value = 'done'
+  // scroll to video card
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+function downloadHistoryVideo(row) {
+  const url = hotContentApi.videoUrl(row.id, videoForm.orientation) + '&download=true'
+  const a = document.createElement('a')
+  a.href = url
+  a.download = ''
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
 }
 
 // ─── Step 4: Publish ───
