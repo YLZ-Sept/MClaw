@@ -4,8 +4,8 @@
 const systemPrompt = `你是 MClaw 企业内部管理助手「小内」。你是老板的智能助理，可以查询和操作企业的真实业务数据。
 
 ## 你的能力范围
-- **进销存**: 采购入库、销售出库、库存台账、退换货管理、库存预警
-- **人事**: 员工档案、部门、绩效考核月报、考勤月报
+- **进销存**: 采购入库、销售出库、库存台账、退换货管理（全部支持增删改查）
+- **人事**: 员工档案增删改查、部门、绩效考核月报、考勤月报
 - **文档**: 文档列表、文档搜索、文档分类
 
 ## 行为准则
@@ -94,6 +94,131 @@ const tools = [
       }
     }
   },
+  {
+    type: 'function',
+    function: {
+      name: 'get_return',
+      description: '按ID查询单条退换货记录详情',
+      parameters: {
+        type: 'object',
+        properties: { return_id: { type: 'string', description: '退换货记录ID' } },
+        required: ['return_id']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_return',
+      description: '更新退换货记录',
+      parameters: {
+        type: 'object',
+        properties: {
+          return_id: { type: 'string', description: '记录ID（必填）' },
+          order_type: { type: 'string' }, order_id: { type: 'string' },
+          product_name: { type: 'string' }, model: { type: 'string' },
+          quantity: { type: 'number' }, reason: { type: 'string' },
+          type: { type: 'string' }, exchange_product: { type: 'string' }
+        },
+        required: ['return_id']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_purchase_order',
+      description: '创建采购入库单',
+      parameters: {
+        type: 'object',
+        properties: {
+          supplier_id: { type: 'string', description: '供应商ID' },
+          total: { type: 'number', description: '总金额' },
+          status: { type: 'string', description: '状态：draft/ordered/received' },
+          ordered_date: { type: 'string', description: '下单日期' },
+          received_date: { type: 'string', description: '入库日期' },
+          remark: { type: 'string', description: '备注' }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_purchase_order',
+      description: '查询单个采购单详情',
+      parameters: {
+        type: 'object',
+        properties: { purchase_order_id: { type: 'string', description: '采购单ID' } },
+        required: ['purchase_order_id']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_purchase_order',
+      description: '更新采购单',
+      parameters: {
+        type: 'object',
+        properties: {
+          purchase_order_id: { type: 'string', description: '采购单ID（必填）' },
+          supplier_id: { type: 'string' }, total: { type: 'number' },
+          status: { type: 'string' }, ordered_date: { type: 'string' },
+          received_date: { type: 'string' }, remark: { type: 'string' }
+        },
+        required: ['purchase_order_id']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_sales_order',
+      description: '创建销售出库单',
+      parameters: {
+        type: 'object',
+        properties: {
+          customer_id: { type: 'string', description: '客户ID' },
+          total: { type: 'number', description: '总金额' },
+          status: { type: 'string', description: '状态：draft/shipped/delivered' },
+          order_date: { type: 'string', description: '下单日期' },
+          remark: { type: 'string', description: '备注' }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_sales_order',
+      description: '查询单个销售单详情',
+      parameters: {
+        type: 'object',
+        properties: { sales_order_id: { type: 'string', description: '销售单ID' } },
+        required: ['sales_order_id']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_sales_order',
+      description: '更新销售单',
+      parameters: {
+        type: 'object',
+        properties: {
+          sales_order_id: { type: 'string', description: '销售单ID（必填）' },
+          customer_id: { type: 'string' }, total: { type: 'number' },
+          status: { type: 'string' }, order_date: { type: 'string' },
+          remark: { type: 'string' }
+        },
+        required: ['sales_order_id']
+      }
+    }
+  },
 
   // ─── 人事 ───
   {
@@ -122,6 +247,48 @@ const tools = [
           email: { type: 'string', description: '邮箱' }
         },
         required: ['name']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_employee',
+      description: '按ID查询单个员工详情',
+      parameters: {
+        type: 'object',
+        properties: { employee_id: { type: 'string', description: '员工ID' } },
+        required: ['employee_id']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_employee',
+      description: '更新员工信息（只需传要修改的字段，未传字段保持不变）',
+      parameters: {
+        type: 'object',
+        properties: {
+          employee_id: { type: 'string', description: '员工ID（必填）' },
+          name: { type: 'string' }, gender: { type: 'string' },
+          department: { type: 'string' }, role: { type: 'string' },
+          phone: { type: 'string' }, hire_date: { type: 'string' },
+          contract_end: { type: 'string' }, email: { type: 'string' }
+        },
+        required: ['employee_id']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_employee',
+      description: '删除员工',
+      parameters: {
+        type: 'object',
+        properties: { employee_id: { type: 'string', description: '员工ID' } },
+        required: ['employee_id']
       }
     }
   },

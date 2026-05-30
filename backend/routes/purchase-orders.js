@@ -99,4 +99,18 @@ router.post('/import', upload.single('file'), (req, res) => {
   res.json({ code: 200, data: { count } });
 });
 
+router.get('/export', (req, res) => {
+  const rows = db.prepare('SELECT * FROM purchase_orders ORDER BY created_at DESC').all();
+  const headers = ['供应商','品牌','品类','名称','型号','数量','单位','序列号','单价','总价','入库日期','状态','创建时间'];
+  const fields = ['supplier','brand','category','name','model','quantity','unit','serial_number','unit_price','total_price','stock_date','status','created_at'];
+  const data = [headers];
+  for (const r of rows) data.push(fields.map(f => r[f] ?? ''));
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  res.set({ 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent('采购订单_数据.xlsx')}` });
+  res.send(buf);
+});
+
 module.exports = router;

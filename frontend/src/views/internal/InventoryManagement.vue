@@ -8,16 +8,16 @@
     </div>
     <div class="pg-body">
       <el-menu :default-active="tab" class="side-tabs" @select="t=>tab=t">
-        <el-menu-item index="purchase">采购入库</el-menu-item>
-        <el-menu-item index="sales">销售出库</el-menu-item>
-        <el-menu-item index="ledger">库存台账</el-menu-item>
+        <el-menu-item index="purchase">采购订单</el-menu-item>
+        <el-menu-item index="sales">销售订单</el-menu-item>
+        <el-menu-item index="ledger">设备台账</el-menu-item>
         <el-menu-item index="returns">退换货管理</el-menu-item>
         <el-menu-item index="alerts">库存预警</el-menu-item>
       </el-menu>
       <div class="tab-content">
-        <!-- 采购入库 -->
+        <!-- 采购订单 -->
         <div v-if="tab==='purchase'">
-          <div class="tb"><el-input v-model="poKeyword" placeholder="搜索供应商/品牌/名称/型号/序列号" style="width:260px" clearable @input="ldPurchase"/><el-button type="primary" style="margin-left:12px" @click="openPoDlg()">新增采购入库</el-button><el-button @click="handleImport('purchase_orders')">导入 Excel</el-button></div>
+          <div class="tb"><el-input v-model="poKeyword" placeholder="搜索供应商/品牌/名称/型号/序列号" style="width:260px" clearable @input="ldPurchase"/><el-button type="primary" style="margin-left:12px" @click="openPoDlg()">新增采购订单</el-button><el-button @click="handleImport('purchase_orders')">导入</el-button><el-button @click="handleExport('purchase_orders')">导出</el-button></div>
           <el-table v-loading="loading" :data="purchaseOrders" stripe border row-key="id" max-height="calc(100vh - 280px)">
             <el-table-column type="index" label="#" width="50"/>
             <el-table-column prop="supplier" label="供应商" width="120"/>
@@ -35,9 +35,9 @@
             <el-table-column label="操作" width="160" fixed="right"><template #default="{row}"><el-button size="small" type="primary" link @click="openPoDlg(row)">编辑</el-button><el-button size="small" type="danger" link @click="delPo(row.id)">删除</el-button></template></el-table-column>
           </el-table>
         </div>
-        <!-- 销售出库 -->
+        <!-- 销售订单 -->
         <div v-else-if="tab==='sales'">
-          <div class="tb"><el-input v-model="soKeyword" placeholder="搜索客户/经销商/产品/型号/序列号" style="width:260px" clearable @input="ldSales"/><el-button type="primary" style="margin-left:12px" @click="openSoDlg()">新增销售出库</el-button><el-button @click="handleImport('sales_orders')">导入 Excel</el-button></div>
+          <div class="tb"><el-input v-model="soKeyword" placeholder="搜索客户/经销商/产品/型号/序列号" style="width:260px" clearable @input="ldSales"/><el-button type="primary" style="margin-left:12px" @click="openSoDlg()">新增销售订单</el-button><el-button @click="handleImport('sales_orders')">导入</el-button><el-button @click="handleExport('sales_orders')">导出</el-button></div>
           <el-table v-loading="loading" :data="salesOrders" stripe border row-key="id" max-height="calc(100vh - 280px)">
             <el-table-column type="index" label="#" width="50"/>
             <el-table-column prop="customer_name" label="客户" width="100"/>
@@ -55,9 +55,9 @@
             <el-table-column label="操作" width="160" fixed="right"><template #default="{row}"><el-button size="small" type="primary" link @click="openSoDlg(row)">编辑</el-button><el-button size="small" type="danger" link @click="delSo(row.id)">删除</el-button></template></el-table-column>
           </el-table>
         </div>
-        <!-- 库存台账 -->
+        <!-- 设备台账 -->
         <div v-else-if="tab==='ledger'">
-          <div class="tb"><el-input v-model="alKeyword" placeholder="搜索厂商/品类/产品/型号" style="width:260px" clearable @input="ldLedger"/><el-button type="primary" style="margin-left:12px" @click="openAlDlg()">登记台账</el-button><el-button @click="handleImport('asset_ledger')">导入 Excel</el-button></div>
+          <div class="tb"><el-input v-model="alKeyword" placeholder="搜索厂商/品类/产品/型号" style="width:260px" clearable @input="ldLedger"/><el-button type="primary" style="margin-left:12px" @click="openAlDlg()">新增记录</el-button><el-button @click="handleImport('asset_ledger')">导入</el-button><el-button @click="handleExport('asset_ledger')">导出</el-button></div>
           <el-table v-loading="loading" :data="assetList" stripe border row-key="id" max-height="calc(100vh - 280px)">
             <el-table-column type="index" label="#" width="50"/>
             <el-table-column prop="manufacturer" label="厂商" width="100"/>
@@ -67,7 +67,7 @@
             <el-table-column prop="unit" label="单位" width="60"/>
             <el-table-column prop="in_quantity" label="入库数量" width="80"/>
             <el-table-column prop="out_quantity" label="出库数量" width="80"/>
-            <el-table-column prop="balance" label="库存余量" width="80"><template #default="{row}"><span :style="{color:row.balance<10?'#ef4444':row.balance<50?'#f59e0b':'#10b981',fontWeight:'600'}">{{ row.balance }}</span></template></el-table-column>
+            <el-table-column prop="balance" label="库存余量" width="80"><template #default="{row}"><span :style="{color:row.balance<(row.min_stock??10)?'#ef4444':row.balance<(row.min_stock??10)*5?'#f59e0b':'#10b981',fontWeight:'600'}">{{ row.balance }}</span></template></el-table-column>
             <el-table-column prop="unit_price" label="单价" width="80"/>
             <el-table-column prop="order_total" label="订单总价" width="90"/>
             <el-table-column prop="inventory_value" label="库存价值" width="90"/>
@@ -77,7 +77,7 @@
         </div>
         <!-- 退换货管理 -->
         <div v-else-if="tab==='returns'">
-          <div class="tb"><el-button type="primary" @click="openRtDlg()">新增退换货</el-button><el-button @click="handleImport('returns')">导入 Excel</el-button></div>
+          <div class="tb"><el-button type="primary" @click="openRtDlg()">新增退换货</el-button><el-button @click="handleImport('returns')">导入</el-button><el-button @click="handleExport('returns')">导出</el-button></div>
           <el-table v-loading="loading" :data="returns" stripe border row-key="id" max-height="calc(100vh - 280px)">
             <el-table-column type="index" label="#" width="50"/>
             <el-table-column prop="order_type" label="单据类型" width="80"><template #default="{row}">{{ row.order_type==='purchase'?'采购':row.order_type==='sales'?'销售':'销售' }}</template></el-table-column>
@@ -94,7 +94,14 @@
         </div>
         <!-- 库存预警 -->
         <div v-else-if="tab==='alerts'">
-          <div class="tb"><span style="color:#b8aad0;font-size:13px">库存余量低于安全阈值的产品</span></div>
+          <div class="tb" style="gap:12px;flex-wrap:wrap">
+            <span style="color:#b8aad0;font-size:13px">库存余量低于安全阈值的产品</span>
+            <el-divider direction="vertical"/>
+            <span style="font-size:13px;color:#4a3f5e">全局预警阈值：</span>
+            <el-input-number v-model="globalMinStock" :min="0" :step="1" size="small" style="width:100px"/>
+            <el-button size="small" type="warning" :loading="applyingGlobal" @click="applyGlobalMinStock">应用全部</el-button>
+            <el-button size="small" @click="handleExport('asset_ledger')">导出</el-button>
+          </div>
           <el-table v-loading="loading" :data="alertList" stripe border row-key="id" max-height="calc(100vh - 280px)">
             <el-table-column type="index" label="#" width="50"/>
             <el-table-column prop="product_name" label="产品名称" min-width="130"/>
@@ -102,6 +109,7 @@
             <el-table-column prop="manufacturer" label="厂商" width="100"/>
             <el-table-column prop="category" label="品类" width="80"/>
             <el-table-column prop="balance" label="当前库存" width="90"><template #default="{row}"><span style="color:#ef4444;font-weight:600">{{ row.balance }}</span></template></el-table-column>
+            <el-table-column prop="min_stock" label="预警阈值" width="110"><template #default="{row}"><el-input-number v-model="row.min_stock" :min="0" :step="1" size="small" style="width:85px" @change="updateMinStock(row)"/></template></el-table-column>
             <el-table-column prop="unit" label="单位" width="60"/>
             <el-table-column prop="unit_price" label="单价" width="80"/>
             <el-table-column prop="inventory_value" label="库存价值" width="90"/>
@@ -111,8 +119,8 @@
       </div>
     </div>
 
-    <!-- 采购入库对话框 -->
-    <el-dialog v-model="poDlg.visible" :title="poDlg.ed?'编辑采购入库':'新增采购入库'" width="620px" @closed="poDlg.form={}">
+    <!-- 采购订单对话框 -->
+    <el-dialog v-model="poDlg.visible" :title="poDlg.ed?'编辑采购订单':'新增采购订单'" width="620px" @closed="poDlg.form={}">
       <el-form :model="poDlg.form" label-width="80px" inline>
         <el-form-item label="供应商"><el-input v-model="poDlg.form.supplier" style="width:180px"/></el-form-item>
         <el-form-item label="品牌"><el-input v-model="poDlg.form.brand" style="width:180px"/></el-form-item>
@@ -130,8 +138,8 @@
       <template #footer><el-button @click="poDlg.visible=false">取消</el-button><el-button type="primary" :loading="saving" @click="savePo">保存</el-button></template>
     </el-dialog>
 
-    <!-- 销售出库对话框 -->
-    <el-dialog v-model="soDlg.visible" :title="soDlg.ed?'编辑销售出库':'新增销售出库'" width="620px" @closed="soDlg.form={}">
+    <!-- 销售订单对话框 -->
+    <el-dialog v-model="soDlg.visible" :title="soDlg.ed?'编辑销售订单':'新增销售订单'" width="620px" @closed="soDlg.form={}">
       <el-form :model="soDlg.form" label-width="80px" inline>
         <el-form-item label="客户"><el-input v-model="soDlg.form.customer_name" style="width:180px"/></el-form-item>
         <el-form-item label="经销商"><el-input v-model="soDlg.form.distributor" style="width:180px"/></el-form-item>
@@ -149,8 +157,8 @@
       <template #footer><el-button @click="soDlg.visible=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveSo">保存</el-button></template>
     </el-dialog>
 
-    <!-- 库存台账对话框 -->
-    <el-dialog v-model="alDlg.visible" :title="alDlg.ed?'编辑库存台账':'登记台账'" width="620px" @closed="alDlg.form={}">
+    <!-- 设备台账对话框 -->
+    <el-dialog v-model="alDlg.visible" :title="alDlg.ed?'编辑设备台账':'新增记录'" width="620px" @closed="alDlg.form={}">
       <el-form :model="alDlg.form" label-width="80px" inline>
         <el-form-item label="厂商"><el-input v-model="alDlg.form.manufacturer" style="width:180px"/></el-form-item>
         <el-form-item label="品类"><el-input v-model="alDlg.form.category" style="width:180px"/></el-form-item>
@@ -164,6 +172,7 @@
         <el-form-item label="订单总价"><el-input-number v-model="alDlg.form.order_total" :min="0" :precision="2" style="width:180px"/></el-form-item>
         <el-form-item label="库存价值"><el-input-number v-model="alDlg.form.inventory_value" :min="0" :precision="2" style="width:180px"/></el-form-item>
         <el-form-item label="入库日期"><el-date-picker v-model="alDlg.form.stock_date" type="date" value-format="YYYY-MM-DD" style="width:180px"/></el-form-item>
+        <el-form-item label="预警阈值"><el-input-number v-model="alDlg.form.min_stock" :min="0" :step="1" style="width:180px"/></el-form-item>
       </el-form>
       <template #footer><el-button @click="alDlg.visible=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveAl">保存</el-button></template>
     </el-dialog>
@@ -208,41 +217,60 @@ const returns = ref([])
 const poKeyword = ref('')
 const soKeyword = ref('')
 const alKeyword = ref('')
+const globalMinStock = ref(10)
+const applyingGlobal = ref(false)
 
 const importVisible = ref(false)
 const importKey = ref('')
 function handleImport(key) { importKey.value = key; importVisible.value = true }
+function handleExport(key) { window.open(`/api/${key.replace(/_/g,'-')}/export`) }
 function onImportDone() { ld() }
 
 const kpis = computed(() => {
-  const lowStock = assetList.value.filter(a => a.balance < 10).length
+  const lowStock = assetList.value.filter(a => a.balance < (a.min_stock ?? 10)).length
   return [
-    { val: purchaseOrders.value.length, label: '采购入库' },
-    { val: salesOrders.value.length, label: '销售出库' },
-    { val: assetList.value.length, label: '台账记录' },
+    { val: purchaseOrders.value.length, label: '采购订单' },
+    { val: salesOrders.value.length, label: '销售订单' },
+    { val: assetList.value.length, label: '设备台账' },
     { val: lowStock, label: '低库存预警' }
   ]
 })
 
-const alertList = computed(() => assetList.value.filter(a => a.balance < 10))
+const alertList = computed(() => assetList.value.filter(a => a.balance < (a.min_stock ?? 10)))
 
-// 采购入库
+// 采购订单
 const poDlg = reactive({ visible: false, ed: false, form: {} })
 function openPoDlg(r) { poDlg.ed = !!r; poDlg.form = r ? { ...r } : { quantity: 1, unit: '套', status: 'draft' }; poDlg.visible = true }
 async function savePo() { saving.value = true; const f = poDlg.form; if (poDlg.ed) { await purchaseOrderApi.update(f.id, f) } else { await purchaseOrderApi.create(f) }; poDlg.visible = false; await ldPurchase(); saving.value = false; ElMessage.success('OK') }
 async function delPo(id) { await ElMessageBox.confirm('确认删除?', '提示', { type: 'warning' }); await purchaseOrderApi.remove(id); await ldPurchase(); ElMessage.success('已删除') }
 
-// 销售出库
+// 销售订单
 const soDlg = reactive({ visible: false, ed: false, form: {} })
 function openSoDlg(r) { soDlg.ed = !!r; soDlg.form = r ? { ...r } : { quantity: 1, unit: '套', status: 'draft' }; soDlg.visible = true }
 async function saveSo() { saving.value = true; const f = soDlg.form; if (soDlg.ed) { await salesOrderApi.update(f.id, f) } else { await salesOrderApi.create(f) }; soDlg.visible = false; await ldSales(); saving.value = false; ElMessage.success('OK') }
 async function delSo(id) { await ElMessageBox.confirm('确认删除?', '提示', { type: 'warning' }); await salesOrderApi.remove(id); await ldSales(); ElMessage.success('已删除') }
 
-// 库存台账
+// 设备台账
 const alDlg = reactive({ visible: false, ed: false, form: {} })
-function openAlDlg(r) { alDlg.ed = !!r; alDlg.form = r ? { ...r } : { unit: '套', in_quantity: 0, out_quantity: 0, balance: 0, unit_price: 0, order_total: 0, inventory_value: 0 }; alDlg.visible = true }
+function openAlDlg(r) { alDlg.ed = !!r; alDlg.form = r ? { ...r } : { unit: '套', in_quantity: 0, out_quantity: 0, balance: 0, unit_price: 0, order_total: 0, inventory_value: 0, min_stock: 10 }; alDlg.visible = true }
 async function saveAl() { saving.value = true; const f = alDlg.form; if (alDlg.ed) { await assetLedgerApi.update(f.id, f) } else { await assetLedgerApi.create(f) }; alDlg.visible = false; await ldLedger(); saving.value = false; ElMessage.success('OK') }
 async function delAl(id) { await ElMessageBox.confirm('确认删除?', '提示', { type: 'warning' }); await assetLedgerApi.remove(id); await ldLedger(); ElMessage.success('已删除') }
+
+// 预警阈值
+async function updateMinStock(row) {
+  try { await assetLedgerApi.update(row.id, { min_stock: row.min_stock }); ElMessage.success('阈值已更新') } catch {}
+}
+async function applyGlobalMinStock() {
+  applyingGlobal.value = true
+  try {
+    for (const a of assetList.value) {
+      a.min_stock = globalMinStock.value
+      await assetLedgerApi.update(a.id, { min_stock: globalMinStock.value })
+    }
+    ElMessage.success(`全部 ${assetList.value.length} 条记录的预警阈值已设为 ${globalMinStock.value}`)
+  } catch {}
+  applyingGlobal.value = false
+}
 
 // 退换货
 const rtDlg = reactive({ visible: false, ed: false, form: {} })

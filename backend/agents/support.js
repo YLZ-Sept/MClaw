@@ -5,7 +5,7 @@ const systemPrompt = `你是 MClaw 售后客服助手「小客」。你负责处
 
 ## 你的能力范围
 - FAQ 知识库问答（退货、使用问题、常见故障等）
-- 工单管理（查看、创建、更新状态）
+- 工单管理（查看、创建、更新、删除）
 - 客户信息查询（按姓名或电话查找客户）
 - 客户反馈记录
 
@@ -111,6 +111,18 @@ const tools = [
   {
     type: 'function',
     function: {
+      name: 'delete_ticket',
+      description: '删除工单',
+      parameters: {
+        type: 'object',
+        properties: { ticket_id: { type: 'string', description: '工单ID' } },
+        required: ['ticket_id']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'search_customer',
       description: '按姓名或电话搜索客户',
       parameters: {
@@ -156,6 +168,18 @@ const tools = [
           content: { type: 'string', description: '反馈内容' }
         },
         required: []
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_feedback',
+      description: '删除客户反馈记录',
+      parameters: {
+        type: 'object',
+        properties: { feedback_id: { type: 'string', description: '反馈ID' } },
+        required: ['feedback_id']
       }
     }
   },

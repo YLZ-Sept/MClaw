@@ -46,6 +46,21 @@ db.exec(`
     created_at TEXT DEFAULT (datetime('now','localtime'))
   );
 
+  CREATE TABLE IF NOT EXISTS tickets (
+    id TEXT PRIMARY KEY, customer_id TEXT,
+    title TEXT NOT NULL, description TEXT,
+    priority TEXT DEFAULT 'medium', status TEXT DEFAULT 'open',
+    assigned_to TEXT,
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+
+  CREATE TABLE IF NOT EXISTS feedback (
+    id TEXT PRIMARY KEY, customer_id TEXT,
+    rating INTEGER, category TEXT,
+    content TEXT,
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+
   -- ========== 进销存 ==========
   CREATE TABLE IF NOT EXISTS products (
     id TEXT PRIMARY KEY, name TEXT NOT NULL, sku TEXT UNIQUE,
@@ -372,6 +387,13 @@ try { db.exec("ALTER TABLE bid_sources ADD COLUMN source_type TEXT DEFAULT 'api'
 try { db.exec("ALTER TABLE bid_items ADD COLUMN project_no TEXT DEFAULT ''"); } catch {}
 try { db.exec("ALTER TABLE bid_items ADD COLUMN purchase_requirements TEXT DEFAULT ''"); } catch {}
 try { db.exec("ALTER TABLE performance_reports ADD COLUMN category TEXT DEFAULT 'monthly'"); } catch {}
+// 兼容旧 returns 表：补充 executor 需要的字段
+try { db.exec("ALTER TABLE returns ADD COLUMN order_type TEXT DEFAULT 'sales'"); } catch {}
+try { db.exec("ALTER TABLE returns ADD COLUMN order_id TEXT DEFAULT ''"); } catch {}
+try { db.exec("ALTER TABLE returns ADD COLUMN product_name TEXT DEFAULT ''"); } catch {}
+try { db.exec("ALTER TABLE returns ADD COLUMN model TEXT DEFAULT ''"); } catch {}
+try { db.exec("ALTER TABLE returns ADD COLUMN type TEXT DEFAULT 'return'"); } catch {}
+try { db.exec("ALTER TABLE returns ADD COLUMN exchange_product TEXT DEFAULT ''"); } catch {}
 
 // ===== 消息中心 / 多渠道会话 =====
 db.exec(`

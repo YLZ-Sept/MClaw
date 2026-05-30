@@ -3,9 +3,9 @@
 const systemPrompt = `你是 MClaw 爆款视频助手「小爆」。你是老板的短视频营销管家，负责抖音爆款内容管理和线索追踪。
 
 ## 你的能力范围
-- **产品配置**: 查看爆款产品信息（品牌、卖点、受众等）
-- **内容管理**: 查看/检索爆款内容（草稿、已发布、已审核等状态）
-- **线索管理**: 查看从私信/评论中识别的高意向客户线索
+- **产品配置**: 查看、创建、更新、删除爆款产品（品牌、卖点、受众等）
+- **内容管理**: 查看、创建、更新、删除爆款内容
+- **线索管理**: 查看、更新销售线索状态
 - **数据概览**: 查看爆款视频整体数据（发布数、线索数、视频生成数）
 
 ## 行为准则
@@ -52,6 +52,54 @@ const tools = [
   {
     type: 'function',
     function: {
+      name: 'create_hot_product',
+      description: '创建爆款产品配置',
+      parameters: {
+        type: 'object',
+        properties: {
+          brand_name: { type: 'string', description: '品牌名称（必填）' },
+          description: { type: 'string', description: '产品描述' },
+          selling_points: { type: 'string', description: '卖点 JSON 数组' },
+          contact_info: { type: 'string', description: '联系方式' },
+          target_audience: { type: 'string', description: '目标受众' },
+          industry_tags: { type: 'string', description: '行业标签' }
+        },
+        required: ['brand_name']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_hot_product',
+      description: '更新爆款产品配置',
+      parameters: {
+        type: 'object',
+        properties: {
+          product_id: { type: 'string', description: '产品ID（必填）' },
+          brand_name: { type: 'string' }, description: { type: 'string' },
+          selling_points: { type: 'string' }, contact_info: { type: 'string' },
+          target_audience: { type: 'string' }, industry_tags: { type: 'string' }
+        },
+        required: ['product_id']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_hot_product',
+      description: '删除爆款产品',
+      parameters: {
+        type: 'object',
+        properties: { product_id: { type: 'string', description: '产品ID' } },
+        required: ['product_id']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'list_hot_contents',
       description: '查询爆款内容列表，可按状态筛选（draft/approved/rejected/published）',
       parameters: {
@@ -70,6 +118,70 @@ const tools = [
         type: 'object',
         properties: { content_id: { type: 'string', description: '内容ID' } },
         required: ['content_id']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_hot_content',
+      description: '创建爆款内容（草稿状态）',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: '标题（必填）' },
+          body: { type: 'string', description: '正文内容' },
+          tags: { type: 'string', description: '标签' },
+          platforms: { type: 'string', description: '发布平台' }
+        },
+        required: ['title']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_hot_content',
+      description: '更新爆款内容（标题、正文、状态、发布链接等）',
+      parameters: {
+        type: 'object',
+        properties: {
+          content_id: { type: 'string', description: '内容ID（必填）' },
+          title: { type: 'string' }, body: { type: 'string' },
+          tags: { type: 'string' }, platforms: { type: 'string' },
+          status: { type: 'string', description: 'draft/published/approved/rejected' },
+          publish_url: { type: 'string' }
+        },
+        required: ['content_id']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_hot_content',
+      description: '删除爆款内容',
+      parameters: {
+        type: 'object',
+        properties: { content_id: { type: 'string', description: '内容ID' } },
+        required: ['content_id']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_hot_lead',
+      description: '更新销售线索（状态、摘要、是否已推送）',
+      parameters: {
+        type: 'object',
+        properties: {
+          lead_id: { type: 'string', description: '线索ID（必填）' },
+          status: { type: 'string', description: 'new/contacted/converted/lost' },
+          summary: { type: 'string' },
+          pushed: { type: 'integer' }
+        },
+        required: ['lead_id']
       }
     }
   },

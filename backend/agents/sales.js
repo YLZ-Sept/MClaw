@@ -4,8 +4,8 @@ const systemPrompt = `你是 MClaw 销售管理助手「小销」。你是老板
 
 ## 你的能力范围
 - **客户信息**: 查询/新增/更新/删除客户，添加跟进记录，查看客户联系人
-- **项目商机**: 查看和创建项目商机（初步接触→需求确认→方案报价→商务谈判→签约）
-- **合同订单**: 查看和创建合同
+- **项目商机**: 查看、创建、更新、删除项目商机（初步接触→需求确认→方案报价→商务谈判→签约）
+- **合同订单**: 查看、创建、更新、删除合同
 
 ## 行为准则
 - 用户叫"老板"，用中文回复，简洁直接
@@ -165,6 +165,50 @@ const tools = [
   {
     type: 'function',
     function: {
+      name: 'get_opportunity',
+      description: '查询单个商机详情',
+      parameters: {
+        type: 'object',
+        properties: { opportunity_id: { type: 'string', description: '商机ID' } },
+        required: ['opportunity_id']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_opportunity',
+      description: '更新项目商机信息（只需传要修改的字段）',
+      parameters: {
+        type: 'object',
+        properties: {
+          opportunity_id: { type: 'string', description: '商机ID（必填）' },
+          title: { type: 'string' }, sales_owner: { type: 'string' },
+          contact_name: { type: 'string' }, contact_phone: { type: 'string' },
+          description: { type: 'string' }, amount: { type: 'number' },
+          stage: { type: 'string', enum: ['contact', 'demo', 'proposal', 'negotiation', 'closed'] },
+          competition: { type: 'string' }, progress: { type: 'string' },
+          next_plan: { type: 'string' }
+        },
+        required: ['opportunity_id']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_opportunity',
+      description: '删除项目商机',
+      parameters: {
+        type: 'object',
+        properties: { opportunity_id: { type: 'string', description: '商机ID' } },
+        required: ['opportunity_id']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'list_contracts',
       description: '查询所有合同',
       parameters: { type: 'object', properties: {}, required: [] }
@@ -194,6 +238,58 @@ const tools = [
           remark: { type: 'string', description: '备注' }
         },
         required: ['title']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_contract',
+      description: '查询单个合同详情（按合同ID）',
+      parameters: {
+        type: 'object',
+        properties: { contract_id: { type: 'string', description: '合同ID' } },
+        required: ['contract_id']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_contract',
+      description: '更新合同信息（只需传要修改的字段，未传字段保持不变）',
+      parameters: {
+        type: 'object',
+        properties: {
+          contract_id: { type: 'string', description: '合同ID（必填）' },
+          title: { type: 'string', description: '合同名称' },
+          contract_no: { type: 'string', description: '合同编号' },
+          sales_owner: { type: 'string', description: '所属销售' },
+          contact_name: { type: 'string', description: '客户联系人' },
+          contact_phone: { type: 'string', description: '联系电话' },
+          content: { type: 'string', description: '合同内容' },
+          amount: { type: 'number', description: '合同金额' },
+          signed_date: { type: 'string', description: '签订时间' },
+          warranty_period: { type: 'string', description: '合同/质保期限' },
+          prepaid_amount: { type: 'number', description: '预付金额' },
+          receivable_amount: { type: 'number', description: '应收金额' },
+          invoice: { type: 'string', description: '发票开具' },
+          delivery_progress: { type: 'string', description: '交付进度' },
+          remark: { type: 'string', description: '备注' }
+        },
+        required: ['contract_id']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_contract',
+      description: '删除合同',
+      parameters: {
+        type: 'object',
+        properties: { contract_id: { type: 'string', description: '合同ID' } },
+        required: ['contract_id']
       }
     }
   },

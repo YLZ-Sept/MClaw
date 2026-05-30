@@ -1,5 +1,6 @@
 const { Router } = require('express');
 const { randomUUID } = require('crypto');
+const XLSX = require('xlsx');
 const db = require('../db');
 const router = Router();
 
@@ -47,6 +48,20 @@ router.put('/:id', (req, res) => {
 router.delete('/:id', (req, res) => {
   db.prepare('DELETE FROM returns WHERE id=?').run(req.params.id);
   res.json({ code: 200 });
+});
+
+router.get('/export', (req, res) => {
+  const rows = db.prepare('SELECT * FROM returns ORDER BY created_at DESC').all();
+  const headers = ['单据类型','关联单号','产品名称','型号','数量','原因','类型','换货产品','状态','创建时间'];
+  const fields = ['order_type','order_id','product_name','model','quantity','reason','type','exchange_product','status','created_at'];
+  const data = [headers];
+  for (const r of rows) data.push(fields.map(f => r[f] ?? ''));
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  res.set({ 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent('退换货_数据.xlsx')}` });
+  res.send(buf);
 });
 
 module.exports = router;
