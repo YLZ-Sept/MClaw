@@ -12,8 +12,9 @@
             <el-tag v-if="c.is_default" type="success" size="small" effect="dark">默认</el-tag>
           </div>
           <div class="cc-name">{{ c.name }}</div>
-          <div class="cc-model">{{ c.model }}</div>
-          <div class="cc-params">T={{ c.temperature }} max_tokens={{ c.max_tokens }}</div>
+          <div v-if="c.category!=='video'" class="cc-model">{{ c.model }}</div>
+          <div v-if="c.category!=='video'" class="cc-params">T={{ c.temperature }} max_tokens={{ c.max_tokens }}</div>
+          <div v-else class="cc-params" style="color:#7c3aed">{{ providerLabel(c.provider) }}</div>
           <div class="cc-actions">
             <el-button size="small" type="primary" link @click="editConfig(c)">编辑</el-button>
             <el-button v-if="!c.is_default" size="small" type="success" link @click="setDefault(c.id)">设为默认</el-button>
@@ -31,8 +32,18 @@
       <!-- 提供商选择 -->
       <div style="margin-bottom:20px">
         <div style="font-size:13px;color:#909399;margin-bottom:8px">选择提供商</div>
+        <div style="font-size:12px;color:#b8aad0;margin-bottom:6px">对话模型</div>
         <div class="provider-grid">
-          <div v-for="p in providers" :key="p.id"
+          <div v-for="p in chatProviders" :key="p.id"
+            class="provider-card" :class="{ selected: form.provider === p.id }"
+            @click="selectProvider(p)">
+            <div class="pv-name">{{ p.label }}</div>
+            <div class="pv-base">{{ p.baseUrl || '自定义地址' }}</div>
+          </div>
+        </div>
+        <div style="font-size:12px;color:#b8aad0;margin:12px 0 6px">视频生成</div>
+        <div class="provider-grid">
+          <div v-for="p in videoProviders" :key="p.id"
             class="provider-card" :class="{ selected: form.provider === p.id }"
             @click="selectProvider(p)">
             <div class="pv-name">{{ p.label }}</div>
@@ -48,28 +59,34 @@
         <el-form-item label="API 地址">
           <el-input v-model="form.api_base" placeholder="https://api.xxx.com/v1" style="width:400px"/>
         </el-form-item>
-        <el-form-item label="API Key">
-          <el-input v-model="form.api_key" placeholder="sk-xxx" style="width:400px" type="password" show-password/>
+        <el-form-item :label="currentProvider?.fieldLabels?.api_key || 'API Key'">
+          <el-input v-model="form.api_key" :placeholder="isVideoProvider ? '' : 'sk-xxx'" style="width:400px" type="password" show-password/>
           <div v-if="editing && form.api_key?.startsWith('***')" style="color:#909399;font-size:12px">留空则不修改已保存的 Key</div>
         </el-form-item>
-        <el-form-item label="模型">
-          <div style="display:flex;gap:8px;align-items:center">
-            <el-select v-model="form.model" style="width:300px" filterable allow-create>
-              <el-option v-for="m in currentModels" :key="m" :label="m" :value="m"/>
-            </el-select>
-            <el-button v-if="form.provider==='ollama'" size="small" :loading="probing" @click="probeOllama">探测本地模型</el-button>
-          </div>
+        <el-form-item v-if="isVideoProvider" :label="currentProvider?.fieldLabels?.secret_key || 'Secret Key'">
+          <el-input v-model="form.secret_key" style="width:400px" type="password" show-password/>
+          <div v-if="editing && form.secret_key?.startsWith('***')" style="color:#909399;font-size:12px">留空则不修改已保存的 Secret</div>
         </el-form-item>
-        <el-form-item label="Temperature">
-          <el-slider v-model="form.temperature" :min="0" :max="2" :step="0.1" style="width:300px" :format-tooltip="v=>v"/>
-          <span style="margin-left:10px;color:#909399">{{ form.temperature }}</span>
-        </el-form-item>
-        <el-form-item label="最大 Token">
-          <el-input-number v-model="form.max_tokens" :min="256" :max="32768" :step="256"/>
-        </el-form-item>
-        <el-form-item label="超时时间">
-          <el-input-number v-model="form.timeout" :min="10" :max="300"/> 秒
-        </el-form-item>
+        <template v-if="!isVideoProvider">
+          <el-form-item label="模型">
+            <div style="display:flex;gap:8px;align-items:center">
+              <el-select v-model="form.model" style="width:300px" filterable allow-create>
+                <el-option v-for="m in currentModels" :key="m" :label="m" :value="m"/>
+              </el-select>
+              <el-button v-if="form.provider==='ollama'" size="small" :loading="probing" @click="probeOllama">探测本地模型</el-button>
+            </div>
+          </el-form-item>
+          <el-form-item label="Temperature">
+            <el-slider v-model="form.temperature" :min="0" :max="2" :step="0.1" style="width:300px" :format-tooltip="v=>v"/>
+            <span style="margin-left:10px;color:#909399">{{ form.temperature }}</span>
+          </el-form-item>
+          <el-form-item label="最大 Token">
+            <el-input-number v-model="form.max_tokens" :min="256" :max="32768" :step="256"/>
+          </el-form-item>
+          <el-form-item label="超时时间">
+            <el-input-number v-model="form.timeout" :min="10" :max="300"/> 秒
+          </el-form-item>
+        </template>
         <el-form-item>
           <el-button type="primary" :loading="saving" @click="save">{{ editing ? '更新配置' : '保存配置' }}</el-button>
           <el-button :loading="testing" @click="testCurrent">检测连接</el-button>
@@ -100,11 +117,18 @@ const editingId = ref('')
 
 const form = reactive({
   name: '', provider: 'deepseek', api_base: '', api_key: '', model: 'deepseek-chat',
-  temperature: 0.7, max_tokens: 2048, timeout: 60
+  temperature: 0.7, max_tokens: 2048, timeout: 60, secret_key: ''
 })
 
+const chatProviders = computed(() => providers.value.filter(p => p.category !== 'video'))
+const videoProviders = computed(() => providers.value.filter(p => p.category === 'video'))
+
+const currentProvider = computed(() => providers.value.find(p => p.id === form.provider))
+
+const isVideoProvider = computed(() => currentProvider.value?.category === 'video')
+
 const currentModels = computed(() => {
-  const p = providers.value.find(p => p.id === form.provider)
+  const p = currentProvider.value
   return p?.models || []
 })
 
@@ -118,6 +142,10 @@ function selectProvider(p) {
   form.api_base = p.baseUrl || ''
   if (p.models?.length) form.model = p.models[0]
   if (!form.name) form.name = p.label + ' 配置'
+  if (p.category === 'video') {
+    form.model = ''
+    form.secret_key = ''
+  }
 }
 
 async function probeOllama() {
@@ -144,9 +172,10 @@ async function testCurrent() {
     // 编辑已有配置时用 ID 测试（后端读真实 Key），新建时用表单值
     const { data } = editing.value
       ? await request.post(`/model-configs/${editingId.value}/test`)
-      : await request.post('/model-configs/test', {
-          api_base: form.api_base, api_key: form.api_key, model: form.model
-        })
+      : await request.post('/model-configs/test', isVideoProvider.value
+          ? { api_base: form.api_base, api_key: form.api_key, secret_key: form.secret_key, category: 'video', provider: form.provider }
+          : { api_base: form.api_base, api_key: form.api_key, model: form.model }
+        )
     testOk.value = data.data.success
     testResult.value = data.data.success
       ? `连接成功！延迟 ${data.data.latency}ms`
@@ -179,10 +208,12 @@ async function save() {
       const body = { ...form }
       // 如果 key 没改（仍是掩码），不传 key
       if (body.api_key?.startsWith('***')) delete body.api_key
+      if (body.secret_key?.startsWith('***')) delete body.secret_key
       await request.put(`/model-configs/${editingId.value}`, body)
       ElMessage.success('已更新')
     } else {
-      await request.post('/model-configs', form)
+      const body = { ...form, category: isVideoProvider.value ? 'video' : 'chat' }
+      await request.post('/model-configs', body)
       ElMessage.success('已保存')
     }
     resetForm()
@@ -211,6 +242,7 @@ function editConfig(c) {
   form.provider = c.provider
   form.api_base = c.api_base
   form.api_key = c.api_key  // 掩码值
+  form.secret_key = c.secret_key || ''  // 掩码值
   form.model = c.model
   form.temperature = c.temperature
   form.max_tokens = c.max_tokens
@@ -223,6 +255,7 @@ function resetForm() {
   editingId.value = ''
   form.name = ''; form.provider = 'deepseek'; form.api_base = ''; form.api_key = ''
   form.model = 'deepseek-chat'; form.temperature = 0.7; form.max_tokens = 2048; form.timeout = 60
+  form.secret_key = ''
   testResult.value = ''
   // 重置 provider 默认值
   const dp = providers.value.find(p => p.id === 'deepseek')

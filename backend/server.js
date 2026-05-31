@@ -55,6 +55,9 @@ app.use('/api/hot-quick-reply', require('./routes/hot-quick-reply'));
 app.use('/api/hot-leads', require('./routes/hot-leads'));
 app.use('/api/hot-chanjing', require('./routes/hot-chanjing'));
 
+// 抖音发布
+app.use('/api/douyin-publish', require('./routes/douyin-publish'));
+
 // 文档
 app.use('/api/documents', require('./routes/documents'));
 app.use('/api/doc-folders', require('./routes/doc-folders'));

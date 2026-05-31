@@ -42,33 +42,31 @@
           <el-descriptions-item label="正文"><div style="max-height:200px;overflow-y:auto;white-space:pre-wrap">{{ extractResult.body }}</div></el-descriptions-item>
         </el-descriptions>
         <div style="margin-top:12px">
-          <el-button type="primary" @click="step=1;rewriteForm.source_title=extractResult.title;rewriteForm.source_body=extractResult.body;rewriteForm.source_tags=extractResult.tags;rewriteForm.source_url=extractResult.source_url;rewriteForm.source_platform=extractResult.platform">下一步：AI改写</el-button>
+          <el-button type="primary" @click="step=1;rewriteForm.source_title=extractResult.title;rewriteForm.source_body=extractResult.body;rewriteForm.source_tags=extractResult.tags;rewriteForm.source_url=extractResult.source_url;rewriteForm.source_platform=extractResult.platform;rewriteForm.user_prompt='';rewriteResult=null">下一步：AI改写</el-button>
         </div>
       </el-card>
 
       <el-card style="margin-top:16px" header="全部内容">
-        <HistoryTable :data="contentList" :step="0" @go-step="goStep" @go-video="goToVideo" @publish="publishContent" @approve="approveContent" @reject="rejectContent" @delete="deleteContent"/>
+        <HistoryTable :data="contentList" :step="0" @go-step="goStep" @go-video="goToVideo" @publish="publishContent" @approve="approveContent" @reject="rejectContent" @delete="deleteContent" @retry-video="retryVideo"/>
       </el-card>
     </div>
 
     <!-- === Step 1: Rewrite === -->
     <div v-show="step === 1">
-      <el-card header="个人文案改写" style="max-width:700px">
-        <el-form :model="personal" label-width="80px">
-          <el-form-item label="原文"><el-input v-model="personal.text" type="textarea" :rows="5" placeholder="粘贴你要改写的原始文案"/></el-form-item>
-          <el-form-item label="改写要求"><el-input v-model="personal.prompt" type="textarea" :rows="2" placeholder="描述改写风格、语气、目标平台等要求（选填）"/></el-form-item>
-          <el-form-item><el-button type="primary" :loading="personal.loading" @click="doPersonalRewrite">AI改写并进入编辑</el-button></el-form-item>
-        </el-form>
-      </el-card>
-
-      <el-divider style="margin:24px 0 16px"><span style="color:#b8aad0;font-size:13px">链接内容改写</span></el-divider>
-
-      <el-card header="AI改写" class="step-card">
-        <el-form label-width="100px" style="max-width:700px">
-          <el-form-item label="原标题"><el-input v-model="rewriteForm.source_title"/></el-form-item>
-          <el-form-item label="原文"><el-input v-model="rewriteForm.source_body" type="textarea" :rows="5"/></el-form-item>
-          <el-form-item label="标签"><el-input v-model="rewriteForm.source_tags"/></el-form-item>
-          <el-form-item label="额外要求"><el-input v-model="rewriteForm.user_prompt" placeholder="可选：对改写风格/方向的额外要求"/></el-form-item>
+      <el-card header="AI改写" class="step-card" style="max-width:700px">
+        <el-form label-width="90px">
+          <el-form-item label="原标题">
+            <el-input v-model="rewriteForm.source_title" placeholder="选填：原内容的标题"/>
+          </el-form-item>
+          <el-form-item label="原文">
+            <el-input v-model="rewriteForm.source_body" type="textarea" :rows="5" placeholder="粘贴原始文案，或从Step 0提取后自动填充"/>
+          </el-form-item>
+          <el-form-item label="标签">
+            <el-input v-model="rewriteForm.source_tags" placeholder="选填：原内容的标签，逗号分隔"/>
+          </el-form-item>
+          <el-form-item label="改写要求">
+            <el-input v-model="rewriteForm.user_prompt" type="textarea" :rows="2" placeholder="选填：描述改写风格、语气、目标平台等要求"/>
+          </el-form-item>
           <el-form-item>
             <el-button @click="step=0">上一步</el-button>
             <el-button type="primary" :loading="rewriting" @click="doRewrite">开始改写</el-button>
@@ -76,7 +74,7 @@
         </el-form>
       </el-card>
 
-      <el-card v-if="rewriteResult" style="margin-top:16px" header="改写结果">
+      <el-card v-if="rewriteResult" style="margin-top:16px;max-width:700px" header="改写结果">
         <el-descriptions :column="1" border size="small">
           <el-descriptions-item label="新标题">{{ rewriteResult.title }}</el-descriptions-item>
           <el-descriptions-item label="新标签">{{ rewriteResult.tags }}</el-descriptions-item>
@@ -88,7 +86,7 @@
       </el-card>
 
       <el-card style="margin-top:16px" header="待编辑内容">
-        <HistoryTable :data="rewriteHistory" :step="1" @go-step="goStep" @go-video="goToVideo" @publish="publishContent" @approve="approveContent" @reject="rejectContent" @delete="deleteContent"/>
+        <HistoryTable :data="rewriteHistory" :step="1" @go-step="goStep" @go-video="goToVideo" @publish="publishContent" @approve="approveContent" @reject="rejectContent" @delete="deleteContent" @retry-video="retryVideo"/>
       </el-card>
     </div>
 
@@ -107,7 +105,7 @@
       </el-card>
 
       <el-card style="margin-top:16px" header="内容列表">
-        <HistoryTable :data="editHistory" :step="2" @go-step="goStep" @go-video="goToVideo" @publish="publishContent" @approve="approveContent" @reject="rejectContent" @delete="deleteContent"/>
+        <HistoryTable :data="editHistory" :step="2" @go-step="goStep" @go-video="goToVideo" @publish="publishContent" @approve="approveContent" @reject="rejectContent" @delete="deleteContent" @retry-video="retryVideo"/>
       </el-card>
     </div>
 
@@ -126,6 +124,7 @@
             <el-radio-group v-model="videoForm.orientation"><el-radio label="portrait">竖屏 9:16</el-radio><el-radio label="landscape">横屏 16:9</el-radio></el-radio-group>
           </el-form-item>
 
+          <!-- 蝉镜模式：数字人 + 音色 + 音调 + 字体 -->
           <template v-if="videoForm.mode==='chanjing'">
             <el-form-item label="数字人">
               <div v-if="selectedPerson" class="pipe-sel">
@@ -154,6 +153,7 @@
               <el-button v-else @click="showFontDialog=true;loadFonts()">选择字体（可选）</el-button>
             </el-form-item>
           </template>
+
 
           <el-form-item>
             <el-button @click="step=2">上一步</el-button>
@@ -227,35 +227,141 @@
 
     <!-- === Step 4: Publish === -->
     <div v-show="step === 4">
-      <el-card header="发布内容" class="step-card">
-        <el-form :model="publishForm" label-width="100px" style="max-width:500px">
-          <el-form-item label="发布平台">
-            <el-checkbox-group v-model="publishForm.platforms">
-              <el-checkbox label="douyin">抖音</el-checkbox>
-              <el-checkbox label="xiaohongshu">小红书</el-checkbox>
-              <el-checkbox label="kuaishou">快手</el-checkbox>
-              <el-checkbox label="wechat">微信视频号</el-checkbox>
-            </el-checkbox-group>
-          </el-form-item>
-          <el-form-item>
-            <el-button @click="step=3">上一步</el-button>
-            <el-button type="primary" :loading="publishing" @click="doPublish">确认发布</el-button>
-          </el-form-item>
-        </el-form>
-      </el-card>
+      <!-- 服务/账号状态条 -->
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px">
+        <el-alert v-if="douyinHealth !== 'healthy'" :title="douyinHealth === 'unreachable' ? '抖音发布服务未连接' : '服务状态未知'"
+          :type="douyinHealth === 'unreachable' ? 'error' : 'warning'" :closable="false" show-icon style="flex:1"/>
+        <template v-if="douyinHealth==='healthy'">
+          <el-tag v-if="accountChecking" type="info" size="large">检查账号...</el-tag>
+          <template v-else-if="accountStatus?.is_logged_in">
+            <el-tag type="success" size="large" effect="dark">✓ 账号已连接</el-tag>
+          </template>
+          <template v-else>
+            <el-tag type="danger" size="large">未登录</el-tag>
+            <el-button size="small" type="primary" :loading="douyinLoggingIn" @click="doDouyinLogin">
+              {{ douyinLoggingIn ? '等待扫码...' : '扫码登录' }}
+            </el-button>
+          </template>
+        </template>
+      </div>
+
+      <div class="douyin-publish-layout">
+        <!-- 左：作品描述 -->
+        <div class="publish-main">
+          <el-card shadow="hover" class="publish-card">
+            <template #header><div class="card-header-title">📝 作品描述</div></template>
+            <div class="form-block">
+              <div class="form-label">作品标题 <span class="char-count">{{ (publishForm.title || videoForm.title || '').length }}/55</span></div>
+              <el-input v-model="publishForm.title" :placeholder="videoForm.title || '请输入作品标题'" maxlength="55" size="large"/>
+            </div>
+            <div class="form-block">
+              <div class="form-label">作品介绍</div>
+              <el-input v-model="publishForm.description" type="textarea" :rows="4" placeholder="添加作品介绍，让观众更了解你的内容" maxlength="1000" show-word-limit/>
+            </div>
+            <div class="form-block">
+              <div class="form-label"># 添加话题</div>
+              <div class="tag-input-wrap" @click="focusTagInput">
+                <el-tag v-for="(t,i) in publishForm.tagList" :key="i" closable size="large" round
+                  @close="publishForm.tagList.splice(i,1)" style="margin-right:6px;margin-bottom:4px">
+                  #{{ t }}
+                </el-tag>
+                <el-input v-model="tagInputText" ref="tagInputRef" size="large" placeholder="输入话题后回车添加"
+                  @keyup.enter="addTag" @keydown.delete="tryRemoveLastTag" style="flex:1;min-width:120px"
+                  class="tag-plain-input"/>
+              </div>
+            </div>
+          </el-card>
+
+          <!-- 设置封面 -->
+          <el-card shadow="hover" class="publish-card" style="margin-top:16px">
+            <template #header>
+              <div style="display:flex;justify-content:space-between;align-items:center">
+                <span class="card-header-title">🖼️ 设置封面</span>
+                <el-radio-group v-model="coverOrientation" size="small" @change="generateCover">
+                  <el-radio-button label="portrait">竖 3:4</el-radio-button>
+                  <el-radio-button label="landscape">横 4:3</el-radio-button>
+                </el-radio-group>
+              </div>
+            </template>
+            <div v-if="!coverUrl" style="padding:40px 0;text-align:center;color:#999">
+              <el-button type="primary" :loading="coverLoading" @click="generateCover">提取视频封面</el-button>
+              <div style="margin-top:8px;font-size:12px;color:#bbb">自动从视频中智能选取最佳帧</div>
+            </div>
+            <div v-else class="cover-section">
+              <div class="cover-preview">
+                <img :src="coverUrl" :class="coverOrientation==='landscape'?'cover-img-landscape':'cover-img'"/>
+                <div class="cover-actions">
+                  <el-button size="small" :loading="coverLoading" @click="generateCover">重新提取</el-button>
+                  <el-button size="small" text @click="coverUrl=''">移除</el-button>
+                </div>
+              </div>
+              <div class="cover-samples" v-if="coverSamples.length">
+                <div class="form-label" style="margin-top:0">智能推荐封面</div>
+                <div class="sample-grid">
+                  <div v-for="(s,i) in coverSamples" :key="i" class="sample-item"
+                    :class="{active: s===coverUrl}" @click="pickCover(s)">
+                    <img :src="s" :class="coverOrientation==='landscape'?'sample-img-landscape':''"/>
+                    <span class="sample-time">{{ coverTimes[i] }}s</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </el-card>
+
+          <!-- 发布按钮 -->
+          <div class="publish-actions">
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+              <el-switch v-model="publishForm.scheduled" active-text="定时发布" inactive-text="立即发布" size="large"/>
+              <el-date-picker v-if="publishForm.scheduled" v-model="publishForm.publishDate"
+                type="datetime" placeholder="选择发布时间" format="YYYY-MM-DD HH:mm" value-format="YYYY-MM-DD HH:mm"/>
+            </div>
+            <div style="display:flex;gap:12px">
+              <el-button @click="step=3" size="large">上一步</el-button>
+              <el-button type="primary" size="large" :loading="publishing" @click="doPublish"
+                :disabled="!accountStatus?.is_logged_in">
+                {{ publishForm.scheduled ? '定时发布' : '发布' }}
+              </el-button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 右：发布预览 -->
+        <div class="publish-sidebar">
+          <el-card shadow="hover">
+            <template #header><div class="card-header-title">📱 发布预览</div></template>
+            <div class="preview-card">
+              <div v-if="coverUrl" :class="coverOrientation==='landscape'?'preview-cover-landscape':'preview-cover'">
+                <img :src="coverUrl"/>
+              </div>
+              <div v-else :class="coverOrientation==='landscape'?'preview-cover-landscape preview-cover-placeholder':'preview-cover preview-cover-placeholder'">
+                <el-icon :size="36"><VideoCamera /></el-icon>
+                <span>未设置封面</span>
+              </div>
+              <div class="preview-body">
+                <div class="preview-title">{{ publishForm.title || videoForm.title || '作品标题' }}</div>
+                <div class="preview-desc">{{ publishForm.description || '(无介绍)' }}</div>
+                <div class="preview-tags">
+                  <span v-for="(t,i) in publishForm.tagList" :key="i" class="preview-tag">#{{ t }}</span>
+                  <span v-if="!publishForm.tagList.length" style="color:#bbb">#未添加话题</span>
+                </div>
+              </div>
+            </div>
+          </el-card>
+        </div>
+      </div>
 
       <el-card style="margin-top:16px" header="已发布内容">
-        <HistoryTable :data="publishHistory" :step="4" @go-step="goStep" @go-video="goToVideo" @publish="publishContent" @approve="approveContent" @reject="rejectContent" @delete="deleteContent"/>
+        <HistoryTable :data="publishHistory" :step="4" @go-step="goStep" @go-video="goToVideo" @publish="publishContent" @approve="approveContent" @reject="rejectContent" @delete="deleteContent" @retry-video="retryVideo" @republish="republishContent" @view-publish="viewPublishContent"/>
       </el-card>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Check, ArrowRight, CircleCheckFilled } from '@element-plus/icons-vue'
-import { hotContentApi, hotExtractApi, hotChanjingApi } from '../../api/hot-video'
+import { Check, ArrowRight, CircleCheckFilled, VideoCamera } from '@element-plus/icons-vue'
+import { hotContentApi, hotExtractApi, hotChanjingApi, douyinPublishApi } from '../../api/hot-video'
 import HistoryTable from './HistoryTable.vue'
 
 const step = ref(0)
@@ -275,13 +381,18 @@ async function loadContents() {
 
 // ─── Step status ───
 function stepStat(i) {
+  // 当前步骤始终高亮，不显示 done
+  if (i === step.value) return 'process'
+  // 未来步骤灰色
+  if (i > step.value) return 'wait'
+  // 已过去的步骤：有成果则显示 done
   const list = contentList.value
   switch (i) {
-    case 0: return list.length > 0 ? 'done' : (step.value === 0 ? 'process' : 'wait')
-    case 1: return list.length > 0 ? 'done' : (step.value === 1 ? 'process' : 'wait')
-    case 2: return list.some(c => c.status === 'draft' || c.status === 'approved') ? 'done' : (step.value === 2 ? 'process' : 'wait')
-    case 3: return list.some(c => c.video_status === 'done') ? 'done' : list.some(c => c.video_status === 'generating') ? 'process' : (step.value === 3 ? 'process' : 'wait')
-    case 4: return list.some(c => c.status === 'published') ? 'done' : (step.value === 4 ? 'process' : 'wait')
+    case 0: return list.length > 0 ? 'done' : 'process'
+    case 1: return list.length > 0 ? 'done' : 'process'
+    case 2: return list.some(c => c.status === 'draft' || c.status === 'approved' || c.status === 'published') ? 'done' : 'process'
+    case 3: return list.some(c => c.video_status === 'done') ? 'done' : 'process'
+    case 4: return list.some(c => c.status === 'published') ? 'done' : 'process'
     default: return 'wait'
   }
 }
@@ -318,30 +429,6 @@ async function doExtract() {
   } catch (e) {
     ElMessage.error(e.response?.data?.message || '提取失败')
   } finally { extracting.value = false }
-}
-
-// ─── Personal rewrite ───
-const personal = reactive({ text: '', prompt: '', loading: false })
-async function doPersonalRewrite() {
-  if (!personal.text) return ElMessage.warning('请输入原文')
-  personal.loading = true
-  try {
-    const res = await hotExtractApi.rewrite({
-      source_title: '',
-      source_body: personal.text,
-      source_tags: '',
-      source_platform: 'other',
-      user_prompt: personal.prompt
-    })
-    const data = res.data.data
-    editForm.title = data.title || ''
-    editForm.body = data.body || ''
-    editForm.tags = data.tags || ''
-    ElMessage.success('改写完成，进入编辑')
-    step.value = 2
-  } catch (e) {
-    ElMessage.error(e.response?.data?.message || '改写失败')
-  } finally { personal.loading = false }
 }
 
 // ─── Step 1: Rewrite ───
@@ -395,12 +482,43 @@ function goToVideo(row) {
   step.value = 3
 }
 async function publishContent(row) {
-  try {
-    await ElMessageBox.confirm('确认发布?')
-    await hotContentApi.publish(row.id, { platforms: 'douyin' })
-    ElMessage.success('已发布')
-    await loadContents()
-  } catch {}
+  // 跳转到 Step 4 进行抖音发布预览
+  videoForm.contentId = row.id
+  videoForm.title = row.title || ''
+  if (row.video_url_landscape) videoForm.orientation = 'landscape'
+  else if (row.video_url) videoForm.orientation = 'portrait'
+  publishForm.title = row.title || ''
+  publishForm.description = row.body || ''
+  publishForm.tagList = row.tags ? row.tags.split(',').map(t => t.trim()).filter(Boolean) : []
+  publishForm.scheduled = false
+  publishForm.publishDate = null
+  publishForm.location = ''
+  coverUrl.value = ''
+  coverSamples.value = []
+  step.value = 4
+}
+
+function republishContent(row) {
+  // 二次发布：填充表单到 Step 4 上方模块
+  videoForm.contentId = row.id
+  videoForm.title = row.title || ''
+  if (row.video_url_landscape) { videoForm.orientation = 'landscape'; coverOrientation.value = 'landscape' }
+  else if (row.video_url) { videoForm.orientation = 'portrait'; coverOrientation.value = 'portrait' }
+  publishForm.title = row.title || ''
+  publishForm.description = row.body || ''
+  publishForm.tagList = row.tags ? row.tags.split(',').map(t => t.trim()).filter(Boolean) : []
+  publishForm.scheduled = false
+  publishForm.publishDate = null
+  publishForm.location = ''
+  coverUrl.value = ''
+  coverSamples.value = []
+  generateCover()
+  ElMessage.success('已填充发布表单，确认后可点击发布')
+}
+
+function viewPublishContent(row) {
+  // 查看：自动填充表单，与二次发布相同逻辑
+  republishContent(row)
 }
 async function deleteContent(id) {
   try { await ElMessageBox.confirm('确认删除?'); await hotContentApi.remove(id); await loadContents() } catch {}
@@ -514,6 +632,9 @@ function selectFont(f) { videoForm.font_id = f.id; showFontDialog.value = false 
 
 async function doGenerateVideo() {
   if (!videoForm.contentId) return ElMessage.warning('请先从内容列表选择要生成视频的内容')
+  if (videoForm.mode === 'chanjing' && (!videoForm.person_id || !videoForm.audio_man_id)) {
+    return ElMessage.warning('蝉镜模式需要选择数字人和音色')
+  }
   generating.value = true
   videoStatus.value = 'generating'
   try {
@@ -558,6 +679,14 @@ async function doGenerateVideo() {
   } finally { generating.value = false }
 }
 
+async function retryVideo(row) {
+  videoForm.contentId = row.id
+  videoForm.title = row.title || ''
+  step.value = 3
+  await nextTick()
+  doGenerateVideo()
+}
+
 function viewHistoryVideo(row) {
   videoForm.contentId = row.id
   videoForm.title = row.title
@@ -578,22 +707,158 @@ function downloadHistoryVideo(row) {
 }
 
 // ─── Step 4: Publish ───
-const publishForm = reactive({ platforms: [] })
+const publishForm = reactive({ title: '', description: '', tagList: [], tags: '', scheduled: false, publishDate: null, location: '' })
+
+const tagInputText = ref('')
+const tagInputRef = ref(null)
+function focusTagInput() { tagInputRef.value?.focus() }
+function addTag() {
+  const v = tagInputText.value.trim()
+  if (v && !publishForm.tagList.includes(v)) publishForm.tagList.push(v)
+  tagInputText.value = ''
+}
+function tryRemoveLastTag() {
+  if (!tagInputText.value && publishForm.tagList.length)
+    publishForm.tagList.pop()
+}
+
+// ─── 封面 ───
+const coverUrl = ref('')
+const coverSamples = ref([])
+const coverTimes = [0, 1, 3, 5]
+const coverLoading = ref(false)
+const coverOrientation = ref('portrait')
+
+async function generateCover() {
+  if (!videoForm.contentId) return ElMessage.warning('请先从视频步骤选择内容')
+  coverLoading.value = true
+  try {
+    const base = `/api/hot-contents/${videoForm.contentId}/cover-frame`
+    const main = `${base}?orientation=${coverOrientation.value}&t=1&_=${Date.now()}`
+    coverUrl.value = main
+    const samples = []
+    for (const t of coverTimes) {
+      samples.push(`${base}?orientation=${coverOrientation.value}&t=${t}&_=${Date.now()}`)
+    }
+    coverSamples.value = samples
+  } catch { ElMessage.error('封面提取失败') }
+  coverLoading.value = false
+}
+
+function pickCover(url) { coverUrl.value = url }
+
+// ─── 抖音发布 ───
+const douyinHealth = ref(null)
+const accountStatus = ref(null)
+const accountChecking = ref(false)
+const douyinLoggingIn = ref(false)
 const publishing = ref(false)
+
+async function checkDouyinHealth() {
+  try {
+    const res = await douyinPublishApi.health()
+    douyinHealth.value = res.data.data?.status || 'unknown'
+  } catch {
+    douyinHealth.value = 'unreachable'
+  }
+}
+
+async function checkAccountStatus() {
+  if (douyinHealth.value !== 'healthy') return
+  accountChecking.value = true
+  try {
+    const res = await douyinPublishApi.accountStatus('default')
+    accountStatus.value = res.data.data
+  } catch {
+    accountStatus.value = null
+  }
+  accountChecking.value = false
+}
+
+async function doDouyinLogin() {
+  douyinLoggingIn.value = true
+  try {
+    const loginRes = await douyinPublishApi.login('default')
+    if (!loginRes.data.data?.success && loginRes.data.data?.message) {
+      ElMessage.warning(loginRes.data.data.message)
+      douyinLoggingIn.value = false
+      return
+    }
+    ElMessage({ message: '浏览器已打开，请在浏览器中扫码或手机号完成登录', type: 'info', duration: 5000 })
+    let attempts = 0
+    while (attempts < 60) {
+      await new Promise(r => setTimeout(r, 3000))
+      try {
+        const res = await douyinPublishApi.accountStatus('default')
+        accountStatus.value = res.data.data
+        if (res.data.data?.is_logged_in) {
+          ElMessage.success('抖音账号登录成功！')
+          douyinLoggingIn.value = false
+          return
+        }
+      } catch {}
+      attempts++
+    }
+    ElMessage.warning('登录超时（3分钟），请重试')
+  } catch (e) {
+    ElMessage.error('启动登录失败: ' + (e.response?.data?.message || e.message))
+  }
+  douyinLoggingIn.value = false
+}
+
 async function doPublish() {
-  if (!publishForm.platforms.length) return ElMessage.warning('请选择发布平台')
+  if (!videoForm.contentId) return ElMessage.warning('请先从视频步骤生成视频')
+  if (!accountStatus.value?.is_logged_in) return ElMessage.warning('请先登录抖音账号')
   publishing.value = true
   try {
-    await hotContentApi.publish(videoForm.contentId, { platforms: publishForm.platforms.join(',') })
-    ElMessage.success('已发布')
-    publishForm.platforms = []
-    await loadContents()
+    const payload = {
+      account_name: 'default',
+      title: publishForm.title || videoForm.title,
+      tags: publishForm.tagList.join(','),
+      description: publishForm.description,
+      cover_orientation: coverOrientation.value,
+      location: publishForm.location || '',
+    }
+    if (publishForm.scheduled && publishForm.publishDate) {
+      payload.publish_date = publishForm.publishDate
+    }
+    const res = await douyinPublishApi.publish(videoForm.contentId, payload)
+    if (res.data.data?.success) {
+      ElMessage.success('抖音发布成功！')
+      await loadContents()
+    } else {
+      ElMessage.error(res.data.data?.message || '发布失败')
+    }
   } catch (e) {
     ElMessage.error(e.response?.data?.message || '发布失败')
   } finally { publishing.value = false }
 }
 
-onMounted(loadContents)
+// 进入 Step 4 时预填
+watch(step, async (s) => {
+  if (s === 4) {
+    await checkDouyinHealth()
+    await checkAccountStatus()
+    // Auto-detect cover orientation from video availability
+    const cur = contentList.value.find(c => c.id === videoForm.contentId)
+    if (cur?.video_url_landscape && !cur?.video_url) coverOrientation.value = 'landscape'
+    else coverOrientation.value = 'portrait'
+    if (!publishForm.title) publishForm.title = videoForm.title || ''
+    publishForm.location = ''
+    if (cur) {
+      if (!publishForm.description && cur.body) publishForm.description = cur.body
+      if (!publishForm.tagList.length && cur.tags) {
+        publishForm.tagList = cur.tags.split(',').map(t => t.trim()).filter(Boolean)
+      }
+    }
+    if (!coverUrl.value) generateCover()
+  }
+})
+
+onMounted(() => {
+  loadContents()
+  checkDouyinHealth()
+})
 </script>
 
 <style scoped>
@@ -623,11 +888,13 @@ onMounted(loadContents)
 }
 .step-item.active {
   background: #ecf5ff;
+  box-shadow: 0 0 0 1px #409eff;
 }
 .step-item.active .step-num {
-  background: #409eff;
-  border-color: #409eff;
+  background: #409eff !important;
+  border-color: #409eff !important;
   color: #fff;
+  box-shadow: 0 0 0 4px rgba(64,158,255,0.2);
 }
 .step-item.done .step-num {
   background: #67c23a;
@@ -707,4 +974,193 @@ onMounted(loadContents)
 .rc-name { font-weight: 600; font-size: 14px; }
 .rc-meta { font-size: 12px; color: #909399; margin-top: 2px; }
 .rc-check { position: absolute; top: 8px; right: 8px; font-size: 22px; color: #409eff; }
+
+/* ─── Step 4: Douyin Publish Layout ─── */
+.douyin-publish-layout {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+.publish-main {
+  flex: 1;
+  min-width: 0;
+}
+.publish-sidebar {
+  width: 340px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 16px;
+}
+.publish-card {
+  border-top: 3px solid #fe2c55;
+}
+.card-header-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+.form-block {
+  margin-bottom: 18px;
+}
+.form-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #606266;
+  margin-bottom: 6px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.char-count {
+  font-size: 12px;
+  color: #909399;
+  font-weight: 400;
+}
+.tag-input-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+  border: 1px solid #dcdfe6;
+  border-radius: 8px;
+  min-height: 42px;
+  cursor: text;
+  transition: border-color 0.2s;
+}
+.tag-input-wrap:hover { border-color: #c0c4cc; }
+.tag-input-wrap:focus-within { border-color: #409eff; }
+.tag-plain-input :deep(.el-input__wrapper) {
+  box-shadow: none !important;
+  border: none !important;
+  padding: 0 !important;
+  background: transparent !important;
+}
+/* ─── 封面 ─── */
+.cover-section { display: flex; gap: 16px; flex-direction: column; }
+.cover-preview {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+.cover-img {
+  width: 200px;
+  height: 267px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid #ebeef5;
+}
+.cover-img-landscape {
+  width: 267px;
+  height: 200px;
+  object-fit: contain;
+  background: #000;
+  border-radius: 8px;
+  border: 1px solid #ebeef5;
+}
+.cover-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cover-samples { margin-top: 8px; }
+.sample-grid {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+.sample-item {
+  width: 90px;
+  height: 120px;
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: pointer;
+  border: 2px solid transparent;
+  position: relative;
+  transition: border-color 0.2s;
+}
+.sample-item.active { border-color: #fe2c55; }
+.sample-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.sample-item .sample-img-landscape {
+  object-fit: cover;
+}
+.sample-time {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  background: rgba(0,0,0,0.6);
+  color: #fff;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+/* ─── 发布按钮 ─── */
+.publish-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 20px;
+  padding: 16px 0;
+}
+/* ─── 预览卡片 ─── */
+.preview-card {
+  border-radius: 8px;
+  overflow: hidden;
+  background: #000;
+}
+.preview-cover {
+  width: 100%;
+  aspect-ratio: 3/4;
+  background: #1a1a1a;
+  overflow: hidden;
+}
+.preview-cover img { width: 100%; height: 100%; object-fit: cover; }
+.preview-cover-landscape {
+  width: 100%;
+  aspect-ratio: 4/3;
+  background: #1a1a1a;
+  overflow: hidden;
+}
+.preview-cover-landscape img { width: 100%; height: 100%; object-fit: contain; background: #000; }
+.preview-cover-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #666;
+  gap: 8px;
+  font-size: 13px;
+}
+.preview-body {
+  padding: 12px;
+  background: #111;
+}
+.preview-title {
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.preview-desc {
+  color: #999;
+  font-size: 12px;
+  line-height: 1.5;
+  margin-bottom: 8px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.preview-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.preview-tag {
+  color: #ffba57;
+  font-size: 12px;
+}
 </style>

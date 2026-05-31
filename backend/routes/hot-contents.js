@@ -48,7 +48,7 @@ router.put('/:id', (req, res) => {
   const cur = db.prepare('SELECT * FROM hot_contents WHERE id=?').get(req.params.id);
   if (!cur) return res.status(404).json({ code: 404, message: '内容不存在' });
   const { title, body, tags } = req.body;
-  db.prepare(`UPDATE hot_contents SET title=?,body=?,tags=?,updated_at=datetime('now','localtime') WHERE id=?`)
+  db.prepare(`UPDATE hot_contents SET title=?,body=?,tags=? WHERE id=?`)
     .run(title ?? cur.title, body ?? cur.body, tags ?? cur.tags, req.params.id);
   const row = db.prepare('SELECT * FROM hot_contents WHERE id=?').get(req.params.id);
   res.json({ code: 200, data: row });
@@ -170,15 +170,23 @@ router.post('/:id/generate-video', (req, res) => {
   const figureHeight = parseInt(req.query.figure_height) || 0;
   const ttsProvider = req.query.tts_provider || 'edge'; // 'edge' | 'chanjing'
 
+  const { getVideoCredentials } = require('./model-configs');
+
   // Validate mode configuration
   if (videoMode === 'inference' && !require('../config').inferenceApiKey) {
     return res.status(400).json({ code: 400, message: 'Inference.sh 未配置 INFERENCE_API_KEY' });
   }
-  if (videoMode === 'kling' && (!require('../config').klingaiAccessKey || !require('../config').klingaiSecretKey)) {
-    return res.status(400).json({ code: 400, message: '可灵未配置 KLINGAI_ACCESS_KEY 和 KLINGAI_SECRET_KEY' });
+  if (videoMode === 'kling') {
+    const kc = getVideoCredentials('kling');
+    if (!kc.accessKey || !kc.secretKey) {
+      return res.status(400).json({ code: 400, message: '可灵 Access Key 和 Secret Key 未配置，请在模型配置页面添加可灵配置' });
+    }
   }
-  if (videoMode === 'chanjing' && !require('../config').chanjingAppId) {
-    return res.status(400).json({ code: 400, message: '蝉镜未配置 CHANJING_APP_ID 和 CHANJING_SECRET_KEY' });
+  if (videoMode === 'chanjing') {
+    const cc = getVideoCredentials('chanjing');
+    if (!cc.appId || !cc.secretKey) {
+      return res.status(400).json({ code: 400, message: '蝉镜 App ID 和 Secret Key 未配置，请在模型配置页面添加蝉镜配置' });
+    }
   }
   if (videoMode === 'chanjing' && (!personId || !audioManId)) {
     return res.status(400).json({ code: 400, message: '蝉镜模式需要指定 person_id 和 audio_man_id' });
@@ -200,12 +208,14 @@ router.post('/:id/generate-video', (req, res) => {
         const aiRaw = await aiVideo.generateAiVideo(prompts.image_prompt, prompts.motion_prompt, contentId);
         const result = await videoGen.generateVideoWithAiBackground(contentId, cur.title, cur.body, brand, aiRaw, orientation);
         videoPath = result.videoPath;
+        try { fs.unlinkSync(aiRaw); } catch {} // 清理原始AI视频
       } else if (videoMode === 'kling') {
         const klingPrompt = await buildKlingPrompt(cur.title, cur.body);
         const ratio = orientation === 'portrait' ? '9:16' : '16:9';
         const klingRaw = await klingVideo.generateVideo(klingPrompt, contentId, { aspectRatio: ratio });
         const result = await videoGen.generateVideoWithAiBackground(contentId, cur.title, cur.body, brand, klingRaw, orientation);
         videoPath = result.videoPath;
+        try { fs.unlinkSync(klingRaw); } catch {} // 清理原始Kling视频
       } else if (videoMode === 'chanjing') {
         const text = `${cur.title}。${cur.body}`;
         const params = {
@@ -255,6 +265,33 @@ router.post('/:id/generate-video', (req, res) => {
 
   const row = db.prepare('SELECT * FROM hot_contents WHERE id=?').get(contentId);
   res.json({ code: 200, data: row });
+});
+
+// ─── 封面帧提取 ───
+
+router.get('/:id/cover-frame', (req, res) => {
+  const cur = db.prepare('SELECT * FROM hot_contents WHERE id=?').get(req.params.id);
+  if (!cur) return res.status(404).json({ code: 404, message: '内容不存在' });
+
+  const orientation = req.query.orientation || 'portrait';
+  const videoPath = orientation === 'landscape' ? (cur.video_url_landscape || cur.video_url) : (cur.video_url || cur.video_url_landscape);
+  if (!videoPath || !fs.existsSync(videoPath)) return res.status(404).json({ code: 404, message: '视频不存在' });
+
+  const t = parseFloat(req.query.t) || 1;
+  const { execSync } = require('child_process');
+  const suffix = orientation === 'landscape' ? '_landscape' : '';
+  const thumbPath = path.join(VIDEOS_DIR, `cover_${req.params.id}_${orientation}_t${t}.jpg`);
+
+  try {
+    if (!fs.existsSync(thumbPath)) {
+      execSync(`ffmpeg -y -i "${videoPath}" -ss ${t} -vframes 1 -q:v 2 "${thumbPath}"`, { timeout: 15000, stdio: 'pipe' });
+    }
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    fs.createReadStream(thumbPath).pipe(res);
+  } catch {
+    res.status(500).json({ code: 500, message: '封面提取失败' });
+  }
 });
 
 // ─── 视频文件服务 ───

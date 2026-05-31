@@ -57,6 +57,9 @@
           <router-link to="/digital" class="nav-item" active-class="active">
             <el-icon><DataAnalysis /></el-icon><span>应用智能体管理</span>
           </router-link>
+          <router-link to="/channels" class="nav-item" active-class="active">
+            <el-icon><ChatLineSquare /></el-icon><span>消息渠道</span>
+          </router-link>
           <router-link to="/knowledge-base" class="nav-item" active-class="active">
             <el-icon><Collection /></el-icon><span>知识库</span>
           </router-link>
@@ -74,9 +77,6 @@
           </router-link>
           <router-link to="/services" class="nav-item" active-class="active">
             <el-icon><Setting /></el-icon><span>服务管理</span>
-          </router-link>
-          <router-link to="/channels" class="nav-item" active-class="active">
-            <el-icon><ChatLineSquare /></el-icon><span>消息渠道</span>
           </router-link>
           <router-link to="/automation" class="nav-item" active-class="active">
             <el-icon><Promotion /></el-icon><span>通信与自动化</span>

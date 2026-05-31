@@ -76,3 +76,10 @@ export const hotChanjingApi = {
   getUserInfo: () => GET('/hot-chanjing/user/info'),
   getUserDuration: () => GET('/hot-chanjing/user/duration'),
 }
+
+export const douyinPublishApi = {
+  health: () => GET('/douyin-publish/health'),
+  accountStatus: (name) => GET(`/douyin-publish/account/${name || 'default'}/status`),
+  login: (name) => POST(`/douyin-publish/account/${name || 'default'}/login`),
+  publish: (contentId, d) => POST(`/douyin-publish/contents/${contentId}/publish`, d),
+}
