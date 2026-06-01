@@ -1,8 +1,30 @@
 <template>
   <div class="page-container">
     <div class="page-hd">
-      <span class="page-title">应用智能体管理</span>
+      <div>
+        <span class="page-title">应用智能体管理</span>
+        <span class="page-sub">AI Agent 配置与技能管理</span>
+      </div>
       <el-button type="primary" @click="openAdd">添加智能体</el-button>
+    </div>
+
+    <!-- 统计 -->
+    <div class="stat-row">
+      <div class="stat-card" style="--glow:#7c3aed">
+        <div class="stat-icon"><el-icon :size="20"><Cpu /></el-icon></div>
+        <div class="stat-num">{{ agents.length }}</div>
+        <div class="stat-label">智能体总数</div>
+      </div>
+      <div class="stat-card" style="--glow:#22c55e">
+        <div class="stat-icon"><el-icon :size="20"><Check /></el-icon></div>
+        <div class="stat-num">{{ agents.filter(a=>a.builtin).length }}</div>
+        <div class="stat-label">系统内置</div>
+      </div>
+      <div class="stat-card" style="--glow:#f59e0b">
+        <div class="stat-icon"><el-icon :size="20"><Setting /></el-icon></div>
+        <div class="stat-num">{{ agents.filter(a=>!a.builtin).length }}</div>
+        <div class="stat-label">自定义</div>
+      </div>
     </div>
 
     <div class="agent-grid">
@@ -30,46 +52,25 @@
       </div>
     </div>
 
-    <!-- 技能管理对话框 -->
-    <el-dialog v-model="skillDlg.visible" :title="'技能管理 - ' + skillDlg.agentName" width="700px">
-      <div style="margin-bottom:12px">
-        <el-button type="primary" size="small" @click="openSkillAdd">添加技能</el-button>
+    <!-- 技能选择对话框 -->
+    <el-dialog v-model="skillDlg.visible" :title="'技能分配 - ' + skillDlg.agentName" width="600px" :close-on-click-modal="false">
+      <div v-if="allSkills.length === 0" style="text-align:center;padding:40px 0">
+        <el-empty description="技能库暂无技能">
+          <el-button type="primary" @click="skillDlg.visible=false;router.push('/skill-library')">前往技能库</el-button>
+        </el-empty>
       </div>
-      <el-table :data="skills" stripe border row-key="id" v-loading="skillLoading">
-        <el-table-column prop="name" label="名称" width="120"/>
-        <el-table-column prop="desc" label="描述" min-width="180" show-overflow-tooltip/>
-        <el-table-column prop="tools" label="关联工具" width="200" show-overflow-tooltip>
-          <template #default="{row}"><el-tag v-for="t in (row.tools||'').split(',').filter(Boolean)" :key="t" size="small" style="margin:1px">{{ t }}</el-tag></template>
-        </el-table-column>
-        <el-table-column label="操作" width="100">
-          <template #default="{row}">
-            <el-button size="small" type="primary" link @click="openSkillEdit(row)">编辑</el-button>
-            <el-button size="small" type="danger" link @click="delSkill(row.id)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+      <div v-else class="skill-check-list">
+        <div v-for="s in allSkills" :key="s.id" class="skill-check-item" :class="{ checked: checkedIds.includes(s.id) }" @click="toggleCheck(s.id)">
+          <el-checkbox :model-value="checkedIds.includes(s.id)" @click.stop @change="toggleCheck(s.id)"/>
+          <div class="sci-body">
+            <div class="sci-name">{{ s.name }}</div>
+            <div class="sci-desc">{{ s.desc }}</div>
+          </div>
+        </div>
+      </div>
       <template #footer>
-        <el-button @click="skillDlg.visible=false">关闭</el-button>
-      </template>
-    </el-dialog>
-
-    <!-- 技能添加/编辑 -->
-    <el-dialog v-model="skillFormDlg.visible" :title="skillFormDlg.isEdit ? '编辑技能' : '添加技能'" width="560px">
-      <el-form :model="skillFormDlg.form" label-width="80px">
-        <el-form-item label="名称"><el-input v-model="skillFormDlg.form.name" placeholder="如：合同分析"/></el-form-item>
-        <el-form-item label="描述"><el-input v-model="skillFormDlg.form.desc" type="textarea" :rows="2"/></el-form-item>
-        <el-form-item label="关联工具">
-          <el-select v-model="skillFormDlg.form.toolsList" multiple filterable placeholder="选择要启用的工具" style="width:100%">
-            <el-option v-for="t in availableTools" :key="t" :label="t" :value="t"/>
-          </el-select>
-        </el-form-item>
-        <el-form-item label="提示词">
-          <el-input v-model="skillFormDlg.form.prompt_snippet" type="textarea" :rows="5" placeholder="附加到系统提示词的技能描述..."/>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="skillFormDlg.visible=false">取消</el-button>
-        <el-button type="primary" @click="saveSkill">保存</el-button>
+        <el-button @click="skillDlg.visible=false">取消</el-button>
+        <el-button type="primary" :loading="skillSaving" @click="saveSkillBinding">保存</el-button>
       </template>
     </el-dialog>
 
@@ -91,7 +92,15 @@
             <el-option label="销售管理 Agent (CRM 工具集)" value="sales-agent"/>
           </el-select>
         </el-form-item>
-        <el-form-item label="系统提示词"><el-input v-model="dlg.form.system_prompt" type="textarea" :rows="5" placeholder="自定义系统提示词（留空继承基础Agent）..."/></el-form-item>
+        <el-form-item>
+          <template #label>
+            <span>系统提示词</span>
+            <el-button size="small" type="primary" text :loading="promptGenerating" @click="generatePrompt" style="margin-left:8px">
+              AI 生成
+            </el-button>
+          </template>
+          <el-input v-model="dlg.form.system_prompt" type="textarea" :rows="5" placeholder="自定义系统提示词（留空继承基础Agent，或点击 AI 生成自动填写）..."/>
+        </el-form-item>
         <el-form-item label="知识库引用">
           <el-select v-model="dlg.form.kb_article_ids" multiple filterable placeholder="选择知识库文章" style="width:100%">
             <el-option v-for="a in kbArticles" :key="a.id" :label="a.title" :value="a.id">
@@ -113,7 +122,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Avatar } from '@element-plus/icons-vue'
+import { Avatar, Cpu, Check, Setting } from '@element-plus/icons-vue'
 import axios from 'axios'
 const req = axios.create({ baseURL: '/api' })
 const router = useRouter()
@@ -121,29 +130,15 @@ const router = useRouter()
 const agents = ref([])
 const kbArticles = ref([])
 const dlg = reactive({ visible: false, isEdit: false, form: {} })
+const promptGenerating = ref(false)
 const icons = ['Avatar', 'Coin', 'Headset', 'Lock', 'ChatDotSquare', 'DataAnalysis', 'Cpu', 'Setting', 'Promotion', 'List', 'FolderOpened', 'Document']
 const emojis = ['🤖', '🤝', '📋', '🔧', '🛡️', '💻', '💬', '📢', '🎯', '🧠', '👔', '📊']
 
-// 技能管理
+// 技能分配
 const skillDlg = reactive({ visible: false, agentId: '', agentName: '' })
-const skillFormDlg = reactive({ visible: false, isEdit: false, form: {} })
-const skills = ref([])
-const skillLoading = ref(false)
-
-const availableTools = [
-  'list_customers', 'get_customer', 'create_customer', 'update_customer', 'add_follow_up',
-  'list_contacts', 'list_opportunities', 'create_opportunity', 'list_leads', 'list_contracts',
-  'create_contract', 'list_tickets', 'create_ticket', 'list_feedback', 'list_quotations',
-  'list_campaigns', 'list_asset_ledger',
-  'list_products', 'create_product', 'query_stock', 'stock_in', 'stock_out',
-  'list_suppliers', 'list_purchase_orders', 'list_sales_orders', 'list_warehouses',
-  'list_returns', 'create_return',
-  'list_employees', 'create_employee', 'list_departments', 'list_recruitment',
-  'list_candidates', 'clock_in', 'clock_out', 'attendance_records', 'attendance_monthly_report',
-  'list_attendance_rules', 'list_personnel_changes', 'list_performance_schemes',
-  'list_documents', 'search_documents', 'list_document_folders',
-  'search_faq', 'search_employee', 'get_dashboard_stats', 'handoff_to_human'
-]
+const allSkills = ref([])
+const checkedIds = ref([])
+const skillSaving = ref(false)
 
 async function loadAgents() {
   try { const { data } = await req.get('/agents'); agents.value = data.data || [] } catch { agents.value = [] }
@@ -153,8 +148,9 @@ async function loadKB() {
 }
 
 function hasPanel(agent) {
+  if (!agent.builtin) return false
   const map = { 'internal-agent': true, 'sales-agent': true, 'support-agent': true }
-  return map[agent.id] || (agent.base_agent && map[agent.base_agent])
+  return map[agent.id]
 }
 function openManagement(agent) {
   const id = agent.base_agent || agent.id
@@ -163,39 +159,41 @@ function openManagement(agent) {
 }
 
 // ----- 技能 -----
-async function loadSkills() {
-  skillLoading.value = true
+async function manageSkills(agent) {
+  skillDlg.agentId = agent.id; skillDlg.agentName = agent.name
+  // 加载全部技能库技能
   try {
-    const { data } = await req.get('/agent-skills', { params: { agent_id: skillDlg.agentId } })
-    skills.value = data.data || []
-  } catch { skills.value = [] } finally { skillLoading.value = false }
+    const { data } = await req.get('/agent-skills')
+    allSkills.value = data.data || []
+    // 已分配给当前 Agent 的技能默认勾选
+    checkedIds.value = allSkills.value.filter(s => s.agent_id === agent.id).map(s => s.id)
+  } catch { allSkills.value = []; checkedIds.value = [] }
+  skillDlg.visible = true
 }
-function manageSkills(agent) {
-  skillDlg.agentId = agent.id; skillDlg.agentName = agent.name; skillDlg.visible = true
-  loadSkills()
+function toggleCheck(skillId) {
+  const idx = checkedIds.value.indexOf(skillId)
+  if (idx >= 0) checkedIds.value.splice(idx, 1)
+  else checkedIds.value.push(skillId)
 }
-function openSkillAdd() {
-  skillFormDlg.isEdit = false
-  skillFormDlg.form = { name: '', desc: '', toolsList: [], prompt_snippet: '', agent_id: skillDlg.agentId }
-  skillFormDlg.visible = true
-}
-function openSkillEdit(row) {
-  skillFormDlg.isEdit = true
-  skillFormDlg.form = { ...row, toolsList: (row.tools || '').split(',').filter(Boolean) }
-  skillFormDlg.visible = true
-}
-async function saveSkill() {
-  if (!skillFormDlg.form.name) return ElMessage.warning('请输入名称')
-  const payload = { ...skillFormDlg.form, tools: (skillFormDlg.form.toolsList || []).join(','), toolsList: undefined }
-  if (skillFormDlg.isEdit) {
-    await req.put('/agent-skills/' + skillFormDlg.form.id, payload)
-  } else {
-    await req.post('/agent-skills', payload)
+async function saveSkillBinding() {
+  skillSaving.value = true
+  try {
+    const agentId = skillDlg.agentId
+    // 全部技能：勾选的设为 agent_id，未勾选的清空 agent_id（仅清空原本属于该 agent 的）
+    for (const s of allSkills.value) {
+      const shouldBind = checkedIds.value.includes(s.id)
+      if (shouldBind && s.agent_id !== agentId) {
+        await req.put('/agent-skills/' + s.id, { agent_id: agentId })
+      } else if (!shouldBind && s.agent_id === agentId) {
+        await req.put('/agent-skills/' + s.id, { agent_id: '' })
+      }
+    }
+    ElMessage.success('技能分配已保存')
+    skillDlg.visible = false
+  } catch (e) {
+    ElMessage.error('保存失败')
   }
-  skillFormDlg.visible = false; await loadSkills(); ElMessage.success('OK')
-}
-async function delSkill(id) {
-  try { await ElMessageBox.confirm('确认删除？'); await req.delete('/agent-skills/' + id); await loadSkills() } catch {}
+  skillSaving.value = false
 }
 
 // ----- 智能体 -----
@@ -217,6 +215,25 @@ async function saveAgent() {
   else { await req.post('/agent-apps', payload) }
   dlg.visible = false; await loadAgents(); ElMessage.success('OK')
 }
+async function generatePrompt() {
+  if (!dlg.form.name) return ElMessage.warning('请先填写智能体名称')
+  promptGenerating.value = true
+  try {
+    const { data } = await req.post('/agent-apps/generate-prompt', {
+      name: dlg.form.name,
+      desc: dlg.form.desc || '',
+      base_agent: dlg.form.base_agent || ''
+    })
+    if (data.code === 200 && data.data?.system_prompt) {
+      dlg.form.system_prompt = data.data.system_prompt
+      ElMessage.success('提示词已生成')
+    }
+  } catch (e) {
+    ElMessage.error(e.response?.data?.message || '生成失败')
+  }
+  promptGenerating.value = false
+}
+
 async function delAgent(id) {
   try { await ElMessageBox.confirm('确认删除？'); await req.delete('/agent-apps/' + id); await loadAgents() } catch {}
 }
@@ -228,6 +245,41 @@ onMounted(() => { loadAgents(); loadKB() })
 .page-container { padding: 20px 24px; height: 100%; overflow-y: auto; background: #fafafe; }
 .page-hd { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
 .page-title { font-size: 20px; font-weight: 600; color: #4a3f5e; }
+.page-sub { font-size: 13px; color: #b8aad0; margin-left: 10px; }
+
+/* stats */
+.stat-row { display: flex; gap: 12px; margin-bottom: 20px; }
+.stat-card {
+  flex: 1;
+  display: flex; align-items: center; gap: 12px;
+  background: rgba(255,255,255,.65);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(124,58,237,.12);
+  border-radius: 12px;
+  padding: 12px 18px;
+  transition: all .3s;
+}
+.stat-card:hover {
+  background: rgba(255,255,255,.85);
+  border-color: color-mix(in srgb, var(--glow, #7c3aed) 40%, transparent);
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--glow, #7c3aed) 10%, transparent);
+  transform: translateY(-1px);
+}
+.stat-icon {
+  width: 38px; height: 38px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--glow, #7c3aed) 12%, transparent);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  color: var(--glow, #7c3aed);
+}
+.stat-num {
+  font-size: 22px; font-weight: 700; color: #303133; line-height: 1;
+}
+.stat-label {
+  font-size: 12px; color: #909399; margin-left: auto;
+}
 .agent-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
 .agent-card {
   background: #fff; border: 1px solid #f0ecfc; border-radius: 16px; padding: 24px;
@@ -244,4 +296,17 @@ onMounted(() => { loadAgents(); loadKB() })
 .agent-id { font-size: 11px; color: #d0c8e0; font-family: monospace; }
 .agent-base { font-size: 11px; color: #b8aad0; }
 .agent-action { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
+
+/* 技能复选框列表 */
+.skill-check-list { max-height: 50vh; overflow-y: auto; }
+.skill-check-item {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 12px 14px; border-radius: 8px; cursor: pointer;
+  transition: background .15s;
+}
+.skill-check-item:hover { background: #f8f7ff; }
+.skill-check-item.checked { background: #f5f3ff; }
+.sci-body { flex: 1; min-width: 0; }
+.sci-name { font-size: 14px; font-weight: 600; color: #4a3f5e; }
+.sci-desc { font-size: 12px; color: #909399; margin-top: 2px; }
 </style>

@@ -109,7 +109,7 @@ async function generateAIReply(conversationId, platform, agentId) {
       for (const tc of msg.tool_calls) {
         let args;
         try { args = JSON.parse(tc.function.arguments || '{}'); } catch { args = {}; }
-        const result = execTool(tc.function.name, args);
+        const result = await execTool(tc.function.name, args);
         messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) });
       }
       const dsRes2 = await callLLM(messages, config.tools, false);
@@ -178,7 +178,20 @@ async function sendReply(conversationId, content, replyMode) {
     status: 'sent'
   });
 
-  // 尝试通过 WebSocket 推送到渠道
+  // 企微/飞书：通过官方 API 发送
+  if (conv.platform === 'wecom') {
+    try {
+      const account = db.prepare('SELECT * FROM channel_accounts WHERE id=?').get(conv.account_id);
+      if (account) await require('./wecom').sendMessage(account, conv.contact_name, content);
+    } catch (e) { console.error('[channels] 企微发送失败:', e.message); }
+  } else if (conv.platform === 'feishu') {
+    try {
+      const account = db.prepare('SELECT * FROM channel_accounts WHERE id=?').get(conv.account_id);
+      if (account) await require('./feishu').sendMessage(account, conv.contact_name, content);
+    } catch (e) { console.error('[channels] 飞书发送失败:', e.message); }
+  }
+
+  // 尝试通过 WebSocket 推送到渠道（微信/抖音桌面端）
   const ws = channelSockets[conv.account_id];
   if (ws && ws.readyState === 1) {
     ws.send(JSON.stringify({
@@ -189,7 +202,7 @@ async function sendReply(conversationId, content, replyMode) {
       content
     }));
     console.log(`[channels] WS 推送回复 → ${conv.platform}/${conv.contact_name}`);
-  } else {
+  } else if (conv.platform !== 'wecom' && conv.platform !== 'feishu') {
     console.log(`[channels] ${conv.platform}/${conv.contact_name} 无在线渠道，消息仅入库`);
   }
 

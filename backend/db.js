@@ -498,6 +498,47 @@ db.exec(`
   );
 `);
 
+// ===== 安全 =====
+db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    name TEXT NOT NULL,
+    role TEXT DEFAULT 'admin',
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+
+  CREATE TABLE IF NOT EXISTS security_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+`);
+
+// 种子管理员账号
+const uc = db.prepare('SELECT COUNT(*) AS c FROM users').get();
+if (uc.c === 0) {
+  const { randomUUID } = require('crypto');
+  const salt = randomUUID().replace(/-/g, '');
+  const hash = require('crypto').scryptSync('admin123', salt, 64).toString('hex');
+  db.prepare('INSERT INTO users (id, username, password_hash, name, role) VALUES (?,?,?,?,?)')
+    .run(randomUUID(), 'admin', salt + ':' + hash, '管理员', 'admin');
+  console.log('[seed] 管理员账号已创建 (admin/admin123)');
+}
+
+// 种子安全设置默认值
+const ssc = db.prepare('SELECT COUNT(*) AS c FROM security_settings').get();
+if (ssc.c === 0) {
+  const defaults = [
+    ['login_max_attempts', '5'],
+    ['login_lockout_minutes', '15'],
+    ['session_timeout_hours', '24'],
+  ];
+  const insert = db.prepare('INSERT INTO security_settings (key, value) VALUES (?,?)');
+  for (const [k, v] of defaults) insert.run(k, v);
+}
+
 // 插入默认仓库
 const wc = db.prepare('SELECT COUNT(*) AS c FROM warehouses').get();
 if (wc.c === 0) {
@@ -559,7 +600,211 @@ function seedAttendanceReports() {
   console.log('[seed] 考勤月报数据已导入 ' + (data.length - 2) + ' 条');
 }
 
+function seedPPTSkill() {
+  db.exec(`CREATE TABLE IF NOT EXISTS agent_skills (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, desc TEXT, agent_id TEXT,
+    tools TEXT, prompt_snippet TEXT, status TEXT DEFAULT 'active',
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  )`);
+  const exists = db.prepare("SELECT id FROM agent_skills WHERE id='ppt-generator-builtin'").get();
+  if (exists) return;
+  const tools = JSON.stringify([{
+    type: 'function',
+    function: {
+      name: 'generate_pptx',
+      description: '根据结构化的幻灯片内容生成 PowerPoint 文件。需要指定主题和幻灯片列表。',
+      parameters: {
+        type: 'object',
+        properties: {
+          theme: { type: 'string', enum: ['business', 'modern', 'tech', 'minimal'], description: '主题：business商务蓝金 | modern科技紫 | tech深色科技 | minimal极简红黑' },
+          slides: {
+            type: 'array',
+            description: '幻灯片列表',
+            items: {
+              type: 'object',
+              properties: {
+                layout: { type: 'string', enum: ['cover', 'section', 'content', 'bullets', 'two_col', 'ending'], description: '布局类型' },
+                title: { type: 'string', description: '标题（cover布局用）' },
+                subtitle: { type: 'string', description: '副标题（cover布局用）' },
+                speaker: { type: 'string', description: '演讲者（cover布局用）' },
+                date: { type: 'string', description: '日期（cover布局用）' },
+                icon: { type: 'string', description: 'emoji图标（cover布局用）' },
+                heading: { type: 'string', description: '页面标题（section/content/bullets/two_col布局用）' },
+                body: { type: 'string', description: '正文内容（content布局用）' },
+                items: { type: 'array', items: { type:'string' }, description: '要点列表（bullets布局用）' },
+                left: { type: 'object', properties: { heading: { type:'string' }, items: { type:'array', items:{ type:'string' } } }, description: '左列内容（two_col布局用）' },
+                right: { type: 'object', properties: { heading: { type:'string' }, items: { type:'array', items:{ type:'string' } } }, description: '右列内容（two_col布局用）' },
+                text: { type: 'string', description: '结束语（ending布局用）' },
+                subtext: { type: 'string', description: '结束副文本（ending布局用）' }
+              },
+              required: ['layout']
+            }
+          }
+        },
+        required: ['theme', 'slides']
+      }
+    }
+  }]);
+  db.prepare("INSERT INTO agent_skills (id,name,desc,agent_id,tools,prompt_snippet) VALUES ('ppt-generator-builtin',?,?,'',?,?)").run(
+    'PPT 生成', '自动生成专业 PowerPoint 演示文稿',
+    tools,
+    `你是一个专业的 PPT 演示文稿设计师。当用户要求制作 PPT 时，请调用 generate_pptx 工具。
+
+## 设计原则
+- 每页只传达一个核心观点，信息不堆砌
+- 标题简洁有力（≤15字），正文精炼（≤200字）
+- 用词避免套话，直接说人话
+- 结构遵循：引入→问题→方案→证据→行动
+
+## 布局选择指南
+- cover：封面，必须包含 title、subtitle、speaker
+- section：章节过渡页，只有 heading
+- content：正文页，heading + body（适合文字较多的说明）
+- bullets：要点页，heading + items 数组（每个 item 一句话）
+- two_col：对比页，left + right 各含 heading 和 items
+- ending：结束页，text（默认"谢谢"）+ 可选 subtext
+
+## 主题选择
+- business：商务汇报、工作复盘、客户提案
+- modern：产品发布、创业路演、市场分析
+- tech：技术分享、AI/大数据专题、开发者演示
+- minimal：简洁风格，适合任何场景
+
+## 示例调用
+{
+  "theme": "business",
+  "slides": [
+    { "layout": "cover", "title": "Q3 营收复盘", "subtitle": "增长引擎与风险预警", "speaker": "张三", "date": "2026-06-01", "icon": "📈" },
+    { "layout": "section", "heading": "核心发现" },
+    { "layout": "bullets", "heading": "三大增长引擎", "items": ["海外业务同比增长 47%", "订阅收入占比突破 60%", "客户留存率升至 92%"] },
+    { "layout": "content", "heading": "风险预警", "body": "Q4 需关注：1. 国内市场增速放缓至 8%，竞品 C 轮融资后价格战加剧。2. 供应链成本上升 12%，需提前锁价。3. 核心研发人员流失率抬头，建议启动留任激励。" },
+    { "layout": "two_col", "heading": "Q4 策略", "left": {"heading":"守住","items":["维持海外投放 ROI > 3","客户成功团队扩编 5 人","供应链季度锁价"]}, "right": {"heading":"突破","items":["上线 AI 客服降低 30% 人力成本","进入东南亚市场","启动 B 轮融资"]} },
+    { "layout": "ending", "text": "谢谢", "subtext": "问题与讨论" }
+  ]
+}
+
+注意：每次调用至少包含 cover 和 ending，中间 3-8 页内容页。不要虚构数据，基于用户提供的真实信息生成。`
+  );
+  console.log('[seed] PPT 生成技能已创建');
+}
+
+function seedExcelSkill() {
+  const exists = db.prepare("SELECT id FROM agent_skills WHERE id='excel-generator-builtin'").get();
+  if (exists) return;
+  const tools = JSON.stringify([{ type: 'function', function: { name: 'generate_excel', description: '生成专业 Excel 报表，支持多 Sheet、标题、表头样式、斑马纹、图表嵌入。', parameters: { type: 'object', properties: { title: { type: 'string', description: '报表标题' }, author: { type: 'string', description: '作者' }, sheets: { type: 'array', description: '工作表列表', items: { type: 'object', properties: { name: { type: 'string', description: 'Sheet名称' }, title: { type: 'string', description: '表格标题' }, subtitle: { type: 'string', description: '副标题' }, columns: { type: 'array', items: { type: 'object', properties: { header: { type: 'string' }, key: { type: 'string' }, width: { type: 'number' } } } }, rows: { type: 'array', items: { type: 'object' }, description: '数据行，key对应columns的key' }, merges: { type: 'array', items: { type: 'object', properties: { startRow: { type: 'number' }, startCol: { type: 'number' }, endRow: { type: 'number' }, endCol: { type: 'number' } } } }, chart: { type: 'object', properties: { type: { type: 'string' }, title: { type: 'string' }, catCol: { type: 'number' }, valCol: { type: 'number' } } } }, required: ['name'] } } }, required: ['sheets'] } } }]);
+  db.prepare("INSERT INTO agent_skills (id,name,desc,agent_id,tools,prompt_snippet) VALUES ('excel-generator-builtin','Excel 报表','生成带样式和图表的 Excel 报表','',?,?)").run(tools, `你是专业 Excel 报表设计师，调用 generate_excel 工具生成报表。
+
+## 设计原则
+- 表头用深色背景白色字体，数据行斑马纹
+- 标题行合并单元格居中
+- 数值列右对齐，文本列左对齐
+- 有数据对比需求时加入图表
+
+## 示例
+{"sheets":[{"name":"销售报表","title":"Q3 销售汇总","subtitle":"2026年7-9月","columns":[{"header":"月份","key":"month","width":12},{"header":"营收(万元)","key":"revenue","width":15},{"header":"利润(万元)","key":"profit","width":15},{"header":"环比增长","key":"growth","width":12}],"rows":[{"month":"7月","revenue":380,"profit":85,"growth":"+8%"},{"month":"8月","revenue":420,"profit":105,"growth":"+10.5%"},{"month":"9月","revenue":510,"profit":145,"growth":"+21.4%"}],"merges":[{"startRow":1,"startCol":1,"endRow":1,"endCol":4}],"chart":{"type":"bar","title":"月度营收趋势","catCol":1,"valCol":2}}]}
+
+不虚构数据，基于用户提供的真实信息。`);
+  console.log('[seed] Excel 技能已创建');
+}
+
+function seedPdfSkill() {
+  const exists = db.prepare("SELECT id FROM agent_skills WHERE id='pdf-generator-builtin'").get();
+  if (exists) return;
+  const tools = JSON.stringify([{ type: 'function', function: { name: 'generate_pdf', description: '生成 PDF 文档，支持表格、列表、水印、页眉页脚。常用于合同、报价单、报告。', parameters: { type: 'object', properties: { title: { type: 'string', description: '文档标题' }, author: { type: 'string' }, page_size: { type: 'string', enum: ['A4', 'A3', 'LETTER'] }, orientation: { type: 'string', enum: ['portrait', 'landscape'] }, watermark: { type: 'string', description: '水印文字' }, content: { type: 'array', items: { type: 'object', properties: { text: { type: 'string' }, style: { type: 'string' }, fontSize: { type: 'number' }, bold: { type: 'boolean' }, alignment: { type: 'string' }, ul: { type: 'array', items: { type: 'string' } }, table: { type: 'object', properties: { headers: { type: 'array', items: { type: 'string' } }, rows: { type: 'array', items: { type: 'array', items: { type: 'string' } } } } } } } } }, required: ['content'] } } }]);
+  db.prepare("INSERT INTO agent_skills (id,name,desc,agent_id,tools,prompt_snippet) VALUES ('pdf-generator-builtin','PDF 文档','生成含表格、页眉页脚、水印的 PDF 文档','',?,?)").run(tools, `你是专业 PDF 文档生成师，调用 generate_pdf 工具生成文档。
+
+## 布局建议
+- 标题用 header 样式（大号加粗深色）
+- 正文用 body 样式
+- 数据对比优先用 table
+- 要点用 ul 列表
+- 正式合同建议加水印
+
+## 示例
+{"title":"项目报价单","author":"MClaw","content":[{"text":"项目报价单","style":"header"},{"text":"客户：XX公司  日期：2026-06-02","style":"body"},{"table":{"headers":["项目","单价","数量","小计"],"rows":[["网站开发","50,000","1","50,000"],["服务器","8,000","4","32,000"],["运维","3,000","12","36,000"]]}},{"text":"合计：118,000 元","style":"body","bold":true},{"text":"以上报价30天内有效。","style":"small"}]}
+
+不虚构数据，基于用户提供的真实信息。`);
+  console.log('[seed] PDF 技能已创建');
+}
+
+function seedDocxSkill() {
+  const exists = db.prepare("SELECT id FROM agent_skills WHERE id='docx-generator-builtin'").get();
+  if (exists) return;
+  const tools = JSON.stringify([{ type: 'function', function: { name: 'generate_docx', description: '生成 Word (.docx) 文档，支持多级标题、段落、要点列表、表格。常用于招聘JD、会议纪要、制度文件。', parameters: { type: 'object', properties: { title: { type: 'string', description: '文档标题' }, author: { type: 'string' }, footer: { type: 'string', description: '页脚文字' }, sections: { type: 'array', items: { type: 'object', properties: { heading: { type: 'string' }, level: { type: 'number', description: '标题级别1-3' }, paragraphs: { type: 'array', items: { type: 'string' } }, bullets: { type: 'array', items: { type: 'string' } }, table: { type: 'object', properties: { headers: { type: 'array', items: { type: 'string' } }, rows: { type: 'array', items: { type: 'array', items: { type: 'string' } } } } } } } } }, required: ['sections'] } } }]);
+  db.prepare("INSERT INTO agent_skills (id,name,desc,agent_id,tools,prompt_snippet) VALUES ('docx-generator-builtin','Word 文档','生成带标题、表格、要点的 Word 文档','',?,?)").run(tools, `你是专业文档撰写师，调用 generate_docx 工具生成 Word 文档。
+
+## 结构建议
+- title 作为文档大标题（居中加粗）
+- 每个 sections 元素是一个章节
+- level 1=一级标题, 2=二级标题, 3=三级标题
+- 多级标题形成清晰文档结构
+- 数据内容用 table，观点用 bullets
+
+## 示例（招聘JD）
+{"title":"高级前端工程师 JD","sections":[{"heading":"岗位职责","level":1,"bullets":["负责核心产品前端架构设计与开发","优化页面性能与用户体验","参与技术选型与 Code Review"]},{"heading":"任职要求","level":1,"bullets":["5年以上前端开发经验","精通 Vue3/TypeScript","有大型项目架构经验"]},{"heading":"薪酬福利","level":1,"table":{"headers":["项目","详情"],"rows":[["薪资","25-40K×16薪"],["福利","六险一金、餐补、健身房"]]}}],"footer":"期待您的加入！"}
+
+不虚构信息。`);
+  console.log('[seed] Word 技能已创建');
+}
+
+function seedDiagramSkill() {
+  const exists = db.prepare("SELECT id FROM agent_skills WHERE id='diagram-generator-builtin'").get();
+  if (exists) return;
+  const tools = JSON.stringify([{ type: 'function', function: { name: 'generate_diagram', description: '使用 Mermaid 语法生成流程图、时序图、甘特图、类图、状态图等专业图表。', parameters: { type: 'object', properties: { code: { type: 'string', description: 'Mermaid 语法代码' }, theme: { type: 'string', enum: ['default', 'forest', 'dark', 'neutral'], description: '图表配色主题' }, format: { type: 'string', enum: ['png', 'svg'], description: '输出格式' } }, required: ['code'] } } }]);
+  db.prepare("INSERT INTO agent_skills (id,name,desc,agent_id,tools,prompt_snippet) VALUES ('diagram-generator-builtin','Mermaid 图表','生成流程图、时序图、甘特图等专业图表','',?,?)").run(tools, `你是专业图表设计师，调用 generate_diagram 工具使用 Mermaid 语法生成图表。
+
+## 支持的图表类型
+- **flowchart** (graph TD/LR): 流程图/架构图
+- **sequenceDiagram**: 时序图
+- **gantt**: 甘特图/项目计划
+- **classDiagram**: 类图
+- **stateDiagram**: 状态图
+- **pie**: 饼图
+- **erDiagram**: ER 图
+
+## 设计原则
+- 节点名称用中文，清晰传达业务含义
+- 流程图不超过 15 个节点，保持可读性
+- 用不同形状区分角色/系统/操作
+- 甘特图适合展示项目进度
+
+## 示例
+
+### 审批流程
+\`\`\`mermaid
+graph TD
+  A[📝 提交申请] --> B{金额>1万?}
+  B -->|是| C[👔 部门经理审批]
+  B -->|否| D[✅ 自动通过]
+  C --> E[💰 财务复核]
+  E --> F[✅ 审批完成]
+\`\`\`
+
+### 项目甘特图
+\`\`\`mermaid
+gantt
+  title Q3 项目计划
+  dateFormat YYYY-MM-DD
+  section 需求
+  需求调研 :done, a1, 2026-07-01, 7d
+  需求评审 :active, a2, after a1, 3d
+  section 开发
+  Sprint1 : b1, after a2, 14d
+  Sprint2 : b2, after b1, 14d
+  section 测试
+  UAT : c1, after b2, 7d
+\`\`\`
+
+直接输出 Mermaid 代码给 generate_diagram 工具，不要用 markdown 代码块包裹。`);
+  console.log('[seed] 图表技能已创建');
+}
+
 try { seedPerformanceReports(); } catch(e) { console.log('[seed] 绩效考核种子失败:', e.message); }
 try { seedAttendanceReports(); } catch(e) { console.log('[seed] 考勤月报种子失败:', e.message); }
+try { seedPPTSkill(); } catch(e) { console.log('[seed] PPT 技能种子失败:', e.message); }
+try { seedExcelSkill(); } catch(e) { console.log('[seed] Excel 技能种子失败:', e.message); }
+try { seedPdfSkill(); } catch(e) { console.log('[seed] PDF 技能种子失败:', e.message); }
+try { seedDocxSkill(); } catch(e) { console.log('[seed] Word 技能种子失败:', e.message); }
+try { seedDiagramSkill(); } catch(e) { console.log('[seed] 图表技能种子失败:', e.message); }
 
 module.exports = db;

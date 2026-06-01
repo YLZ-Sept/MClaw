@@ -19,6 +19,7 @@ const routes = [
       { path: 'trending', name: 'TrendTracker', component: () => import('../views/TrendTracker.vue') },
       { path: 'security-protection', name: 'SecurityProtection', component: () => import('../views/SecurityProtection.vue') },
       { path: 'knowledge-base', name: 'KnowledgeBase', component: () => import('../views/KnowledgeBase.vue') },
+      { path: 'skill-library', name: 'SkillLibrary', component: () => import('../views/SkillLibrary.vue') },
       { path: 'internal', name: 'InternalMgmt', component: () => import('../views/InternalManagement.vue') },
       { path: 'internal/sales', name: 'SalesMgmt', component: () => import('../views/internal/SalesManagement.vue') },
       { path: 'internal/inventory', name: 'InventoryMgmt', component: () => import('../views/internal/InventoryManagement.vue') },

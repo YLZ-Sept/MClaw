@@ -92,7 +92,7 @@ MClaw/
 # 后端（端口 3001）
 cd backend && node server.js
 
-# 前端（端口 5174）
+# 前端（端口 4173）
 cd frontend && npx vite --host 0.0.0.0
 ```
 

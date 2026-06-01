@@ -31,6 +31,7 @@ app.use('/api/attendance', require('./routes/hr-attendance'));
 app.use('/api/personnel-changes', require('./routes/hr-changes'));
 app.use('/api/performance', require('./routes/hr-performance'));
 app.use('/api/auth', require('./routes/auth'));
+app.use('/api/security', require('./routes/security'));
 app.use('/api/io', require('./routes/io'));
 app.use('/api/bids', require('./routes/bids'));
 app.use('/api/content-publish', require('./routes/content-publish'));
@@ -47,6 +48,10 @@ app.use('/api/doc-import', require('./routes/doc-import'));
 app.use('/api/channel-accounts', require('./routes/channel-accounts'));
 app.use('/api/channel-conversations', require('./routes/channel-conversations'));
 
+// 消息渠道 webhook（企微/飞书）
+app.use('/api/channels/wecom', express.text({ type: '*/*' }), require('./channels/wecom').router);
+app.use('/api/channels/feishu', require('./channels/feishu').router);
+
 // 爆款视频
 app.use('/api/hot-products', require('./routes/hot-products'));
 app.use('/api/hot-contents', require('./routes/hot-contents'));
@@ -54,6 +59,8 @@ app.use('/api/hot-extract', require('./routes/hot-extract'));
 app.use('/api/hot-quick-reply', require('./routes/hot-quick-reply'));
 app.use('/api/hot-leads', require('./routes/hot-leads'));
 app.use('/api/hot-chanjing', require('./routes/hot-chanjing'));
+app.use('/api/ppt', require('./routes/ppt'));
+app.use('/api/download', require('./routes/downloads'));
 
 // 抖音发布
 app.use('/api/douyin-publish', require('./routes/douyin-publish'));
@@ -136,6 +143,17 @@ function loadAgentConfig(agent) {
     if (skills.length) {
       const prompts = skills.filter(s => s.prompt_snippet).map(s => `## ${s.name}\n${s.prompt_snippet}`).join('\n\n');
       if (prompts) extraPrompt += '\n\n---\n\n# 附加技能\n' + prompts;
+      // 合并技能的工具定义
+      for (const s of skills) {
+        if (s.tools) {
+          try {
+            const skillTools = JSON.parse(s.tools);
+            if (Array.isArray(skillTools)) {
+              base.tools = [...(base.tools || []), ...skillTools];
+            }
+          } catch {}
+        }
+      }
     }
   } catch {}
 
@@ -307,6 +325,7 @@ app.post('/api/chat/send', async (req, res) => {
     let msg = dsData.choices?.[0]?.message;
     const toolNames = [];
 
+    let pptDownloadUrl = null;
     let loop = 0;
     while (msg?.tool_calls && msg.tool_calls.length > 0 && loop < 2) {
       loop++;
@@ -318,8 +337,19 @@ app.post('/api/chat/send', async (req, res) => {
         try { args = JSON.parse(tc.function.arguments || '{}'); } catch { args = {}; }
         console.log(`[tool] ${funcName} args:`, JSON.stringify(args).slice(0, 200));
         if (isStream) sse(res, 'tool', { name: funcName, status: 'calling' });
-        const result = execTool(funcName, args);
-        if (isStream) sse(res, 'tool', { name: funcName, status: 'done', result: JSON.stringify(result).slice(0, 300) });
+        const result = await execTool(funcName, args);
+        const genTools = ['generate_pptx', 'generate_excel', 'generate_pdf', 'generate_docx', 'generate_diagram'];
+        if (genTools.includes(funcName) && result.download_url) {
+          pptDownloadUrl = result.download_url;
+        }
+        if (isStream) {
+          const toolEvent = { name: funcName, status: 'done', result: JSON.stringify(result).slice(0, 300) };
+          if (genTools.includes(funcName) && result.download_url) {
+            toolEvent.download_url = result.download_url;
+            toolEvent.filename = result.filename;
+          }
+          sse(res, 'tool', toolEvent);
+        }
         messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) });
         toolNames.push(funcName);
       }
@@ -329,7 +359,13 @@ app.post('/api/chat/send', async (req, res) => {
       msg = dsData.choices?.[0]?.message;
     }
 
-    const rawReply = msg?.content || '未返回有效回复';
+    let rawReply = msg?.content || '未返回有效回复';
+
+    // 清理 LLM 幻觉的 sandbox 路径，替换为真实下载链接
+    if (pptDownloadUrl) {
+      rawReply = rawReply.replace(/\[([^\]]*)\]\((?:sandbox:\/)?\/mnt\/data\/[^)\s]+\.pptx\)/g, `[$1](${pptDownloadUrl})`);
+      rawReply = rawReply.replace(/(?:sandbox:\/)?\/mnt\/data\/[\w.-]+\.pptx/g, pptDownloadUrl);
+    }
 
     if (isStream) {
       // SSE 流式模式
@@ -379,8 +415,32 @@ app.post('/api/chat/send', async (req, res) => {
   }
 });
 
-app.get('/api/status', (req, res) => {
-  res.json({ code: 200, data: { cpu: '12%', memory: '380MB', services: 3 } });
+app.get('/api/status', async (req, res) => {
+  const douyinPublish = require('./services/douyin-publish');
+  const os = require('os');
+
+  const [douyinHealth, frontendHealth] = await Promise.all([
+    douyinPublish.health().catch(() => ({ status: 'unhealthy' })),
+    fetch('http://localhost:4173').then(() => 'healthy').catch(() => 'unhealthy'),
+  ]);
+
+  const uptime = process.uptime();
+  const h = Math.floor(uptime / 3600), m = Math.floor((uptime % 3600) / 60);
+
+  res.json({
+    code: 200,
+    data: {
+      services: [
+        { name: '后端 API 服务', status: 'running', port: 3001, uptime: `${h}h ${m}m` },
+        { name: '抖音发布服务', status: douyinHealth.status === 'healthy' ? 'running' : 'stopped', port: 8000, uptime: douyinHealth.status === 'healthy' ? '-' : '-' },
+        { name: '前端 Web 服务', status: frontendHealth === 'healthy' ? 'running' : 'stopped', port: 4173, uptime: '-' },
+      ],
+      system: {
+        cpu: `${Math.round(os.loadavg()[0] * 100) / 100}%`,
+        memory: `${Math.round((os.totalmem() - os.freemem()) / 1024 / 1024)}MB / ${Math.round(os.totalmem() / 1024 / 1024)}MB`,
+      },
+    },
+  });
 });
 
 const PORT = 3001;

@@ -63,6 +63,9 @@
           <router-link to="/knowledge-base" class="nav-item" active-class="active">
             <el-icon><Collection /></el-icon><span>知识库</span>
           </router-link>
+          <router-link to="/skill-library" class="nav-item" active-class="active">
+            <el-icon><MagicStick /></el-icon><span>技能库</span>
+          </router-link>
           <router-link to="/tasks" class="nav-item" active-class="active">
             <el-icon><List /></el-icon><span>任务</span>
           </router-link>
@@ -115,7 +118,7 @@ import { ElMessageBox, ElMessage } from 'element-plus'
 import {
   ChatDotSquare, DataAnalysis, List, Document,
   Cpu, Setting, ChatLineSquare, Promotion, Lock, UserFilled,
-  ArrowDown, ArrowUp, Close, Plus, MoreFilled, TrendCharts, Warning, Collection
+  ArrowDown, ArrowUp, Close, Plus, MoreFilled, TrendCharts, Warning, Collection, MagicStick
 } from '@element-plus/icons-vue'
 import { logout } from '../api'
 import axios from 'axios'

@@ -1,5 +1,13 @@
 <template>
   <div>
+    <!-- Header -->
+    <div class="page-hd">
+      <div>
+        <span class="page-title">一键追爆款</span>
+        <span class="page-sub">内容提取 · AI改写 · 视频生成 · 抖音发布</span>
+      </div>
+    </div>
+
     <!-- Custom clickable step bar -->
     <div class="step-bar">
       <div
@@ -862,15 +870,28 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.page-hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+.page-sub {
+  font-size: 13px;
+  color: #b8aad0;
+  margin-left: 10px;
+}
+
 .step-bar {
   display: flex;
   align-items: center;
   justify-content: center;
   margin-bottom: 24px;
-  padding: 16px 0;
-  background: #fafafa;
-  border-radius: 12px;
-  gap: 0;
+  padding: 12px 0;
+  background: #fff;
+  border-radius: 14px;
+  border: 1px solid #f0ecf8;
+  box-shadow: 0 1px 3px rgba(0,0,0,.04);
 }
 .step-item {
   display: flex;
@@ -884,17 +905,17 @@ onMounted(() => {
   user-select: none;
 }
 .step-item:hover {
-  background: #ecf5ff;
+  background: #f5f3ff;
 }
 .step-item.active {
-  background: #ecf5ff;
-  box-shadow: 0 0 0 1px #409eff;
+  background: #f5f3ff;
+  box-shadow: 0 0 0 1px #7c3aed;
 }
 .step-item.active .step-num {
-  background: #409eff !important;
-  border-color: #409eff !important;
+  background: #7c3aed !important;
+  border-color: #7c3aed !important;
   color: #fff;
-  box-shadow: 0 0 0 4px rgba(64,158,255,0.2);
+  box-shadow: 0 0 0 4px rgba(124,58,237,0.2);
 }
 .step-item.done .step-num {
   background: #67c23a;
@@ -902,8 +923,8 @@ onMounted(() => {
   color: #fff;
 }
 .step-item.process .step-num {
-  background: #409eff;
-  border-color: #409eff;
+  background: #7c3aed;
+  border-color: #7c3aed;
   color: #fff;
 }
 .step-num {
@@ -945,14 +966,20 @@ onMounted(() => {
   display: none;
 }
 .step-card {
-  border-top: 3px solid #409eff;
+  border-radius: 12px;
+  border: 1px solid #f0ecf8;
+  box-shadow: 0 1px 3px rgba(0,0,0,.04);
+}
+.step-card :deep(.el-card__header) {
+  font-weight: 600;
+  color: #4a3f5e;
 }
 
 /* ─── 蝉镜资源选择 ─── */
 .pipe-sel {
   display: flex; align-items: center; gap: 10px;
-  padding: 8px 12px; background: #f8f7ff; border-radius: 8px;
-  border: 1px solid #ece8f8; max-width: 420px;
+  padding: 10px 14px; background: #f8f7ff; border-radius: 10px;
+  border: 1px solid #ece8f8; max-width: 440px;
 }
 .pipe-sel-img { width: 44px; height: 44px; border-radius: 6px; object-fit: cover; }
 .pipe-sel-icon { width: 44px; height: 44px; border-radius: 6px; background: #f0ecfc; display: flex; align-items: center; justify-content: center; font-size: 20px; }
@@ -965,15 +992,15 @@ onMounted(() => {
   width: 190px; border: 2px solid #ebeef5; border-radius: 10px; padding: 10px;
   cursor: pointer; position: relative; transition: all 0.2s; text-align: center;
 }
-.resource-card:hover { border-color: #409eff; box-shadow: 0 2px 12px rgba(64,158,255,0.1); }
-.resource-card.selected { border-color: #409eff; background: #ecf5ff; }
+.resource-card:hover { border-color: #7c3aed; box-shadow: 0 2px 12px rgba(124,58,237,0.1); }
+.resource-card.selected { border-color: #7c3aed; background: #f5f3ff; }
 .rc-img { width: 100%; height: 160px; object-fit: cover; border-radius: 6px; }
 .rc-placeholder { width: 100%; height: 120px; border-radius: 6px; background: #f0ecfc; display: flex; align-items: center; justify-content: center; font-size: 48px; }
 .voice-card .rc-placeholder { height: 80px; font-size: 36px; }
 .rc-body { margin-top: 8px; text-align: left; }
 .rc-name { font-weight: 600; font-size: 14px; }
 .rc-meta { font-size: 12px; color: #909399; margin-top: 2px; }
-.rc-check { position: absolute; top: 8px; right: 8px; font-size: 22px; color: #409eff; }
+.rc-check { position: absolute; top: 8px; right: 8px; font-size: 22px; color: #7c3aed; }
 
 /* ─── Step 4: Douyin Publish Layout ─── */
 .douyin-publish-layout {
@@ -992,7 +1019,13 @@ onMounted(() => {
   top: 16px;
 }
 .publish-card {
-  border-top: 3px solid #fe2c55;
+  border-radius: 12px;
+  border: 1px solid #f0ecf8;
+  box-shadow: 0 1px 3px rgba(0,0,0,.04);
+}
+.publish-card :deep(.el-card__header) {
+  font-weight: 600;
+  color: #4a3f5e;
 }
 .card-header-title {
   font-size: 15px;
@@ -1028,7 +1061,7 @@ onMounted(() => {
   transition: border-color 0.2s;
 }
 .tag-input-wrap:hover { border-color: #c0c4cc; }
-.tag-input-wrap:focus-within { border-color: #409eff; }
+.tag-input-wrap:focus-within { border-color: #7c3aed; }
 .tag-plain-input :deep(.el-input__wrapper) {
   box-shadow: none !important;
   border: none !important;

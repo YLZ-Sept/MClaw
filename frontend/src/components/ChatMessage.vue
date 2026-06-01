@@ -27,7 +27,13 @@ const isStatus = computed(() => props.role === 'tool' || props.content.startsWit
 
 const rendered = computed(() => {
   try {
-    return marked.parse(props.content || '')
+    let text = props.content || ''
+    // 自动将下载链接转为可点击的 markdown 链接（跳过已在链接中的 URL）
+    text = text.replace(/(?<!\]\()(\/api\/(?:ppt\/download|download\/(?:excel|pdf|docx|diagram))\/[\w.-]+)/g, '[$1]($1)')
+    let html = marked.parse(text)
+    // 所有链接新标签打开，避免 SPA 路由拦截
+    html = html.replace(/<a /g, '<a target="_blank" rel="noopener" ')
+    return html
   } catch {
     return props.content
   }

@@ -211,19 +211,37 @@
             <el-radio value="manual">手动</el-radio>
           </el-radio-group>
         </el-form-item>
-        <template v-if="editForm.platform==='wecom'||editForm.platform==='feishu'">
-          <el-divider content-position="left">{{ editForm.platform==='wecom'?'企业微信':'飞书' }} API 配置</el-divider>
+        <template v-if="editForm.platform==='wecom'">
+          <el-divider content-position="left">企业微信 API 配置</el-divider>
           <el-form-item label="Corp ID">
-            <el-input v-model="editForm.config_corp_id" placeholder="企业 ID" />
+            <el-input v-model="editForm.config_corp_id" placeholder="企业 ID（必填）" />
+          </el-form-item>
+          <el-form-item label="Agent ID">
+            <el-input v-model="editForm.config_agent_id" placeholder="应用 AgentID（必填，如 1000002）" />
           </el-form-item>
           <el-form-item label="App Secret">
-            <el-input v-model="editForm.app_secret" type="password" placeholder="应用 Secret" />
+            <el-input v-model="editForm.app_secret" type="password" placeholder="应用 Secret（必填）" />
           </el-form-item>
           <el-form-item label="Token">
-            <el-input v-model="editForm.config_token" placeholder="回调 Token（可选）" />
+            <el-input v-model="editForm.config_token" placeholder="回调 Token（必填，10-32位）" />
           </el-form-item>
           <el-form-item label="Encoding AES Key">
-            <el-input v-model="editForm.config_aes_key" placeholder="消息加解密密钥（可选）" />
+            <el-input v-model="editForm.config_aes_key" placeholder="消息加解密密钥（必填，43位）" />
+          </el-form-item>
+        </template>
+        <template v-if="editForm.platform==='feishu'">
+          <el-divider content-position="left">飞书 API 配置</el-divider>
+          <el-form-item label="App ID">
+            <el-input v-model="editForm.config_app_id" placeholder="应用 App ID（必填）" />
+          </el-form-item>
+          <el-form-item label="App Secret">
+            <el-input v-model="editForm.app_secret" type="password" placeholder="应用 Secret（必填）" />
+          </el-form-item>
+          <el-form-item label="Encrypt Key">
+            <el-input v-model="editForm.config_encrypt_key" placeholder="加密密钥（可选）" />
+          </el-form-item>
+          <el-form-item label="Verification Token">
+            <el-input v-model="editForm.config_verification_token" placeholder="验证令牌（可选）" />
           </el-form-item>
         </template>
         <el-form-item label="状态">
@@ -413,10 +431,16 @@ function editAccount(row) {
     editForm.value = {
       platform: row.platform, account_name: row.account_name, agent_id: row.agent_id,
       default_reply_mode: row.default_reply_mode, status_active: row.status === 'active',
-      app_secret: '', config_corp_id: cfg.corp_id || '', config_token: cfg.token || '', config_aes_key: cfg.aes_key || ''
+      app_secret: '',
+      config_corp_id: cfg.corpid || '', config_agent_id: cfg.agentid || '',
+      config_token: cfg.token || '', config_aes_key: cfg.encodingAESKey || '',
+      config_app_id: cfg.app_id || '', config_encrypt_key: cfg.encrypt_key || '',
+      config_verification_token: cfg.verification_token || ''
     }
   } else {
-    editForm.value = { platform: 'wechat', account_name: '', agent_id: '', default_reply_mode: 'assisted', status_active: true, app_secret: '', config_corp_id: '', config_token: '', config_aes_key: '' }
+    editForm.value = { platform: 'wechat', account_name: '', agent_id: '', default_reply_mode: 'assisted', status_active: true,
+      app_secret: '', config_corp_id: '', config_agent_id: '', config_token: '', config_aes_key: '',
+      config_app_id: '', config_encrypt_key: '', config_verification_token: '' }
   }
   showEditDlg.value = true
 }
@@ -425,10 +449,21 @@ async function saveAccount() {
   saveAcctLoading.value = true
   try {
     const config = {}
-    if (editForm.value.app_secret) config.app_secret = editForm.value.app_secret
-    if (editForm.value.config_corp_id) config.corp_id = editForm.value.config_corp_id
-    if (editForm.value.config_token) config.token = editForm.value.config_token
-    if (editForm.value.config_aes_key) config.aes_key = editForm.value.config_aes_key
+    const pf = editForm.value.platform
+    if (pf === 'wecom') {
+      if (editForm.value.config_corp_id) config.corpid = editForm.value.config_corp_id
+      if (editForm.value.config_agent_id) config.agentid = editForm.value.config_agent_id
+      if (editForm.value.app_secret) config.corpsecret = editForm.value.app_secret
+      if (editForm.value.config_token) config.token = editForm.value.config_token
+      if (editForm.value.config_aes_key) config.encodingAESKey = editForm.value.config_aes_key
+    } else if (pf === 'feishu') {
+      if (editForm.value.config_app_id) config.app_id = editForm.value.config_app_id
+      if (editForm.value.app_secret) config.app_secret = editForm.value.app_secret
+      if (editForm.value.config_encrypt_key) config.encrypt_key = editForm.value.config_encrypt_key
+      if (editForm.value.config_verification_token) config.verification_token = editForm.value.config_verification_token
+    } else {
+      if (editForm.value.app_secret) config.app_secret = editForm.value.app_secret
+    }
     const body = {
       platform: editForm.value.platform,
       account_name: editForm.value.account_name,
@@ -550,16 +585,16 @@ onUnmounted(() => {
 .mc-filter { padding:10px 16px; }
 .mc-tabs { display:flex; gap:0; padding:0 16px 8px; border-bottom:1px solid #ebeef5; }
 .mc-tabs span { flex:1; text-align:center; padding:6px 0; font-size:13px; color:#909399; cursor:pointer; border-bottom:2px solid transparent; transition:all .2s; }
-.mc-tabs span.active { color:#409eff; border-bottom-color:#409eff; }
-.mc-tabs span:hover { color:#409eff; }
+.mc-tabs span.active { color:#7c3aed; border-bottom-color:#7c3aed; }
+.mc-tabs span:hover { color:#7c3aed; }
 .mc-conv-list { flex:1; overflow-y:auto; }
 .mc-conv-item { display:flex; padding:12px 16px; gap:10px; cursor:pointer; border-bottom:1px solid #f2f3f5; transition:background .15s; position:relative; }
-.mc-conv-item:hover { background:#f0f5ff; }
+.mc-conv-item:hover { background:#f8f7ff; }
 .mc-conv-item:hover .mc-conv-del { display:flex; }
-.mc-conv-item.active { background:#ecf5ff; }
+.mc-conv-item.active { background:#f5f3ff; }
 .mc-conv-del { display:none; position:absolute; right:8px; top:50%; transform:translateY(-50%); }
 .mc-conv-avatar { position:relative; }
-.mc-platform-badge { position:absolute; bottom:-2px; right:-4px; font-size:10px; background:#409eff; color:#fff; padding:1px 4px; border-radius:6px; line-height:1.2; }
+.mc-platform-badge { position:absolute; bottom:-2px; right:-4px; font-size:10px; background:#7c3aed; color:#fff; padding:1px 4px; border-radius:6px; line-height:1.2; }
 .mc-platform-badge.wechat { background:#07c160; }
 .mc-platform-badge.douyin { background:#111; }
 .mc-platform-badge.wecom { background:#1677ff; }
@@ -590,7 +625,7 @@ onUnmounted(() => {
 .mc-msg-row.outgoing { justify-content:flex-end; }
 .mc-msg-bubble { max-width:70%; padding:10px 14px; border-radius:12px; position:relative; }
 .mc-msg-bubble.incoming { background:#f0f2f5; border-bottom-left-radius:4px; }
-.mc-msg-bubble.outgoing { background:#409eff; color:#fff; border-bottom-right-radius:4px; }
+.mc-msg-bubble.outgoing { background:#7c3aed; color:#fff; border-bottom-right-radius:4px; }
 .mc-msg-text { font-size:14px; line-height:1.6; white-space:pre-wrap; word-break:break-word; }
 .mc-msg-time { font-size:10px; margin-top:4px; opacity:.7; }
 .mc-msg-mode-tag { position:absolute; top:-8px; right:8px; font-size:10px; }
@@ -606,7 +641,7 @@ onUnmounted(() => {
 .mc-input-actions { display:flex; justify-content:space-between; align-items:center; margin-top:8px; }
 .mc-input-hint { font-size:11px; color:#c0c4cc; }
 .mc-form-hint { display:block; font-size:11px; color:#909399; margin-top:4px; line-height:1.5; }
-.mc-id-text { font-family:monospace; font-size:11px; cursor:pointer; color:#409eff; }
+.mc-id-text { font-family:monospace; font-size:11px; cursor:pointer; color:#7c3aed; }
 .mc-status-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:4px; background:#c0c4cc; }
 .mc-status-dot.online { background:#67c23a; }
 </style>

@@ -5,6 +5,24 @@
       <span class="pg-sub">企业知识管理与智能检索</span>
     </div>
     <div class="pg-body">
+      <!-- 统计 -->
+      <div class="stat-row">
+        <div class="stat-card" style="--glow:#7c3aed">
+          <div class="stat-icon"><el-icon :size="20"><Document /></el-icon></div>
+          <div class="stat-num">{{ articles.length }}</div>
+          <div class="stat-label">知识文章</div>
+        </div>
+        <div class="stat-card" style="--glow:#06b6d4">
+          <div class="stat-icon"><el-icon :size="20"><Collection /></el-icon></div>
+          <div class="stat-num">{{ categories.length }}</div>
+          <div class="stat-label">分类</div>
+        </div>
+        <div class="stat-card" style="--glow:#f59e0b">
+          <div class="stat-icon"><el-icon :size="20"><FolderOpened /></el-icon></div>
+          <div class="stat-num">{{ activeCat }}</div>
+          <div class="stat-label">当前分类</div>
+        </div>
+      </div>
       <div class="kb-layout">
         <div class="kb-sidebar">
           <div class="kb-side-title">
@@ -221,7 +239,7 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search, Plus, Edit, Close, UploadFilled, Loading } from '@element-plus/icons-vue'
+import { Search, Plus, Edit, Close, UploadFilled, Loading, Document, Collection, FolderOpened } from '@element-plus/icons-vue'
 import { marked } from 'marked'
 import axios from 'axios'
 const req = axios.create({ baseURL: '/api' })
@@ -439,6 +457,37 @@ onMounted(async () => { await loadCategories(); await load() })
 
 <style scoped>
 .kb-page { height: 100%; display: flex; flex-direction: column; background: #fafafe; }
+
+/* stats */
+.stat-row { display: flex; gap: 12px; margin-bottom: 16px; }
+.stat-card {
+  flex: 1;
+  display: flex; align-items: center; gap: 12px;
+  background: rgba(255,255,255,.65);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(124,58,237,.12);
+  border-radius: 12px;
+  padding: 12px 18px;
+  transition: all .3s;
+}
+.stat-card:hover {
+  background: rgba(255,255,255,.85);
+  border-color: color-mix(in srgb, var(--glow, #7c3aed) 40%, transparent);
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--glow, #7c3aed) 10%, transparent);
+  transform: translateY(-1px);
+}
+.stat-icon {
+  width: 38px; height: 38px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--glow, #7c3aed) 12%, transparent);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  color: var(--glow, #7c3aed);
+}
+.stat-num { font-size: 22px; font-weight: 700; color: #303133; line-height: 1; }
+.stat-label { font-size: 12px; color: #909399; margin-left: auto; }
+
 .pg-hd { padding: 20px 24px; background: #fff; border-bottom: 1px solid #f0ecfc; }
 .pg-title { font-size: 20px; font-weight: 600; color: #4a3f5e; }
 .pg-sub { font-size: 13px; color: #b8aad0; margin-left: 10px; }

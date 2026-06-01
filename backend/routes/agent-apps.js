@@ -53,4 +53,27 @@ router.delete('/:id', (req, res) => {
   res.json({ code: 200 });
 });
 
+// AI 生成系统提示词
+router.post('/generate-prompt', async (req, res) => {
+  try {
+    const { name, desc, base_agent } = req.body;
+    if (!name) return res.status(400).json({ code: 400, message: '名称必填' });
+
+    const baseInfo = base_agent
+      ? `继承自 ${base_agent} 的工具集和能力。`
+      : '无预设工具，纯靠系统提示词定义行为。';
+
+    const { chat } = require('../services/llm');
+    const response = await chat([
+      { role: 'system', content: '你是一个 AI Agent 系统提示词撰写专家。根据用户提供的智能体名称和描述，生成一段专业、精炼的系统提示词（200字以内）。用中文，直接定义角色身份、能力范围、行为准则、回复风格。不要包含工具调用细节。' },
+      { role: 'user', content: `名称：${name}\n描述：${desc || '(无)'}\n基础能力：${baseInfo}\n\n请生成系统提示词：` }
+    ], 0.8);
+
+    const prompt = response.trim().replace(/^["']|["']$/g, '');
+    res.json({ code: 200, data: { system_prompt: prompt } });
+  } catch (err) {
+    res.status(500).json({ code: 500, message: err.message });
+  }
+});
+
 module.exports = router;

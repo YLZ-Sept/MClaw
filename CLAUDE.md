@@ -94,7 +94,7 @@ const agentConfigs = {
 
 ```bash
 cd backend && node server.js          # 后端 :3001
-cd frontend && npx vite --host 0.0.0.0  # 前端 :5174
+cd frontend && npx vite --host 0.0.0.0  # 前端 :4173
 ```
 
 ## 核心依赖

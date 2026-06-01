@@ -1,36 +1,58 @@
 <template>
-  <div class="dh-page">
-    <div class="dh-hd">
-      <span class="dh-title">数字员工</span>
-      <span class="dh-sub">AI 数字员工管理</span>
-    </div>
-    <div class="dh-body">
-      <div class="tb-bar">
-        <el-button type="primary" @click="openAdd">添加数字员工</el-button>
+  <div class="page-container">
+    <div class="page-hd">
+      <div>
+        <span class="page-title">数字员工</span>
+        <span class="page-sub">AI 数字员工管理</span>
       </div>
-      <div v-if="employees.length" class="employee-grid">
-        <div v-for="e in employees" :key="e.id" class="employee-card" :class="{ inactive: e.status !== 'active' }" @click="chatWith(e)">
-          <div class="ec-pic" :style="{ background: e.avatar_bg || '#7c3aed' }">
-            <img v-if="e.avatar_url" :src="e.avatar_url" class="ec-img" />
-            <span v-else class="ec-emoji">{{ e.avatar_emoji || e.role_emoji || '🤖' }}</span>
+      <el-button type="primary" @click="openAdd">添加数字员工</el-button>
+    </div>
+
+    <!-- 统计 -->
+    <div class="stat-row">
+      <div class="stat-card" style="--glow:#7c3aed">
+        <div class="stat-icon"><el-icon :size="20"><UserFilled /></el-icon></div>
+        <div class="stat-num">{{ employees.length }}</div>
+        <div class="stat-label">数字员工</div>
+      </div>
+      <div class="stat-card" style="--glow:#06b6d4">
+        <div class="stat-icon"><el-icon :size="20"><Cpu /></el-icon></div>
+        <div class="stat-num">{{ agents.length }}</div>
+        <div class="stat-label">可用 Agent</div>
+      </div>
+      <div class="stat-card" style="--glow:#f59e0b">
+        <div class="stat-icon"><el-icon :size="20"><Connection /></el-icon></div>
+        <div class="stat-num">{{ boundCount }}</div>
+        <div class="stat-label">已绑定 Agent</div>
+      </div>
+    </div>
+
+    <!-- 员工卡片 -->
+    <div v-if="employees.length" class="employee-grid">
+      <div v-for="e in employees" :key="e.id" class="employee-card" :class="{ inactive: e.status !== 'active' }">
+        <div class="ec-avatar" :style="{ background: e.avatar_bg || '#7c3aed' }" @click="chatWith(e)">
+          <img v-if="e.avatar_url" :src="e.avatar_url" class="ec-img" />
+          <span v-else class="ec-emoji">{{ e.avatar_emoji || e.role_emoji || '🤖' }}</span>
+          <div class="ec-status" :class="{ online: e.status === 'active' }"></div>
+        </div>
+        <div class="ec-body">
+          <div class="ec-name" @click="chatWith(e)">{{ e.name }}</div>
+          <el-tag size="small" effect="dark" round>{{ e.role }}</el-tag>
+          <div class="ec-agents" v-if="getAgentIds(e).length">
+            <el-tag v-for="aid in getAgentIds(e)" :key="aid" size="small" type="success" effect="plain">{{ agentName(aid) }}</el-tag>
           </div>
-          <div class="ec-info">
-            <div class="ec-name">{{ e.name }}</div>
-            <div class="ec-role">{{ e.role }}</div>
-            <div class="ec-agent" v-if="getAgentIds(e).length">
-              <el-tag v-for="aid in getAgentIds(e)" :key="aid" size="small" class="agent-tag">{{ agentName(aid) }}</el-tag>
-            </div>
-            <div class="ec-agent" v-else style="color:#ddd">未绑定 Agent</div>
-          </div>
-          <div class="ec-actions" @click.stop>
-            <el-button size="small" type="primary" link @click="chatWith(e)" :disabled="!getAgentIds(e).length">聊天</el-button>
-            <el-button size="small" type="primary" link @click="openEdit(e)">编辑</el-button>
-            <el-button size="small" type="danger" link @click="delEmployee(e.id)">删除</el-button>
-          </div>
+          <div class="ec-nobind" v-else>未绑定 Agent</div>
+        </div>
+        <div class="ec-actions">
+          <el-button size="small" round @click="chatWith(e)" :disabled="!getAgentIds(e).length">聊天</el-button>
+          <el-button size="small" round @click="openEdit(e)">编辑</el-button>
+          <el-button size="small" round type="danger" @click="delEmployee(e.id)">删除</el-button>
         </div>
       </div>
-      <el-empty v-else description="暂无数字员工，点击上方按钮添加" />
     </div>
+    <el-empty v-else description="暂无数字员工" />
+
+    <!-- 添加/编辑对话框 -->
     <el-dialog v-model="dlg.visible" :title="dlg.isEdit ? '编辑数字员工' : '添加数字员工'" width="480px">
       <el-form :model="dlg.form" label-width="80px">
         <el-form-item label="名称"><el-input v-model="dlg.form.name" placeholder="如：小薇"/></el-form-item>
@@ -52,9 +74,7 @@
               :class="{ selected: dlg.form.avatar_emoji === av.emoji && dlg.form.avatar_bg === av.bg }"
               @click="selectPreset(av)"
             >
-              <div class="ap-pic" :style="{ background: av.bg }">
-                <span>{{ av.emoji }}</span>
-              </div>
+              <div class="ap-pic" :style="{ background: av.bg }"><span>{{ av.emoji }}</span></div>
               <div class="ap-name">{{ av.name }}</div>
             </div>
           </div>
@@ -75,9 +95,10 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { UserFilled, Cpu, Connection } from '@element-plus/icons-vue'
 import axios from 'axios'
 const req = axios.create({ baseURL: '/api' })
 const router = useRouter()
@@ -88,6 +109,8 @@ const agents = ref([])
 const dlg = reactive({ visible: false, isEdit: false, form: {} })
 const avatarFiles = ref([])
 let avatarFile = null
+
+const boundCount = computed(() => employees.value.filter(e => getAgentIds(e).length > 0).length)
 
 const avatarPresets = [
   { id: 'av1', emoji: '🦊', bg: 'linear-gradient(135deg,#ff6d00 0%,#ff9100 100%)', name: '赤狐' },
@@ -156,11 +179,8 @@ async function saveEmployee() {
   if (avatarFile) { fd.append('avatar', avatarFile) }
   else if (dlg.form.avatar_url === '') { fd.append('avatar_url', '') }
 
-  if (dlg.isEdit) {
-    await req.put('/digital-employees/' + dlg.form.id, fd)
-  } else {
-    await req.post('/digital-employees', fd)
-  }
+  if (dlg.isEdit) { await req.put('/digital-employees/' + dlg.form.id, fd) }
+  else { await req.post('/digital-employees', fd) }
   dlg.visible = false; await loadEmployees(); ElMessage.success('OK')
 }
 async function delEmployee(id) {
@@ -185,28 +205,134 @@ onMounted(() => { loadAgents().then(() => loadEmployees()) })
 </script>
 
 <style scoped>
-.dh-page { height: 100%; display: flex; flex-direction: column; background: #fafafe; }
-.dh-hd { padding: 20px 24px; background: #fff; border-bottom: 1px solid #f0ecfc; }
-.dh-title { font-size: 20px; font-weight: 600; color: #4a3f5e; }
-.dh-sub { font-size: 13px; color: #b8aad0; margin-left: 10px; }
-.dh-body { flex: 1; padding: 16px 24px; overflow-y: auto; }
-.tb-bar { margin-bottom: 16px; }
-.employee-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
-.employee-card {
-  display: flex; align-items: center; gap: 14px; padding: 16px;
-  background: #fff; border-radius: 12px; border: 1px solid #f0ecfc; transition: all .2s; cursor: pointer;
+.page-hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
 }
-.employee-card:hover { border-color: #7c3aed; box-shadow: 0 2px 12px rgba(124,58,237,.08); }
-.employee-card.inactive { opacity: .5; }
-.ec-pic { width: 52px; height: 52px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; overflow: hidden; }
+.page-sub {
+  font-size: 13px;
+  color: #b8aad0;
+  margin-left: 10px;
+}
+
+/* 统计条 */
+.stat-row { display: flex; gap: 12px; margin-bottom: 20px; }
+.stat-card {
+  flex: 1;
+  display: flex; align-items: center; gap: 12px;
+  background: rgba(255,255,255,.65);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(124,58,237,.12);
+  border-radius: 12px;
+  padding: 12px 18px;
+  transition: all .3s;
+}
+.stat-card:hover {
+  background: rgba(255,255,255,.85);
+  border-color: color-mix(in srgb, var(--glow, #7c3aed) 40%, transparent);
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--glow, #7c3aed) 10%, transparent);
+  transform: translateY(-1px);
+}
+.stat-icon {
+  width: 38px; height: 38px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--glow, #7c3aed) 12%, transparent);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  color: var(--glow, #7c3aed);
+}
+.stat-num { font-size: 22px; font-weight: 700; color: #303133; line-height: 1; }
+.stat-label { font-size: 12px; color: #909399; margin-left: auto; }
+/* 卡片网格 */
+.employee-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+  gap: 14px;
+}
+
+.employee-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 24px 20px 18px;
+  background: #fff;
+  border-radius: 14px;
+  border: 1px solid #f0ecf8;
+  box-shadow: 0 1px 3px rgba(0,0,0,.04);
+  transition: all .25s;
+  position: relative;
+}
+.employee-card:hover {
+  border-color: #d8d0f0;
+  box-shadow: 0 6px 24px rgba(124,58,237,.1);
+  transform: translateY(-2px);
+}
+.employee-card.inactive { opacity: .45; }
+
+.ec-avatar {
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  overflow: hidden;
+  position: relative;
+  box-shadow: 0 4px 12px rgba(0,0,0,.15);
+  transition: transform .2s;
+}
+.ec-avatar:hover { transform: scale(1.08); }
 .ec-img { width: 100%; height: 100%; object-fit: cover; }
-.ec-emoji { font-size: 24px; }
-.ec-info { flex: 1; min-width: 0; }
-.ec-name { font-size: 15px; font-weight: 600; color: #4a3f5e; }
-.ec-role { font-size: 12px; color: #7c3aed; margin-top: 2px; }
-.ec-agent { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px; }
-.agent-tag { font-size: 10px; }
-.ec-actions { display: flex; flex-direction: column; gap: 2px; }
+.ec-emoji { font-size: 30px; }
+
+.ec-status {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #c0c4cc;
+  border: 2px solid #fff;
+}
+.ec-status.online { background: #22c55e; }
+
+.ec-body {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.ec-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: #303133;
+  cursor: pointer;
+}
+.ec-name:hover { color: #7c3aed; }
+.ec-agents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: center;
+}
+.ec-nobind {
+  font-size: 12px;
+  color: #c0c4cc;
+}
+
+.ec-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
 .avatar-preset-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .avatar-preset {
   padding: 8px; border-radius: 8px; border: 2px solid #f0ecfc; cursor: pointer;
