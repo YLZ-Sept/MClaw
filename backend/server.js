@@ -427,9 +427,8 @@ app.get('/api/status', async (req, res) => {
   const douyinPublish = require('./services/douyin-publish');
   const os = require('os');
 
-  const [douyinHealth, frontendHealth] = await Promise.all([
+  const [douyinHealth] = await Promise.all([
     douyinPublish.health().catch(() => ({ status: 'unhealthy' })),
-    fetch('http://localhost:4173').then(() => 'healthy').catch(() => 'unhealthy'),
   ]);
 
   const uptime = process.uptime();
@@ -439,9 +438,9 @@ app.get('/api/status', async (req, res) => {
     code: 200,
     data: {
       services: [
-        { name: '后端 API 服务', status: 'running', port: 3627, uptime: `${h}h ${m}m` },
+        { name: '后端 API 服务', status: 'running', port: 4011, uptime: `${h}h ${m}m` },
         { name: '抖音发布服务', status: douyinHealth.status === 'healthy' ? 'running' : 'stopped', port: 8000, uptime: douyinHealth.status === 'healthy' ? '-' : '-' },
-        { name: '前端 Web 服务', status: frontendHealth === 'healthy' ? 'running' : 'stopped', port: 4173, uptime: '-' },
+        { name: '前端 Web 服务', status: 'running', port: 4011, uptime: `${h}h ${m}m` },
       ],
       system: {
         cpu: `${Math.round(os.loadavg()[0] * 100) / 100}%`,
@@ -458,7 +457,7 @@ if (fs.existsSync(frontendDist)) {
   });
 }
 
-const PORT = 3627;
+const PORT = 4011;
 const server = http.createServer(app);
 
 // 启动统一 WebSocket 服务器（Sightflow + Events）

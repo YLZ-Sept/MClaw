@@ -44,7 +44,7 @@ echo 测试后端启动(5秒后杀掉)...
 cd /d "%~dp0backend"
 start "TestBackend" cmd /c "node server.js"
 timeout /t 5 /nobreak >nul
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":3001 "') do taskkill /F /PID %%a 2>nul
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":4011 "') do taskkill /F /PID %%a 2>nul
 echo 后端测试完成
 echo.
 

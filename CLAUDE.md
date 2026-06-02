@@ -35,7 +35,7 @@ backend/
 frontend/
   src/
     router/index.js      ← 路由表
-    api/index.js         ← axios 实例，/api 代理到 :3001
+    api/index.js         ← axios 实例，baseURL: /api
     api/crm.js, hr.js, inventory.js, docs.js, internal.js  ← 各模块 API
     views/
       RealtimeChat.vue   ← SSE 流式聊天 + marked 渲染
@@ -93,8 +93,8 @@ const agentConfigs = {
 ## 启动方式
 
 ```bash
-cd backend && node server.js          # 后端 :3001
-cd frontend && npx vite --host 0.0.0.0  # 前端 :4173
+cd backend && node server.js          # 后端+前端 :4011（生产模式单端口，Express serve dist）
+cd frontend && npx vite --host 0.0.0.0  # 前端开发服务器 :4173（开发模式）
 ```
 
 ## 核心依赖
@@ -108,7 +108,7 @@ cd frontend && npx vite --host 0.0.0.0  # 前端 :4173
 - 所有 ID 用 `crypto.randomUUID()` 生成
 - DB 表用 `db.exec()` 内 SQL，兼容旧表用 try/catch ALTER TABLE
 - 向量检索修改后需调 `invalidate()` 重建索引
-- 前端 Vite 代理 `/api` → `http://localhost:3001`
+- 生产模式：Express serve 前端 dist，单端口 4011；开发模式：Vite 代理 `/api` → `http://localhost:4011`
 - Agent 聊天历史按 agent key 隔离存储
 - pdf-parse v2.x 用法：`new PDFParse(new Uint8Array(buf))` → `load()` → `getText()`，结果 `{ pages: [{ text }] }`
 - 所有 Agent 有独立身份（小内/小客/小销），问候语和系统提示词已定制

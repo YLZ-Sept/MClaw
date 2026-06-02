@@ -26,7 +26,7 @@ logging.basicConfig(level=logging.INFO, format='[%(asctime)s] [%(name)s] %(messa
 log = logging.getLogger("mclaw-bridge")
 
 # Config
-MCLAW_URL = os.environ.get("MCLAW_URL", "ws://localhost:3001/ws/sightflow")
+MCLAW_URL = os.environ.get("MCLAW_URL", "ws://localhost:4011/ws/sightflow")
 ACCOUNT_ID = os.environ.get("SIGHTFLOW_ACCOUNT", "")
 PLATFORM = os.environ.get("SIGHTFLOW_PLATFORM", "wechat")
 SCAN_INTERVAL = int(os.environ.get("SIGHTFLOW_INTERVAL", "10"))
