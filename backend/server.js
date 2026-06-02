@@ -8,6 +8,14 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// 生产模式：serve 前端构建产物（无 dist 时走 Vite 开发代理）
+const frontendDist = path.join(__dirname, '..', 'frontend', 'dist');
+const fs = require('fs');
+if (fs.existsSync(frontendDist)) {
+  app.use(express.static(frontendDist));
+  console.log('[server] 生产模式：serve 前端静态文件', frontendDist);
+}
+
 require('./db');
 
 // CRM
@@ -431,7 +439,7 @@ app.get('/api/status', async (req, res) => {
     code: 200,
     data: {
       services: [
-        { name: '后端 API 服务', status: 'running', port: 3001, uptime: `${h}h ${m}m` },
+        { name: '后端 API 服务', status: 'running', port: 3627, uptime: `${h}h ${m}m` },
         { name: '抖音发布服务', status: douyinHealth.status === 'healthy' ? 'running' : 'stopped', port: 8000, uptime: douyinHealth.status === 'healthy' ? '-' : '-' },
         { name: '前端 Web 服务', status: frontendHealth === 'healthy' ? 'running' : 'stopped', port: 4173, uptime: '-' },
       ],
@@ -443,7 +451,14 @@ app.get('/api/status', async (req, res) => {
   });
 });
 
-const PORT = 3001;
+// SPA fallback：非 API 请求返回 index.html（生产模式）
+if (fs.existsSync(frontendDist)) {
+  app.get(/^\/(?!api\/|ws\/).*/, (req, res) => {
+    res.sendFile(path.join(frontendDist, 'index.html'));
+  });
+}
+
+const PORT = 3627;
 const server = http.createServer(app);
 
 // 启动统一 WebSocket 服务器（Sightflow + Events）

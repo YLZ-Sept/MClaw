@@ -524,7 +524,7 @@ function scrollBottom() {
 
 // ─── 轮询刷新 ───
 function connectEvents() {
-  const url = `ws://${location.hostname}:3001/ws/events`
+  const url = `ws://${location.hostname}:3627/ws/events`
   wsEvents = new WebSocket(url)
   wsEvents.onmessage = (e) => {
     let event

@@ -7,7 +7,7 @@ const os = require('os');
 const fs = require('fs');
 
 // ─── 配置 ───
-const MCLAW_URL = process.env.MCLAW_URL || 'ws://localhost:3001/ws/sightflow';
+const MCLAW_URL = process.env.MCLAW_URL || 'ws://localhost:3627/ws/sightflow';
 const ACCOUNT_ID = process.argv.includes('--account')
   ? process.argv[process.argv.indexOf('--account') + 1]
   : process.env.SIGHTFLOW_ACCOUNT;

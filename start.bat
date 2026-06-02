@@ -1,27 +1,32 @@
 @echo off
-set "PATH=C:\Program Files\nodejs;C:\Users\10260\AppData\Local\Programs\Python\Python312;%PATH%"
+chcp 65001 >nul
 cd /d "%~dp0"
 
 echo ================================
 echo   MClaw v1.0
 echo ================================
 
-:: cleanup
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":3001 "') do taskkill /F /PID %%a 2>nul
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":4173 "') do taskkill /F /PID %%a 2>nul
+:: 端口清理
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":3627 "') do taskkill /F /PID %%a 2>nul
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8000 "') do taskkill /F /PID %%a 2>nul
 
-echo   Frontend  http://localhost:4173
-echo   Backend   http://localhost:3001
-echo   Douyin    http://localhost:8000
+echo   访问地址  http://localhost:3627
+echo   抖音发布    http://localhost:8000
 echo ================================
 echo.
 
-npx concurrently^
- --names "API,DOUYIN,WEB"^
- --prefix-colors "green,yellow,cyan"^
- "cd backend && node server.js"^
- "cd backend\auto_douyin && python -m uvicorn src.video_uploader.api.app:create_app --host 0.0.0.0 --port 8000 --factory"^
- "cd frontend && npx vite --host 0.0.0.0"
+:: 启动后端（含前端静态文件）
+echo [启动] 后端服务 :3627
+start "MClaw-API" cmd /c "cd /d %~dp0backend && node server.js"
 
-pause
+:: 启动抖音发布服务
+echo [启动] 抖音发布 :8000
+start "MClaw-Douyin" cmd /c "cd /d %~dp0backend\auto_douyin && python -m uvicorn src.video_uploader.api.app:create_app --host 0.0.0.0 --port 8000 --factory"
+
+echo.
+echo 服务已启动，浏览器访问 http://localhost:3627
+echo 关闭此窗口不影响服务运行。
+echo.
+
+timeout /t 3 >nul
+start http://localhost:3627

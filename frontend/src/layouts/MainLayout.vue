@@ -106,8 +106,68 @@
 
     <!-- 主内容 -->
     <main class="main-content">
-      <router-view />
+      <header class="content-header">
+        <div class="header-left"></div>
+        <div class="header-right">
+          <el-button text size="small" @click="showAbout = true">帮助</el-button>
+        </div>
+      </header>
+      <div class="content-body">
+        <router-view />
+      </div>
     </main>
+
+    <!-- 帮助对话框 -->
+    <el-dialog v-model="showAbout" width="480px" :close-on-click-modal="false">
+      <template #header>
+        <div class="help-dialog-header">
+          <span class="help-dialog-icon"><Service /></span>
+          <span>帮助中心</span>
+        </div>
+      </template>
+      <div class="help-content">
+        <!-- 品牌区 -->
+        <div class="help-brand">
+          <div class="help-brand-icon">MC</div>
+          <div class="help-brand-info">
+            <div class="help-brand-name">MClaw V1.0</div>
+            <div class="help-brand-desc">企业智能体管理平台</div>
+          </div>
+        </div>
+
+        <!-- 简介卡片 -->
+        <div class="help-card">
+          <div class="help-card-title">
+            <el-icon><MagicStick /></el-icon>
+            <span>产品简介</span>
+          </div>
+          <p class="help-card-text">基于多模型 AI 驱动的企业智能体操作系统，集成 CRM、进销存、人事、知识库、内容生产与全渠道消息触达，让 AI Agent 接管公司全部非执行操作。</p>
+        </div>
+
+        <!-- 联系方式卡片 -->
+        <div class="help-card">
+          <div class="help-card-title">
+            <el-icon><Phone /></el-icon>
+            <span>联系电话</span>
+          </div>
+          <div class="help-phone">0871-63820616</div>
+          <div class="help-hint">工作日 9:00 - 18:00</div>
+        </div>
+
+        <!-- 在线客服卡片 -->
+        <div class="help-card help-card-service">
+          <div class="help-card-title">
+            <el-icon><ChatDotSquare /></el-icon>
+            <span>在线客服</span>
+          </div>
+          <p class="help-card-text">扫码或点击下方按钮，通过企业微信联系在线客服，获取即时技术支持。</p>
+          <a href="https://work.weixin.qq.com/kfid/kfc6ea1e452c2944b7f" target="_blank" rel="noopener" class="help-service-btn">
+            <el-icon><Service /></el-icon>
+            <span>联系在线客服</span>
+          </a>
+        </div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -118,7 +178,7 @@ import { ElMessageBox, ElMessage } from 'element-plus'
 import {
   ChatDotSquare, DataAnalysis, List, Document,
   Cpu, Setting, ChatLineSquare, Promotion, Lock, UserFilled,
-  ArrowDown, ArrowUp, Close, Plus, MoreFilled, TrendCharts, Warning, Collection, MagicStick
+  ArrowDown, ArrowUp, Close, Plus, MoreFilled, TrendCharts, Warning, Collection, MagicStick, Phone, Service
 } from '@element-plus/icons-vue'
 import { logout } from '../api'
 import axios from 'axios'
@@ -127,6 +187,7 @@ const req = axios.create({ baseURL: '/api' })
 const router = useRouter()
 const route = useRoute()
 const userName = ref('')
+const showAbout = ref(false)
 
 // 聊天会话（侧边栏子列表）
 const chatSessions = ref([])
