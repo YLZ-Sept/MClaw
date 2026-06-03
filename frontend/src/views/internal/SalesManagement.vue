@@ -294,42 +294,18 @@
     <el-dialog v-model="collectDlg.visible" title="手动采集" width="550px">
       <el-form :model="collectDlg" label-width="80px">
         <el-form-item label="采集线路">
-          <el-select v-model="collectDlg.method" style="width:100%" @change="onCollectMethodChange">
+          <el-select v-model="collectDlg.method" style="width:100%">
             <el-option label="API 采集 (ShowAPI)" value="api"/>
-            <el-option label="网页爬虫 (Playwright)" value="web"/>
-            <el-option label="浏览器自动化 (扫码登录)" value="browser"/>
+            <el-option label="Crawl4AI MCP 爬虫" value="crawl4ai"/>
             <el-option label="全部线路" value="all"/>
           </el-select>
         </el-form-item>
-        <template v-if="collectDlg.method==='browser'">
-          <el-form-item label="目标网址">
-            <el-input v-model="collectDlg.browserUrl" placeholder="https://qiye.qianlima.com"/>
-          </el-form-item>
-          <!-- Browser status -->
-          <div v-if="browserState" style="margin-bottom:12px">
-            <el-alert
-              :title="browserState.message || browserState.state"
-              :type="browserState.state==='error'?'error':browserState.state==='done'?'success':'info'"
-              :closable="false"
-              show-icon
-            >
-              <template v-if="browserState.collected>0"><div style="margin-top:4px">已采集 <b>{{ browserState.collected }}</b> 条</div></template>
-            </el-alert>
-          </div>
-          <el-form-item v-if="browserState?.state==='waiting_login'">
-            <el-button type="primary" @click="confirmBrowserLogin" :loading="browserConfirming">我已登录，开始搜索</el-button>
-          </el-form-item>
-        </template>
-        <template v-else>
-          <el-form-item label="开始日期"><el-date-picker v-model="collectDlg.start" type="date" value-format="YYYY-MM-DD" style="width:100%"/></el-form-item>
-          <el-form-item label="结束日期"><el-date-picker v-model="collectDlg.end" type="date" value-format="YYYY-MM-DD" style="width:100%"/></el-form-item>
-        </template>
+        <el-form-item label="开始日期"><el-date-picker v-model="collectDlg.start" type="date" value-format="YYYY-MM-DD" style="width:100%"/></el-form-item>
+        <el-form-item label="结束日期"><el-date-picker v-model="collectDlg.end" type="date" value-format="YYYY-MM-DD" style="width:100%"/></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="onCloseCollect">取消</el-button>
-        <el-button v-if="collectDlg.method==='browser'&&!browserState" type="primary" :loading="browserStarting" @click="startBrowserCollect">启动浏览器</el-button>
-        <el-button v-if="collectDlg.method==='browser'&&(browserState?.state==='done'||browserState?.state==='error')" type="primary" @click="onCloseCollect">关闭</el-button>
-        <el-button v-if="collectDlg.method!=='browser'" type="primary" @click="doCollect">开始采集</el-button>
+        <el-button type="primary" @click="doCollect">开始采集</el-button>
       </template>
     </el-dialog>
     <el-dialog v-model="pubDlg.visible" title="新建发布计划" width="500px"><el-form :model="pubDlg.form" label-width="80px"><el-form-item label="平台"><el-select v-model="pubDlg.form.platform"><el-option label="微信" value="wechat"/><el-option label="抖音" value="douyin"/><el-option label="小红书" value="xiaohongshu"/></el-select></el-form-item><el-form-item label="类型"><el-select v-model="pubDlg.form.content_type"><el-option label="图文" value="text"/><el-option label="视频" value="video"/></el-select></el-form-item><el-form-item label="内容"><el-input v-model="pubDlg.form.content" type="textarea"/></el-form-item><el-form-item label="计划时间"><el-date-picker v-model="pubDlg.form.scheduled_at" type="datetime" value-format="YYYY-MM-DD HH:mm" style="width:100%"/></el-form-item></el-form><template #footer><el-button @click="pubDlg.visible=false">取消</el-button><el-button type="primary" @click="savePub">保存</el-button></template></el-dialog>
@@ -464,8 +440,7 @@ const kwDlg = reactive({ visible: false, form: {} })
 const pubDlg = reactive({ visible: false, form: {} })
 const editDlg = reactive({ visible: false, form: {} })
 const srcEditDlg = reactive({ visible: false, form: {} })
-const collectDlg = reactive({ visible: false, method: 'api', start: '', end: '', browserUrl: 'https://qiye.qianlima.com' })
-const browserState = ref(null), browserStarting = ref(false), browserConfirming = ref(false), browserPollTimer = ref(null)
+const collectDlg = reactive({ visible: false, method: 'api', start: '', end: '' })
 const detailDlg = reactive({ visible: false, row: null })
 
 async function loadBidItems() {
@@ -476,52 +451,15 @@ async function loadBidSources() { bidSources.value = (await req.get('/bids/sourc
 async function loadBidKeywords() { bidKeywords.value = (await req.get('/bids/keywords')).data.data }
 async function loadPubTasks() { pubTasks.value = (await req.get('/content-publish')).data.data }
 async function doCollect() {
-  const methodLabel = collectDlg.method === 'api' ? 'API' : collectDlg.method === 'web' ? '网页爬虫' : collectDlg.method === 'all' ? '全部线路' : '采集'
+  const methodLabel = collectDlg.method === 'api' ? 'API' : collectDlg.method === 'crawl4ai' ? 'Crawl4AI' : '全部线路'
   await req.post('/bids/collect', { method: collectDlg.method, start: collectDlg.start, end: collectDlg.end })
   collectDlg.visible = false; collectDlg.start = ''; collectDlg.end = ''; collectDlg.method = 'api'
   ElMessage.success(`${methodLabel} 采集完成`); await loadBidData()
 }
 
-// ─── 浏览器自动化采集 ───
-function onCollectMethodChange(method) {
-  if (method === 'browser') { browserState.value = null; stopPolling() }
-}
-async function startBrowserCollect() {
-  browserStarting.value = true
-  try {
-    const res = await req.post('/bids/browser/start', { url: collectDlg.browserUrl })
-    browserState.value = res.data.data
-    if (res.data.data.state !== 'error') startPolling()
-  } catch (e) { ElMessage.error(e.response?.data?.message || '启动失败') }
-  browserStarting.value = false
-}
-async function confirmBrowserLogin() {
-  browserConfirming.value = true
-  try {
-    const res = await req.post('/bids/browser/confirm-login')
-    browserState.value = res.data.data
-    if (res.data.data.state === 'done') { stopPolling(); await loadBidData() }
-  } catch (e) { ElMessage.error(e.response?.data?.message || '搜索失败') }
-  browserConfirming.value = false
-}
-function startPolling() {
-  stopPolling()
-  browserPollTimer.value = setInterval(async () => {
-    try {
-      const res = await req.get('/bids/browser/status')
-      browserState.value = res.data.data
-      if (res.data.data.state === 'done' || res.data.data.state === 'error') { stopPolling(); if (res.data.data.state === 'done') await loadBidData() }
-    } catch {}
-  }, 2000)
-}
-function stopPolling() {
-  if (browserPollTimer.value) { clearInterval(browserPollTimer.value); browserPollTimer.value = null }
-}
 function onCloseCollect() {
-  stopPolling()
   collectDlg.visible = false
   collectDlg.method = 'api'
-  browserState.value = null
 }
 async function saveSource() { await req.post('/bids/sources', srcDlg.form); srcDlg.visible = false; srcDlg.form = {}; await loadBidData(); ElMessage.success('OK') }
 function openEditSource(row) { srcEditDlg.form = { ...row }; srcEditDlg.visible = true }

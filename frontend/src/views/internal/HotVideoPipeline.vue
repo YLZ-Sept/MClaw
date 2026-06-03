@@ -235,22 +235,35 @@
 
     <!-- === Step 4: Publish === -->
     <div v-show="step === 4">
-      <!-- 服务/账号状态条 -->
-      <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px">
-        <el-alert v-if="douyinHealth !== 'healthy'" :title="douyinHealth === 'unreachable' ? '抖音发布服务未连接' : '服务状态未知'"
-          :type="douyinHealth === 'unreachable' ? 'error' : 'warning'" :closable="false" show-icon style="flex:1"/>
-        <template v-if="douyinHealth==='healthy'">
-          <el-tag v-if="accountChecking" type="info" size="large">检查账号...</el-tag>
-          <template v-else-if="accountStatus?.is_logged_in">
-            <el-tag type="success" size="large" effect="dark">✓ 账号已连接</el-tag>
+      <!-- 多平台账号状态卡片 -->
+      <el-alert v-if="publishHealth !== 'healthy'" :title="publishHealth === 'unreachable' ? '发布服务未连接' : '服务状态未知'"
+        :type="publishHealth === 'unreachable' ? 'error' : 'warning'" :closable="false" show-icon style="margin-bottom:12px"/>
+      <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+        <el-card v-for="p in PLATFORMS" :key="p.key" shadow="hover" style="flex:1;min-width:240px">
+          <template #header>
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <span><span style="font-size:18px;margin-right:6px">{{ p.icon }}</span><b>{{ p.label }}</b></span>
+              <el-button size="small" text type="primary" @click="addAccount(p.key)">+ 添加账号</el-button>
+            </div>
           </template>
-          <template v-else>
-            <el-tag type="danger" size="large">未登录</el-tag>
-            <el-button size="small" type="primary" :loading="douyinLoggingIn" @click="doDouyinLogin">
-              {{ douyinLoggingIn ? '等待扫码...' : '扫码登录' }}
-            </el-button>
-          </template>
-        </template>
+          <div v-for="acc in platformAccounts[p.key]" :key="acc.id" style="display:flex;align-items:center;gap:8px;margin-bottom:8px"
+            :style="{ paddingBottom: '8px', borderBottom: platformAccounts[p.key].length > 1 ? '1px solid #ebeef5' : 'none' }">
+            <el-checkbox v-model="publishTargets" :value="acc.id" :disabled="!acc.status?.is_logged_in" />
+            <template v-if="acc.checking">
+              <el-tag type="info" size="small">检查中...</el-tag>
+            </template>
+            <template v-else-if="acc.status?.is_logged_in">
+              <el-tag type="success" size="small">✓ {{ acc.accountName }}</el-tag>
+            </template>
+            <template v-else>
+              <el-input v-model="acc.accountName" placeholder="账号名" size="small" style="width:90px" clearable />
+              <el-button size="small" type="primary" :loading="acc.loggingIn" @click="doLogin(p.key, acc)">
+                {{ acc.loggingIn ? '扫码中...' : '登录' }}
+              </el-button>
+              <el-button v-if="platformAccounts[p.key].length > 1" size="small" text type="danger" @click="removeAccount(p.key, acc.id)" style="margin-left:auto">×</el-button>
+            </template>
+          </div>
+        </el-card>
       </div>
 
       <div class="douyin-publish-layout">
@@ -326,7 +339,7 @@
             <div style="display:flex;gap:12px">
               <el-button @click="step=3" size="large">上一步</el-button>
               <el-button type="primary" size="large" :loading="publishing" @click="doPublish"
-                :disabled="!accountStatus?.is_logged_in">
+                :disabled="!publishTargets.length || !publishTargets.some(id => getAccountById(id)?.acc?.status?.is_logged_in)">
                 {{ publishForm.scheduled ? '定时发布' : '发布' }}
               </el-button>
             </div>
@@ -369,7 +382,7 @@
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Check, ArrowRight, CircleCheckFilled, VideoCamera } from '@element-plus/icons-vue'
-import { hotContentApi, hotExtractApi, hotChanjingApi, douyinPublishApi } from '../../api/hot-video'
+import { hotContentApi, hotExtractApi, hotChanjingApi, publishApi } from '../../api/hot-video'
 import HistoryTable from './HistoryTable.vue'
 
 const step = ref(0)
@@ -755,53 +768,86 @@ async function generateCover() {
 
 function pickCover(url) { coverUrl.value = url }
 
-// ─── 抖音发布 ───
-const douyinHealth = ref(null)
-const accountStatus = ref(null)
-const accountChecking = ref(false)
-const douyinLoggingIn = ref(false)
+// ─── 多渠道发布 ───
+const PLATFORMS = [
+  { key: 'douyin', label: '抖音', icon: '🎵' },
+  { key: 'xiaohongshu', label: '小红书', icon: '📕' },
+  { key: 'wechat_channel', label: '视频号', icon: '💬' },
+]
+
+let accountIdCounter = 0
+function newAccount(name = 'default') {
+  return { id: `acc_${++accountIdCounter}`, accountName: name, status: null, checking: false, loggingIn: false }
+}
+
+const publishHealth = ref(null)
 const publishing = ref(false)
+const publishTargets = ref([])
 
-async function checkDouyinHealth() {
+// 每个平台一个账号数组，默认各有一个 "default" 账号
+const defaultAccounts = Object.fromEntries(PLATFORMS.map(p => [p.key, [newAccount()]]))
+const platformAccounts = reactive(defaultAccounts)
+
+function addAccount(platform) {
+  platformAccounts[platform].push(newAccount())
+}
+function removeAccount(platform, id) {
+  const list = platformAccounts[platform]
+  if (list.length <= 1) return
+  const idx = list.findIndex(a => a.id === id)
+  if (idx >= 0) list.splice(idx, 1)
+  publishTargets.value = publishTargets.value.filter(t => t !== id)
+}
+
+async function checkPublishHealth() {
   try {
-    const res = await douyinPublishApi.health()
-    douyinHealth.value = res.data.data?.status || 'unknown'
+    const res = await publishApi.health()
+    publishHealth.value = res.data.data?.status || 'unknown'
   } catch {
-    douyinHealth.value = 'unreachable'
+    publishHealth.value = 'unreachable'
   }
 }
 
-async function checkAccountStatus() {
-  if (douyinHealth.value !== 'healthy') return
-  accountChecking.value = true
-  try {
-    const res = await douyinPublishApi.accountStatus('default')
-    accountStatus.value = res.data.data
-  } catch {
-    accountStatus.value = null
+async function checkAllAccountStatus() {
+  if (publishHealth.value !== 'healthy') return
+  for (const p of PLATFORMS) {
+    for (const acc of platformAccounts[p.key]) {
+      acc.checking = true
+      try {
+        const res = await publishApi.accountStatus(acc.accountName, p.key)
+        acc.status = res.data.data
+        if (acc.status?.is_logged_in && !publishTargets.value.includes(acc.id)) {
+          publishTargets.value.push(acc.id)
+        }
+      } catch {
+        acc.status = null
+      }
+      acc.checking = false
+    }
   }
-  accountChecking.value = false
 }
 
-async function doDouyinLogin() {
-  douyinLoggingIn.value = true
+async function doLogin(platform, acc) {
+  const label = PLATFORMS.find(p => p.key === platform)?.label || platform
+  acc.loggingIn = true
   try {
-    const loginRes = await douyinPublishApi.login('default')
+    const loginRes = await publishApi.login(acc.accountName, platform)
     if (!loginRes.data.data?.success && loginRes.data.data?.message) {
       ElMessage.warning(loginRes.data.data.message)
-      douyinLoggingIn.value = false
+      acc.loggingIn = false
       return
     }
-    ElMessage({ message: '浏览器已打开，请在浏览器中扫码或手机号完成登录', type: 'info', duration: 5000 })
+    ElMessage({ message: `浏览器已打开，请在浏览器中完成${label}扫码登录`, type: 'info', duration: 5000 })
     let attempts = 0
     while (attempts < 60) {
       await new Promise(r => setTimeout(r, 3000))
       try {
-        const res = await douyinPublishApi.accountStatus('default')
-        accountStatus.value = res.data.data
+        const res = await publishApi.accountStatus(acc.accountName, platform)
+        acc.status = res.data.data
         if (res.data.data?.is_logged_in) {
-          ElMessage.success('抖音账号登录成功！')
-          douyinLoggingIn.value = false
+          ElMessage.success(`${label}账号 ${acc.accountName} 登录成功！`)
+          acc.loggingIn = false
+          if (!publishTargets.value.includes(acc.id)) publishTargets.value.push(acc.id)
           return
         }
       } catch {}
@@ -811,42 +857,62 @@ async function doDouyinLogin() {
   } catch (e) {
     ElMessage.error('启动登录失败: ' + (e.response?.data?.message || e.message))
   }
-  douyinLoggingIn.value = false
+  acc.loggingIn = false
+}
+
+function getAccountById(id) {
+  for (const p of PLATFORMS) {
+    const found = platformAccounts[p.key].find(a => a.id === id)
+    if (found) return { platform: p.key, label: p.label, acc: found }
+  }
+  return null
 }
 
 async function doPublish() {
   if (!videoForm.contentId) return ElMessage.warning('请先从视频步骤生成视频')
-  if (!accountStatus.value?.is_logged_in) return ElMessage.warning('请先登录抖音账号')
+  if (publishTargets.value.length === 0) return ElMessage.warning('请至少勾选一个已登录账号')
   publishing.value = true
-  try {
-    const payload = {
-      account_name: 'default',
-      title: publishForm.title || videoForm.title,
-      tags: publishForm.tagList.join(','),
-      description: publishForm.description,
-      cover_orientation: coverOrientation.value,
-      location: publishForm.location || '',
+  const results = []
+  for (const id of publishTargets.value) {
+    const entry = getAccountById(id)
+    if (!entry) continue
+    const { platform, label, acc } = entry
+    if (!acc.status?.is_logged_in) {
+      results.push({ label, success: false, message: `${acc.accountName} 未登录` })
+      continue
     }
-    if (publishForm.scheduled && publishForm.publishDate) {
-      payload.publish_date = publishForm.publishDate
+    try {
+      const payload = {
+        account_name: acc.accountName,
+        platform,
+        title: publishForm.title || videoForm.title,
+        tags: publishForm.tagList.join(','),
+        description: publishForm.description,
+        cover_orientation: coverOrientation.value,
+        location: publishForm.location || '',
+      }
+      if (publishForm.scheduled && publishForm.publishDate) {
+        payload.publish_date = publishForm.publishDate
+      }
+      const res = await publishApi.publish(videoForm.contentId, payload)
+      results.push({ label: `${label}@${acc.accountName}`, success: res.data.data?.success, message: res.data.data?.message })
+    } catch (e) {
+      results.push({ label: `${label}@${acc.accountName}`, success: false, message: e.response?.data?.message || e.message })
     }
-    const res = await douyinPublishApi.publish(videoForm.contentId, payload)
-    if (res.data.data?.success) {
-      ElMessage.success('抖音发布成功！')
-      await loadContents()
-    } else {
-      ElMessage.error(res.data.data?.message || '发布失败')
-    }
-  } catch (e) {
-    ElMessage.error(e.response?.data?.message || '发布失败')
-  } finally { publishing.value = false }
+  }
+  const ok = results.filter(r => r.success)
+  const fail = results.filter(r => !r.success)
+  if (ok.length) ElMessage.success('发布成功: ' + ok.map(r => r.label).join(', '))
+  if (fail.length) ElMessage.error('发布失败: ' + fail.map(r => r.label).join(', '))
+  await loadContents()
+  publishing.value = false
 }
 
 // 进入 Step 4 时预填
 watch(step, async (s) => {
   if (s === 4) {
-    await checkDouyinHealth()
-    await checkAccountStatus()
+    await checkPublishHealth()
+    await checkAllAccountStatus()
     // Auto-detect cover orientation from video availability
     const cur = contentList.value.find(c => c.id === videoForm.contentId)
     if (cur?.video_url_landscape && !cur?.video_url) coverOrientation.value = 'landscape'
@@ -865,7 +931,7 @@ watch(step, async (s) => {
 
 onMounted(() => {
   loadContents()
-  checkDouyinHealth()
+  checkPublishHealth()
 })
 </script>
 

@@ -74,57 +74,26 @@ router.delete('/items/:id', (req, res) => {
   res.json({ code: 200 });
 });
 
-// 手动触发采集 — method: api(ShowAPI) / web(Playwright爬虫) / all(两者) / browser(浏览器自动化)
+// 手动触发采集 — method: api(ShowAPI) / crawl4ai(Crawl4AI MCP) / all(两者)
 router.post('/collect', async (req, res) => {
   try {
     const { start, end, method } = req.body;
-    const run = method === 'web'
-      ? require('../bid-crawler').runCollect
-      : method === 'all'
-        ? async (opts) => {
-            const [apiR, webR] = await Promise.all([
-              require('../bid-collector').runCollect(opts),
-              require('../bid-crawler').runCollect(opts)
-            ]);
-            return { found: apiR.found + webR.found, inserted: apiR.inserted + webR.inserted };
-          }
-        : runCollect; // 默认 api
-    const result = await run({ start, end });
-    res.json({ code: 200, data: result });
-  } catch (err) {
-    res.status(500).json({ code: 500, message: err.message });
-  }
-});
 
-// 浏览器自动化采集
-const browserCollector = require('../services/browser-collector');
+    if (method === 'crawl4ai') {
+      const result = await require('../services/crawl4ai-collector').runCollect({ start, end });
+      return res.json({ code: 200, data: result });
+    }
 
-router.post('/browser/start', async (req, res) => {
-  try {
-    const url = req.body.url || 'https://qiye.qianlima.com';
-    const result = await browserCollector.start(url);
-    res.json({ code: 200, data: result });
-  } catch (err) {
-    res.status(500).json({ code: 500, message: err.message });
-  }
-});
+    if (method === 'all') {
+      const [apiR, c4r] = await Promise.all([
+        require('../bid-collector').runCollect({ start, end }),
+        require('../services/crawl4ai-collector').runCollect({ start, end })
+      ].map(p => p.catch(e => ({ found: 0, inserted: 0, error: e.message }))));
+      return res.json({ code: 200, data: { found: apiR.found + c4r.found, inserted: apiR.inserted + c4r.inserted } });
+    }
 
-router.post('/browser/confirm-login', async (req, res) => {
-  try {
-    const result = await browserCollector.confirmLoginAndSearch();
-    res.json({ code: 200, data: result });
-  } catch (err) {
-    res.status(500).json({ code: 500, message: err.message });
-  }
-});
-
-router.get('/browser/status', (req, res) => {
-  res.json({ code: 200, data: browserCollector.getStatus() });
-});
-
-router.post('/browser/stop', async (req, res) => {
-  try {
-    const result = await browserCollector.stop();
+    // default: api (ShowAPI)
+    const result = await runCollect({ start, end });
     res.json({ code: 200, data: result });
   } catch (err) {
     res.status(500).json({ code: 500, message: err.message });

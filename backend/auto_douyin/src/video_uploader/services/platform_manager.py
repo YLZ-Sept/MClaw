@@ -21,11 +21,12 @@ from ..utils.logger import logger
 class PlatformManager:
     """多平台管理器"""
     
-    def __init__(self):
+    def __init__(self, config=None):
         self.accounts: Dict[str, BaseAccount] = {}
-        self.uploaders: Dict[str, Union[DouYinUploader, WechatChannelUploader, XiaohongshuUploader]] = {}
+        self.uploaders: Dict[str, Union[DouyinUploader, WechatChannelUploader, XiaohongshuUploader]] = {}
         self.supported_platforms = ["douyin", "wechat_channel", "xiaohongshu"]
-        
+        self.config = config  # 可选的应用配置(Config对象)
+
         # 自动加载已存在的账号信息
         self._load_existing_accounts()
         
@@ -53,10 +54,41 @@ class PlatformManager:
     def list_accounts(self, platform: Optional[str] = None) -> List[BaseAccount]:
         """列出账号"""
         if platform:
-            return [account for key, account in self.accounts.items() 
+            return [account for key, account in self.accounts.items()
                    if account.platform == platform]
         return list(self.accounts.values())
-        
+
+    async def check_account_status(self, platform: str, account_name: str) -> Optional[BaseAccount]:
+        """检查指定平台账号的登录状态"""
+        account = self.get_account(platform, account_name)
+        if not account:
+            account = self._create_account(platform, account_name)
+            if not account:
+                return None
+            self.add_account(account)
+
+        if not account.cookie_file or not account.cookie_file.exists():
+            account.is_logged_in = False
+            return account
+
+        # 用对应平台的上传器检查 cookie
+        try:
+            if platform == "douyin":
+                config = self._get_douyin_config()
+                uploader = DouyinUploader(account_name, str(account.cookie_file), config)
+                account.is_logged_in = await uploader.check_cookie()
+            elif platform == "wechat_channel":
+                uploader = WechatChannelUploader()
+                account.is_logged_in = await uploader.check_cookie(str(account.cookie_file))
+            elif platform == "xiaohongshu":
+                uploader = XiaohongshuUploader()
+                account.is_logged_in = await uploader.check_cookie(str(account.cookie_file))
+        except Exception as e:
+            logger.error(f"检查{platform}账号状态失败: {e}")
+            account.is_logged_in = False
+
+        return account
+
     async def login(self, request: LoginRequest) -> LoginResponse:
         """登录账号"""
         try:
@@ -272,40 +304,56 @@ class PlatformManager:
         self.uploaders.clear()
         logger.info("所有上传器已关闭")
         
+    def _get_douyin_config(self):
+        """获取抖音上传器配置，优先使用应用配置"""
+        from ..models.config import Config
+        if self.config:
+            return self.config
+        return Config(
+            chrome_path=self._detect_chrome(),
+            cookies_dir="cookies",
+            logs_dir="logs",
+            videos_dir="videos"
+        )
+
+    @staticmethod
+    def _detect_chrome():
+        """跨平台检测 Chrome 路径"""
+        import platform as _platform
+        system = _platform.system()
+        if system == "Windows":
+            candidates = [
+                "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+                "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+            ]
+        elif system == "Darwin":
+            candidates = ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"]
+        else:
+            candidates = ["/usr/bin/google-chrome", "/usr/bin/chromium"]
+        for p in candidates:
+            if Path(p).exists():
+                return p
+        return None
+
     async def _login_douyin(self, uploader, account) -> bool:
         """抖音登录适配方法"""
         try:
-            # 创建简单的配置对象（抖音上传器需要config参数）
-            from ..models.config import Config
-            from pathlib import Path
-            
-            # 创建基本配置
-            config = Config(
-                chrome_path="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-                cookies_dir="cookies",
-                logs_dir="logs", 
-                videos_dir="videos"
-            )
-            
-            # 设置cookie文件路径
+            config = self._get_douyin_config()
             cookie_path = Path(f"cookies/douyin_{account.name}.json")
-            
-            # 创建抖音上传器实例
-            douyin_uploader = DouYinUploader(
+
+            douyin_uploader = DouyinUploader(
                 account_name=account.name,
                 cookie_file=str(cookie_path),
                 config=config
             )
-            
-            # 更新uploaders字典
+
             self.uploaders["douyin"] = douyin_uploader
-            
-            # 执行登录
+
             success = await douyin_uploader.login()
-            
+
             if success:
                 account.cookie_file = cookie_path
-            
+
             return success
             
         except Exception as e:
@@ -317,22 +365,12 @@ class PlatformManager:
         try:
             # 获取或创建抖音上传器
             if "douyin" not in self.uploaders or self.uploaders["douyin"] is None:
-                # 创建配置对象
-                from ..models.config import Config
-                config = Config(
-                    chrome_path="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-                    cookies_dir="cookies",
-                    logs_dir="logs", 
-                    videos_dir="videos"
-                )
-                
-                # 创建抖音上传器实例
-                douyin_uploader = DouYinUploader(
+                config = self._get_douyin_config()
+                douyin_uploader = DouyinUploader(
                     account_name=account.name,
                     cookie_file=str(account.cookie_file),
                     config=config
                 )
-                
                 self.uploaders["douyin"] = douyin_uploader
             else:
                 douyin_uploader = self.uploaders["douyin"]

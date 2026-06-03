@@ -53,3 +53,13 @@ export const performanceApi = {
   deleteReport: (id) => DEL(`/performance/reports/${id}`),
   exportUrl: (month, category) => `/api/performance/export?month=${month}&category=${category || 'monthly'}`
 }
+
+export const recruitmentApi = {
+  list: (params) => GET('/recruitment', { params }),
+  create: (d) => POST('/recruitment', d),
+  update: (id, d) => PUT(`/recruitment/${id}`, d),
+  remove: (id) => DEL(`/recruitment/${id}`),
+  candidates: (id) => GET(`/recruitment/${id}/candidates`),
+  addCandidate: (id, d) => POST(`/recruitment/${id}/candidates`, d),
+  updateCandidate: (id, d) => PUT(`/candidates/${id}`, d),
+}

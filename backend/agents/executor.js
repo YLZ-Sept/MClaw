@@ -249,6 +249,60 @@ async function exec(toolName, args) {
         return db.prepare('SELECT * FROM attendance_reports WHERE month=? ORDER BY employee_name').all(month);
       }
 
+      // ─── 招聘 ───
+      case 'list_recruitment': {
+        const status = args.status;
+        if (status) return db.prepare('SELECT * FROM recruitment WHERE status=? ORDER BY created_at DESC').all(status);
+        return db.prepare('SELECT * FROM recruitment ORDER BY created_at DESC').all();
+      }
+
+      case 'create_recruitment': {
+        const id = randomUUID();
+        db.prepare('INSERT INTO recruitment (id,department,position,headcount,salary_range,requirements,status) VALUES (?,?,?,?,?,?,?)')
+          .run(id, args.department||null, args.position, args.headcount||1, args.salary_range||null, args.requirements||null, 'open');
+        return { id, position: args.position, message: '招聘职位创建成功' };
+      }
+
+      case 'update_recruitment': {
+        const cur = db.prepare('SELECT * FROM recruitment WHERE id=?').get(args.recruitment_id);
+        if (!cur) return { error: '职位不存在' };
+        db.prepare('UPDATE recruitment SET position=?,department=?,headcount=?,salary_range=?,requirements=?,status=? WHERE id=?')
+          .run(args.position ?? cur.position, args.department ?? cur.department, args.headcount ?? cur.headcount, args.salary_range ?? cur.salary_range, args.requirements ?? cur.requirements, args.status ?? cur.status, args.recruitment_id);
+        return { id: args.recruitment_id, message: '招聘职位更新成功' };
+      }
+
+      case 'delete_recruitment': {
+        const cur = db.prepare('SELECT * FROM recruitment WHERE id=?').get(args.recruitment_id);
+        if (!cur) return { error: '职位不存在' };
+        db.prepare('DELETE FROM candidates WHERE recruitment_id=?').run(args.recruitment_id);
+        db.prepare('DELETE FROM recruitment WHERE id=?').run(args.recruitment_id);
+        return { message: `招聘职位「${cur.position}」及其候选人已删除` };
+      }
+
+      case 'list_candidates': {
+        let sql = 'SELECT c.*, r.position AS position_name FROM candidates c LEFT JOIN recruitment r ON c.recruitment_id=r.id WHERE 1=1';
+        const params = [];
+        if (args.recruitment_id) { sql += ' AND c.recruitment_id=?'; params.push(args.recruitment_id); }
+        if (args.status) { sql += ' AND c.status=?'; params.push(args.status); }
+        sql += ' ORDER BY c.created_at DESC';
+        return db.prepare(sql).all(...params);
+      }
+
+      case 'create_candidate': {
+        const id = randomUUID();
+        db.prepare('INSERT INTO candidates (id,recruitment_id,name,phone,email,status,remark) VALUES (?,?,?,?,?,?,?)')
+          .run(id, args.recruitment_id, args.name, args.phone||null, args.email||null, 'pending', args.remark||null);
+        return { id, name: args.name, message: '候选人添加成功' };
+      }
+
+      case 'update_candidate_status': {
+        const cur = db.prepare('SELECT * FROM candidates WHERE id=?').get(args.candidate_id);
+        if (!cur) return { error: '候选人不存在' };
+        db.prepare('UPDATE candidates SET status=?, remark=? WHERE id=?')
+          .run(args.status, args.remark ?? cur.remark, args.candidate_id);
+        return { id: args.candidate_id, status: args.status, message: '候选人状态更新成功' };
+      }
+
       // ─── 文档 ───
       case 'list_documents':
         return db.prepare('SELECT id, title, file_type, file_size, category, tags, created_at FROM documents ORDER BY created_at DESC').all();

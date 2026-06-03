@@ -56,6 +56,7 @@ class DouyinService:
             if success:
                 account = DouyinAccount(
                     name=request.account_name,
+                    platform="douyin",
                     cookie_file=cookie_file,
                     is_logged_in=True,
                     last_login=datetime.now()

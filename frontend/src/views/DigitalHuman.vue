@@ -103,7 +103,7 @@ import axios from 'axios'
 const req = axios.create({ baseURL: '/api' })
 const router = useRouter()
 
-const roles = ['销售', '行政', '售后', '市场', '技术', '客服']
+const roles = ['销售', '行政', '售后', '市场', '技术', '客服', '采购', '仓储', '人事', '法务', '运营', '财务', '商务']
 const employees = ref([])
 const agents = ref([])
 const dlg = reactive({ visible: false, isEdit: false, form: {} })

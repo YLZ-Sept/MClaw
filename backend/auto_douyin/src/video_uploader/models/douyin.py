@@ -10,8 +10,9 @@ from pydantic import BaseModel, Field, field_validator
 
 class DouyinAccount(BaseModel):
     """抖音账号模型"""
-    
+
     name: str = Field(description="账号名称")
+    platform: str = Field(default="douyin", description="平台名称")
     cookie_file: Optional[Path] = Field(default=None, description="Cookie文件路径")
     is_logged_in: bool = Field(default=False, description="是否已登录")
     last_login: Optional[datetime] = Field(default=None, description="最后登录时间")

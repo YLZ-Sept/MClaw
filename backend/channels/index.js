@@ -191,19 +191,12 @@ async function sendReply(conversationId, content, replyMode) {
     } catch (e) { console.error('[channels] 飞书发送失败:', e.message); }
   }
 
-  // 尝试通过 WebSocket 推送到渠道（微信/抖音桌面端）
-  const ws = channelSockets[conv.account_id];
-  if (ws && ws.readyState === 1) {
-    ws.send(JSON.stringify({
-      type: 'reply',
-      conversation_id: conv.id,
-      contact_name: conv.contact_name,
-      platform: conv.platform,
-      content
-    }));
-    console.log(`[channels] WS 推送回复 → ${conv.platform}/${conv.contact_name}`);
-  } else if (conv.platform !== 'wecom' && conv.platform !== 'feishu') {
-    console.log(`[channels] ${conv.platform}/${conv.contact_name} 无在线渠道，消息仅入库`);
+  // 微信：通过 iLink Bot API 直接发送
+  if (conv.platform === 'wechat') {
+    try {
+      const account = db.prepare('SELECT * FROM channel_accounts WHERE id=?').get(conv.account_id);
+      if (account) await require('./wechat-bot').sendMessage(account, conv.contact_name, content);
+    } catch (e) { console.error('[channels] 微信发送失败:', e.message); }
   }
 
   // 标记会话已读

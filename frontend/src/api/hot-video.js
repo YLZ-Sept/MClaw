@@ -77,9 +77,9 @@ export const hotChanjingApi = {
   getUserDuration: () => GET('/hot-chanjing/user/duration'),
 }
 
-export const douyinPublishApi = {
-  health: () => GET('/douyin-publish/health'),
-  accountStatus: (name) => GET(`/douyin-publish/account/${name || 'default'}/status`),
-  login: (name) => POST(`/douyin-publish/account/${name || 'default'}/login`),
-  publish: (contentId, d) => POST(`/douyin-publish/contents/${contentId}/publish`, d),
+export const publishApi = {
+  health: () => GET('/publish/health'),
+  accountStatus: (name, platform = 'douyin') => GET(`/publish/account/${name || 'default'}/status`, { params: { platform } }),
+  login: (name, platform = 'douyin') => POST(`/publish/account/${name || 'default'}/login`, { platform }),
+  publish: (contentId, d) => POST(`/publish/contents/${contentId}/publish`, d),
 }

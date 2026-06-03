@@ -4,6 +4,7 @@
 
 import asyncio
 import json
+import os
 import time
 from pathlib import Path
 from typing import Optional, List
@@ -15,7 +16,33 @@ from ..utils.logger import logger
 
 class XiaohongshuUploader:
     """小红书上传器"""
-    
+
+    _CHROMIUM_EXE = None
+
+    @classmethod
+    def _find_chromium(cls) -> str | None:
+        if cls._CHROMIUM_EXE:
+            return cls._CHROMIUM_EXE
+        import glob as _glob
+        base = Path(os.environ.get('LOCALAPPDATA', os.path.expanduser('~/.cache')))
+        candidates = list(_glob.iglob(
+            str(base / 'ms-playwright' / 'chromium-*' / 'chrome-win64' / 'chrome.exe'),
+            root_dir=str(base)
+        ))
+        if candidates:
+            cls._CHROMIUM_EXE = candidates[0]
+        return cls._CHROMIUM_EXE
+
+    async def _launch_browser(self, playwright, headless=False):
+        exe = None
+        if headless:
+            exe = self._find_chromium()
+        if exe:
+            return await playwright.chromium.launch(
+                headless=True, executable_path=exe, args=['--headless=new']
+            )
+        return await playwright.chromium.launch(headless=headless)
+
     def __init__(self, headless: bool = False):
         self.headless = headless
         self.browser: Optional[Browser] = None
@@ -186,10 +213,10 @@ class XiaohongshuUploader:
             # 访问创作者中心页面来验证登录状态
             await self.page.goto("https://creator.xiaohongshu.com/")
             await asyncio.sleep(3)
-            
+
             current_url = self.page.url
             logger.info(f"小红书验证登录状态 - 当前URL: {current_url}")
-            
+
             # 如果URL包含login说明需要登录，如果包含creator说明已登录
             if "login" in current_url:
                 return False
@@ -199,44 +226,70 @@ class XiaohongshuUploader:
                 # 检查页面内容是否有登录相关元素
                 login_elements = await self.page.query_selector_all("[class*='login'], .qr")
                 return len(login_elements) == 0
-                
+
         except Exception as e:
             logger.error(f"验证小红书登录状态失败: {str(e)}")
+            return False
+
+    async def check_cookie(self, cookie_file: str = None) -> bool:
+        """检查Cookie是否有效（独立headless浏览器，不依赖实例状态）"""
+        cookie_path = Path(cookie_file) if cookie_file else None
+        if not cookie_path or not cookie_path.exists():
+            logger.warning(f"Cookie文件不存在: {cookie_path}")
+            return False
+        try:
+            async with async_playwright() as playwright:
+                browser = await self._launch_browser(playwright, headless=True)
+                context = await browser.new_context(
+                    viewport={'width': 1280, 'height': 720},
+                    user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    storage_state=str(cookie_path)
+                )
+                # 添加反检测脚本
+                stealth_js = Path(__file__).parent / "stealth.min.js"
+                if stealth_js.exists():
+                    await context.add_init_script(path=str(stealth_js))
+                page = await context.new_page()
+                await page.goto("https://creator.xiaohongshu.com/")
+                await asyncio.sleep(3)
+
+                current_url = page.url
+                await browser.close()
+                if "login" in current_url:
+                    return False
+                return "creator.xiaohongshu.com" in current_url
+        except Exception as e:
+            logger.error(f"检查Cookie时发生错误: {str(e)}")
             return False
             
     async def _save_cookies(self, account: XiaohongshuAccount):
         """保存cookies"""
         try:
-            cookies = await self.page.context.cookies()
-            
-            # 确保cookies目录存在
             cookies_dir = Path("cookies")
             cookies_dir.mkdir(exist_ok=True)
-            
             cookie_file = cookies_dir / f"xiaohongshu_{account.name}.json"
-            
-            with open(cookie_file, 'w', encoding='utf-8') as f:
-                json.dump(cookies, f, ensure_ascii=False, indent=2)
-                
+            await self.page.context.storage_state(path=str(cookie_file))
             account.cookie_file = cookie_file
             logger.info(f"Cookies已保存: {cookie_file}")
-            
         except Exception as e:
             logger.error(f"保存cookies失败: {str(e)}")
-            
+
     async def _load_cookies(self, account: XiaohongshuAccount) -> bool:
         """加载cookies"""
         try:
             if not account.cookie_file or not account.cookie_file.exists():
                 return False
-                
             with open(account.cookie_file, 'r', encoding='utf-8') as f:
-                cookies = json.load(f)
-                
-            await self.page.context.add_cookies(cookies)
+                state = json.load(f)
+            # 兼容旧格式 (纯 cookie 数组) 和 storage_state 格式
+            if isinstance(state, dict):
+                cookies = state.get('cookies', [])
+            else:
+                cookies = state
+            if isinstance(cookies, list) and len(cookies) > 0:
+                await self.page.context.add_cookies(cookies)
             logger.info(f"Cookies已加载: {account.cookie_file}")
             return True
-            
         except Exception as e:
             logger.error(f"加载cookies失败: {str(e)}")
             return False

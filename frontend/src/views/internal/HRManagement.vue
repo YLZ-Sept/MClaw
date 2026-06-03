@@ -12,6 +12,7 @@
         <el-menu-item index="employees">员工档案</el-menu-item>
         <el-menu-item index="attReport">考勤月报</el-menu-item>
         <el-menu-item index="performance">绩效管理</el-menu-item>
+        <el-menu-item index="recruitment">招聘管理</el-menu-item>
       </el-menu>
       <div class="tab-content">
         <!-- 员工档案 -->
@@ -146,6 +147,55 @@
             </el-table-column>
           </el-table>
         </div>
+        <!-- 招聘管理 -->
+        <div v-else-if="tab==='recruitment'">
+          <div class="tb"><el-button type="primary" @click="openRecDlg()">新增职位</el-button></div>
+          <el-table v-loading="rLoading" :data="recruitments" stripe border row-key="id" @row-click="onRecRow" highlight-current-row>
+            <el-table-column type="index" label="#" width="50"/>
+            <el-table-column prop="position" label="职位" width="140"/>
+            <el-table-column prop="department" label="部门" width="110"/>
+            <el-table-column prop="headcount" label="人数" width="60"/>
+            <el-table-column prop="salary_range" label="薪资范围" width="110"/>
+            <el-table-column label="状态" width="80"><template #default="{row}"><el-tag :type="row.status==='open'?'success':'info'" size="small">{{ row.status==='open'?'招聘中':'已关闭' }}</el-tag></template></el-table-column>
+            <el-table-column prop="requirements" label="任职要求" min-width="200"/>
+            <el-table-column label="操作" width="140"><template #default="{row}"><el-button size="small" type="primary" link @click.stop="openRecDlg(row)">编辑</el-button><el-button size="small" type="danger" link @click.stop="delRec(row.id)">删除</el-button></template></el-table-column>
+          </el-table>
+
+          <!-- 候选人列表 -->
+          <el-divider v-if="curRec" content-position="left">候选人 — {{ curRec.position }}</el-divider>
+          <div class="tb" v-if="curRec"><el-button type="success" @click="openCandDlg()">添加候选人</el-button></div>
+          <el-table v-if="curRec" v-loading="cLoading" :data="candidates" stripe border row-key="id">
+            <el-table-column type="index" label="#" width="50"/>
+            <el-table-column prop="name" label="姓名" width="90"/>
+            <el-table-column prop="phone" label="电话" width="130"/>
+            <el-table-column prop="email" label="邮箱" width="160"/>
+            <el-table-column label="状态" width="110"><template #default="{row}"><el-select v-model="row.status" size="small" @change="v=>updateCandStatus(row.id,v)" style="width:100px"><el-option v-for="s in candStatuses" :key="s" :label="candLabel(s)" :value="s"/></el-select></template></el-table-column>
+            <el-table-column prop="remark" label="备注" min-width="150"/>
+            <el-table-column prop="created_at" label="投递时间" width="160"/>
+          </el-table>
+        </div>
+        <!-- 职位对话框 -->
+        <el-dialog v-model="showRecDlg" :title="recEdit?'编辑职位':'新增职位'" width="480px">
+          <el-form :model="recForm" label-width="80px">
+            <el-form-item label="职位"><el-input v-model="recForm.position"/></el-form-item>
+            <el-form-item label="部门"><el-input v-model="recForm.department"/></el-form-item>
+            <el-form-item label="招聘人数"><el-input-number v-model="recForm.headcount" :min="1" style="width:100%"/></el-form-item>
+            <el-form-item label="薪资范围"><el-input v-model="recForm.salary_range" placeholder="如 15K-25K"/></el-form-item>
+            <el-form-item label="任职要求"><el-input v-model="recForm.requirements" type="textarea" :rows="3"/></el-form-item>
+            <el-form-item label="状态" v-if="recEdit"><el-select v-model="recForm.status" style="width:100%"><el-option label="招聘中" value="open"/><el-option label="已关闭" value="closed"/></el-select></el-form-item>
+          </el-form>
+          <template #footer><el-button @click="showRecDlg=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveRec">保存</el-button></template>
+        </el-dialog>
+        <!-- 候选人对话框 -->
+        <el-dialog v-model="showCandDlg" title="添加候选人" width="400px">
+          <el-form :model="candForm" label-width="80px">
+            <el-form-item label="姓名"><el-input v-model="candForm.name"/></el-form-item>
+            <el-form-item label="电话"><el-input v-model="candForm.phone"/></el-form-item>
+            <el-form-item label="邮箱"><el-input v-model="candForm.email"/></el-form-item>
+            <el-form-item label="备注"><el-input v-model="candForm.remark" type="textarea"/></el-form-item>
+          </el-form>
+          <template #footer><el-button @click="showCandDlg=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveCand">保存</el-button></template>
+        </el-dialog>
         <!-- 导入预览对话框 -->
         <el-dialog v-model="perfPreviewDlg" title="导入预览" width="850px">
           <p style="margin-bottom:12px;font-size:13px;color:#7c3aed">已解析 {{ perfPreview.dims?.length || 0 }} 个维度，{{ perfPreview.records?.length || 0 }} 条记录</p>
@@ -229,7 +279,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { employeeApi, departmentApi, attendanceApi, performanceApi, orgChartApi } from '../../api/hr'
+import { employeeApi, departmentApi, attendanceApi, performanceApi, orgChartApi, recruitmentApi } from '../../api/hr'
 import ImportDialog from '../../components/ImportDialog.vue'
 const router = useRouter()
 
@@ -424,12 +474,54 @@ async function savePerf() {
   ElMessage.success('已更新')
 }
 
+// ─── 招聘管理 ───
+const recruitments = ref([]), curRec = ref(null), candidates = ref([])
+const rLoading = ref(false), cLoading = ref(false)
+const showRecDlg = ref(false), recEdit = ref(false), recForm = ref({})
+const showCandDlg = ref(false), candForm = ref({})
+const candStatuses = ['pending','screening','interview','offer','hired','rejected']
+function candLabel(s) { const m = { pending:'待筛选',screening:'筛选中',interview:'面试',offer:'发Offer',hired:'已入职',rejected:'已拒绝' }; return m[s]||s }
+
+async function loadRecruitments() {
+  rLoading.value = true
+  try { recruitments.value = (await recruitmentApi.list()).data.data } catch {}
+  rLoading.value = false
+}
+async function loadCandidates() {
+  if (!curRec.value) return
+  cLoading.value = true
+  try { candidates.value = (await recruitmentApi.candidates(curRec.value.id)).data.data } catch {}
+  cLoading.value = false
+}
+function onRecRow(row) { curRec.value = row; loadCandidates() }
+function openRecDlg(r) {
+  recEdit.value = !!r; recForm.value = r ? { ...r } : { headcount: 1, status: 'open' }
+  showRecDlg.value = true
+}
+async function saveRec() {
+  const f = recForm.value
+  recEdit.value ? await recruitmentApi.update(f.id, f) : await recruitmentApi.create(f)
+  showRecDlg.value = false; await loadRecruitments(); ElMessage.success('OK')
+}
+async function delRec(id) {
+  try { await ElMessageBox.confirm('确认删除？该职位下的候选人也会清除'); await recruitmentApi.remove(id); curRec.value = null; candidates.value = []; await loadRecruitments(); ElMessage.success('已删除') } catch {}
+}
+function openCandDlg() { candForm.value = {}; showCandDlg.value = true }
+async function saveCand() {
+  await recruitmentApi.addCandidate(curRec.value.id, candForm.value)
+  showCandDlg.value = false; await loadCandidates(); ElMessage.success('OK')
+}
+async function updateCandStatus(id, status) {
+  try { await recruitmentApi.updateCandidate(id, { status }); ElMessage.success('已更新') } catch {}
+}
+
 const saving = ref(false)
 
 async function reload() {
   try { employees.value = (await employeeApi.list()).data.data } catch {}
   try { departments.value = (await departmentApi.list()).data.data } catch {}
   try { orgCharts.value = (await orgChartApi.list()).data.data } catch {}
+  try { recruitments.value = (await recruitmentApi.list()).data.data } catch {}
 }
 
 const loading = ref(false)

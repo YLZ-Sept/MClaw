@@ -81,9 +81,9 @@ const backendUptime = computed(() => {
 })
 
 const URLS = {
-  '后端 API 服务': 'http://localhost:4011',
+  '后端 API 服务': 'http://localhost:18621',
   '抖音发布服务': 'http://localhost:8000',
-  '前端 Web 服务': 'http://localhost:4011',
+  '前端 Web 服务': 'http://localhost:18621',
 }
 
 function svcIcon(name) {

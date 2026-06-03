@@ -325,6 +325,119 @@ const tools = [
       }
     },
 
+  // ─── 招聘 ───
+  {
+    type: 'function',
+    function: {
+      name: 'list_recruitment',
+      description: '查询招聘职位列表，可按状态筛选（open/closed）',
+      parameters: {
+        type: 'object',
+        properties: { status: { type: 'string', description: '状态筛选：open 或 closed，不传返回全部' } },
+        required: []
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_recruitment',
+      description: '新增招聘职位',
+      parameters: {
+        type: 'object',
+        properties: {
+          position: { type: 'string', description: '职位名称' },
+          department: { type: 'string', description: '所属部门' },
+          headcount: { type: 'integer', description: '招聘人数，默认1' },
+          salary_range: { type: 'string', description: '薪资范围，如15K-25K' },
+          requirements: { type: 'string', description: '任职要求' }
+        },
+        required: ['position']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_recruitment',
+      description: '更新招聘职位信息',
+      parameters: {
+        type: 'object',
+        properties: {
+          recruitment_id: { type: 'string', description: '职位ID' },
+          position: { type: 'string', description: '职位名称' },
+          department: { type: 'string', description: '所属部门' },
+          headcount: { type: 'integer', description: '招聘人数' },
+          salary_range: { type: 'string', description: '薪资范围' },
+          requirements: { type: 'string', description: '任职要求' },
+          status: { type: 'string', description: '状态：open 或 closed' }
+        },
+        required: ['recruitment_id']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_recruitment',
+      description: '删除招聘职位（同时删除其候选人）',
+      parameters: {
+        type: 'object',
+        properties: { recruitment_id: { type: 'string', description: '职位ID' } },
+        required: ['recruitment_id']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_candidates',
+      description: '查询候选人列表，按职位ID筛选',
+      parameters: {
+        type: 'object',
+        properties: {
+          recruitment_id: { type: 'string', description: '职位ID，不传返回全部' },
+          status: { type: 'string', description: '状态筛选：pending/screening/interview/offer/hired/rejected' }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_candidate',
+      description: '添加候选人到某个职位',
+      parameters: {
+        type: 'object',
+        properties: {
+          recruitment_id: { type: 'string', description: '职位ID' },
+          name: { type: 'string', description: '候选人姓名' },
+          phone: { type: 'string', description: '联系电话' },
+          email: { type: 'string', description: '邮箱' },
+          remark: { type: 'string', description: '备注' }
+        },
+        required: ['recruitment_id', 'name']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_candidate_status',
+      description: '更新候选人状态',
+      parameters: {
+        type: 'object',
+        properties: {
+          candidate_id: { type: 'string', description: '候选人ID' },
+          status: { type: 'string', description: '新状态：pending/screening/interview/offer/hired/rejected' },
+          remark: { type: 'string', description: '备注' }
+        },
+        required: ['candidate_id', 'status']
+      }
+    }
+  },
+
   // ─── 文档 ───
   {
     type: 'function',

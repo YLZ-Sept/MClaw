@@ -20,12 +20,43 @@ from ..utils.logger import get_logger
 class DouyinUploader:
     """抖音上传器类"""
 
+    # Playwright 1.60+ 默认使用 headless shell，可能未安装
+    # 回退到 chromium 本体 (chrome.exe) 以兼容现有安装
+    _CHROMIUM_EXE = None
+
+    @classmethod
+    def _find_chromium(cls) -> str | None:
+        if cls._CHROMIUM_EXE:
+            return cls._CHROMIUM_EXE
+        import glob as _glob
+        base = Path(os.environ.get('LOCALAPPDATA', os.path.expanduser('~/.cache')))
+        candidates = list(_glob.iglob(
+            str(base / 'ms-playwright' / 'chromium-*' / 'chrome-win64' / 'chrome.exe'),
+            root_dir=str(base)
+        ))
+        if candidates:
+            cls._CHROMIUM_EXE = candidates[0]
+        return cls._CHROMIUM_EXE
+
     def __init__(self, account_name: str, cookie_file: str, config: Config):
         self.account_name = account_name
         self.cookie_file = cookie_file
         self.config = config
         self.logger = get_logger(self.__class__.__name__)
         self.date_format = '%Y年%m月%d日 %H:%M'
+
+    async def _launch_browser(self, playwright, headless=False):
+        """启动浏览器，headless 模式自动使用 chromium 本体"""
+        exe = None
+        if headless:
+            exe = self._find_chromium()
+        if exe:
+            return await playwright.chromium.launch(
+                headless=True,
+                executable_path=exe,
+                args=['--headless=new']
+            )
+        return await playwright.chromium.launch(headless=headless)
 
     async def check_cookie(self) -> bool:
         """检查Cookie是否有效"""
@@ -35,7 +66,7 @@ class DouyinUploader:
 
         try:
             async with async_playwright() as playwright:
-                browser = await playwright.chromium.launch(headless=True)
+                browser = await self._launch_browser(playwright, headless=True)
                 context = await browser.new_context(storage_state=self.cookie_file)
                 await self._set_init_script(context)
 
@@ -67,21 +98,47 @@ class DouyinUploader:
             return False
 
     async def login(self) -> bool:
-        """登录并生成Cookie"""
+        """登录并生成Cookie — 扫码后自动检测登录成功，无需手动操作"""
         try:
             # 确保Cookie目录存在
             os.makedirs(os.path.dirname(self.cookie_file), exist_ok=True)
 
             async with async_playwright() as playwright:
-                browser = await playwright.chromium.launch(headless=False)
+                browser = await self._launch_browser(playwright, headless=False)
                 context = await browser.new_context()
                 await self._set_init_script(context)
 
                 page = await context.new_page()
                 await page.goto("https://creator.douyin.com/")
 
-                self.logger.info("请在浏览器中完成登录，登录完成后点击调试器的继续按钮")
-                await page.pause()
+                # 等待用户扫码登录 — 轮询检测页面跳转
+                self.logger.info("请使用抖音扫描二维码登录...")
+                try:
+                    await page.wait_for_url(
+                        "https://creator.douyin.com/creator-micro/**",
+                        timeout=120000
+                    )
+                except Exception:
+                    # 也可能登录后跳转到其他路径，检查是否还在登录页
+                    pass
+
+                # 等页面稳定后检查是否登录成功
+                await asyncio.sleep(2)
+                current_url = page.url
+                if "creator.douyin.com" in current_url and "login" not in current_url.lower():
+                    self.logger.info("检测到登录成功")
+                else:
+                    # 检查页面内容是否还有登录元素
+                    has_login = await page.get_by_text('手机号登录').count() or await page.get_by_text('扫码登录').count()
+                    if has_login:
+                        self.logger.warning("未检测到登录成功，再等待60秒...")
+                        try:
+                            await page.wait_for_url("**creator.douyin.com/creator-micro**", timeout=60000)
+                            await asyncio.sleep(2)
+                        except:
+                            self.logger.error("登录超时")
+                            await browser.close()
+                            return False
 
                 # 保存Cookie
                 await context.storage_state(path=self.cookie_file)
@@ -148,7 +205,7 @@ class DouyinUploader:
                 executable_path=self.config.chrome_path
             )
         else:
-            browser = await playwright.chromium.launch(headless=False)
+            browser = await self._launch_browser(playwright, headless=False)
 
         # 创建上下文并设置权限
         context = await browser.new_context(

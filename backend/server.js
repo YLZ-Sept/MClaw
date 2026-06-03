@@ -56,9 +56,13 @@ app.use('/api/doc-import', require('./routes/doc-import'));
 app.use('/api/channel-accounts', require('./routes/channel-accounts'));
 app.use('/api/channel-conversations', require('./routes/channel-conversations'));
 
-// 消息渠道 webhook（企微/飞书）
+// 消息渠道 webhook（企微/飞书/ClawBot 微信）
 app.use('/api/channels/wecom', express.text({ type: '*/*' }), require('./channels/wecom').router);
 app.use('/api/channels/feishu', require('./channels/feishu').router);
+app.use('/api/channels/clawbot', require('./channels/clawbot').router);
+
+// 微信 iLink Bot 渠道（长轮询模式）
+app.use('/api/channels/wechat', require('./channels/wechat-bot').router || (() => {}));
 
 // 爆款视频
 app.use('/api/hot-products', require('./routes/hot-products'));
@@ -70,8 +74,8 @@ app.use('/api/hot-chanjing', require('./routes/hot-chanjing'));
 app.use('/api/ppt', require('./routes/ppt'));
 app.use('/api/download', require('./routes/downloads'));
 
-// 抖音发布
-app.use('/api/douyin-publish', require('./routes/douyin-publish'));
+// 多平台发布 (抖音/小红书/微信视频号)
+app.use('/api/publish', require('./routes/multi-publish'));
 
 // 文档
 app.use('/api/documents', require('./routes/documents'));
@@ -88,7 +92,6 @@ function getHistory(agent) {
   if (!chatHistories[key]) {
     const greetings = {
       'internal-agent': '你好老板！我是小内，您的企业内部管理助手。CRM、进销存、人事、文档，四大模块随时待命。请问有什么需要处理的？',
-      'support-agent': '你好！我是小客，MClaw 售后客服助手。FAQ 问答、工单跟进、客户反馈，我都能帮您处理。请问有什么可以帮您的？',
       'sales-agent': '你好老板！我是小销，您的销售管理助手。客户跟进、机会推进、合同签署，销售全流程我都能帮您盯着。请问今天需要处理什么？',
     };
     const greeting = greetings[key] || greetings['internal-agent'];
@@ -115,7 +118,6 @@ function saveSessionMessage(sessionId, role, content, toolName) {
 // Agent 配置加载
 const agentConfigs = {
   'internal-agent': require('./agents/internal'),
-  'support-agent': require('./agents/support'),
   'sales-agent': require('./agents/sales'),
   'default': require('./agents/internal')
 };
@@ -200,7 +202,6 @@ app.get('/api/agents', (req, res) => {
   const builtin = [
     { id: 'sales-agent', name: '销售管理 Agent', icon: 'Coin', emoji: '🤝', bg: 'linear-gradient(135deg,#667eea 0%,#764ba2 100%)', desc: '管理销售流程、客户跟进、合同签署和业绩统计', builtin: true },
     { id: 'internal-agent', name: '内部管理 Agent', icon: 'Avatar', emoji: '📋', bg: 'linear-gradient(135deg,#0d47a1 0%,#42a5f5 100%)', desc: '处理内部审批、日程安排、文档管理和协作任务', builtin: true },
-    { id: 'support-agent', name: '售后管理 Agent', icon: 'Headset', emoji: '🔧', bg: 'linear-gradient(135deg,#2e7d32 0%,#66bb6a 100%)', desc: '处理售后咨询、工单跟进、FAQ解答和客户反馈', builtin: true },
   ];
   try {
     const custom = require('./db').prepare('SELECT id,name,desc,icon,color AS bg,emoji,base_agent,system_prompt,status FROM agent_apps ORDER BY created_at DESC').all();
@@ -323,7 +324,7 @@ app.post('/api/chat/send', async (req, res) => {
 
   try {
     const faqMatches = matchFAQ(content);
-    const escalate = config === agentConfigs['support-agent'] && /投诉|退款|赔偿|数据丢|找领导|叫经理|法律|律师|消协|12315/i.test(content);
+    const escalate = /投诉|退款|赔偿|数据丢|法律|律师|消协|12315/i.test(content);
     const messages = makeMessages(config, history, faqMatches, escalate);
 
     // 工具调用轮（非流式），投诉场景强制调用 handoff
@@ -424,11 +425,11 @@ app.post('/api/chat/send', async (req, res) => {
 });
 
 app.get('/api/status', async (req, res) => {
-  const douyinPublish = require('./services/douyin-publish');
+  const multiPublish = require('./services/multi-publish');
   const os = require('os');
 
-  const [douyinHealth] = await Promise.all([
-    douyinPublish.health().catch(() => ({ status: 'unhealthy' })),
+  const [publishHealth] = await Promise.all([
+    multiPublish.health().catch(() => ({ status: 'unhealthy' })),
   ]);
 
   const uptime = process.uptime();
@@ -438,9 +439,9 @@ app.get('/api/status', async (req, res) => {
     code: 200,
     data: {
       services: [
-        { name: '后端 API 服务', status: 'running', port: 4011, uptime: `${h}h ${m}m` },
-        { name: '抖音发布服务', status: douyinHealth.status === 'healthy' ? 'running' : 'stopped', port: 8000, uptime: douyinHealth.status === 'healthy' ? '-' : '-' },
-        { name: '前端 Web 服务', status: 'running', port: 4011, uptime: `${h}h ${m}m` },
+        { name: '后端 API 服务', status: 'running', port: 18621, uptime: `${h}h ${m}m` },
+        { name: '多平台发布服务', status: publishHealth.status === 'healthy' ? 'running' : 'stopped', port: 8000, uptime: publishHealth.status === 'healthy' ? '-' : '-' },
+        { name: '前端 Web 服务', status: 'running', port: 18621, uptime: `${h}h ${m}m` },
       ],
       system: {
         cpu: `${Math.round(os.loadavg()[0] * 100) / 100}%`,
@@ -457,15 +458,16 @@ if (fs.existsSync(frontendDist)) {
   });
 }
 
-const PORT = 4011;
+const PORT = 18621;
 const server = http.createServer(app);
 
-// 启动统一 WebSocket 服务器（Sightflow + Events）
+// 启动 WebSocket 服务器（Events 前端推送）
 try { require('./channels/ws-server').startWSServer(server); } catch (e) { console.log('[server] WS 启动失败:', e.message); }
 
 server.listen(PORT, () => {
   console.log(`MClaw 后端运行在 http://localhost:${PORT}`);
-  // 启动招投标定时采集（API 每6小时，爬虫每2小时）
-  try { const { startScheduler } = require('./bid-collector'); startScheduler(6 * 60 * 60 * 1000); } catch {}
-  try { const { startScheduler: startCrawler } = require('./bid-crawler'); startCrawler(120 * 60 * 1000); } catch {}
+  // 启动招投标定时采集（Crawl4AI 每6小时）
+  try { const { startScheduler } = require('./services/crawl4ai-collector'); startScheduler(6 * 60 * 60 * 1000); } catch {}
+  // 启动微信机器人长轮询
+  try { const { startAllBots, ensureWechatAccount } = require('./channels/wechat-bot'); ensureWechatAccount(); startAllBots(); } catch (e) { console.log('[server] 微信 Bot 启动失败:', e.message); }
 });

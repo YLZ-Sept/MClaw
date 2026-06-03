@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 
 from ..services import ConfigService
+from ..services.platform_manager import PlatformManager
 from ..models import ServerConfig
 from ..utils.logger import setup_logging, get_logger
 from .routes import router
@@ -21,22 +22,25 @@ logger = get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """应用生命周期管理"""
-    logger.info("启动抖音MCP服务...")
-    
+    logger.info("启动多平台视频上传服务...")
+
     # 初始化配置服务
     config_service = ConfigService()
     app.state.config_service = config_service
-    
+
     # 加载配置
     config = await config_service.load_config()
     server_config = await config_service.load_server_config()
-    
+
     app.state.config = config
     app.state.server_config = server_config
-    
+
+    # 初始化多平台管理器
+    app.state.platform_manager = PlatformManager(config=config)
+
     logger.info("服务初始化完成")
     yield
-    logger.info("关闭抖音MCP服务...")
+    logger.info("关闭多平台视频上传服务...")
 
 
 def create_app() -> FastAPI:
@@ -50,8 +54,8 @@ def create_app() -> FastAPI:
     setup_logging()
     
     app = FastAPI(
-        title="抖音自动上传MCP服务",
-        description="基于MCP协议的抖音视频自动上传服务，支持单个和批量上传",
+        title="多平台视频自动上传服务",
+        description="基于Playwright的多平台视频自动上传服务，支持抖音/小红书/微信视频号等",
         version="1.0.0",
         lifespan=lifespan
     )
