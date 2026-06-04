@@ -80,6 +80,12 @@
               <div class="mc-chat-platform">{{ platLabel(activeConv.platform) }} · {{ activeConv.account_id?.slice(0,8) }}</div>
             </div>
           </div>
+          <div class="mc-chat-agent">
+            <span class="mc-mode-label">智能体</span>
+            <el-select v-model="activeConvAgentId" size="small" style="width:170px" @change="changeAgent" :disabled="!activeConv">
+              <el-option v-for="opt in currentAccountAgentOptions" :key="opt.id" :label="opt.name" :value="opt.id" />
+            </el-select>
+          </div>
           <div class="mc-chat-mode">
             <span class="mc-mode-label">回复模式</span>
             <el-radio-group v-model="activeConv.reply_mode" size="small" @change="changeMode">
@@ -303,6 +309,15 @@ const editingAccount = ref(null)
 const saveAcctLoading = ref(false)
 const editForm = ref({})
 const msgListRef = ref(null)
+const activeConvAgentId = ref('')
+
+// 当前会话对应账号绑定的 Agent 选项
+const currentAccountAgentOptions = computed(() => {
+  if (!activeConv.value) return []
+  const account = accounts.value.find(a => a.id === activeConv.value.account_id)
+  if (!account?.agent_ids?.length) return []
+  return bindingOptions.value.filter(o => account.agent_ids.includes(o.id))
+})
 
 let pollTimer = null
 let wsEvents = null
@@ -422,6 +437,7 @@ async function loadMessages() {
 
 function selectConv(c) {
   activeConv.value = c
+  activeConvAgentId.value = c.agent_id || ''
   messages.value = []
   aiSuggestion.value = ''
   loadMessages()
@@ -436,6 +452,17 @@ async function changeMode(mode) {
     // 同步本地
     const idx = conversations.value.findIndex(c => c.id === activeConv.value.id)
     if (idx >= 0) conversations.value[idx].reply_mode = mode
+  } catch { ElMessage.error('切换失败') }
+}
+
+async function changeAgent(agentId) {
+  if (!activeConv.value || !agentId) return
+  try {
+    await channelConversationsApi.setAgent(activeConv.value.id, agentId)
+    activeConv.value.agent_id = agentId
+    const idx = conversations.value.findIndex(c => c.id === activeConv.value.id)
+    if (idx >= 0) conversations.value[idx].agent_id = agentId
+    ElMessage.success('已切换智能体')
   } catch { ElMessage.error('切换失败') }
 }
 
@@ -476,16 +503,20 @@ async function sendReply() {
 }
 
 // ─── 账号管理 ───
+let originalConfig = {}
+
 function editAccount(row) {
   editingAccount.value = row || null
+  originalConfig = {}
   if (row) {
     let cfg = {}
     try { if (row.config) cfg = typeof row.config === 'string' ? JSON.parse(row.config) : row.config } catch {}
+    originalConfig = { ...cfg }
     const agentIds = row.agent_ids || (row.agent_id ? [row.agent_id] : [])
     editForm.value = {
       platform: row.platform, account_name: row.account_name, agent_ids: agentIds,
       default_reply_mode: row.default_reply_mode, status_active: row.status === 'active',
-      app_secret: '',
+      app_secret: cfg.app_secret || '',
       config_corp_id: cfg.corpid || '', config_agent_id: cfg.agentid || '',
       config_token: cfg.token || '', config_aes_key: cfg.encodingAESKey || '',
       config_app_id: cfg.app_id || '', config_encrypt_key: cfg.encrypt_key || '',
@@ -502,7 +533,7 @@ function editAccount(row) {
 async function saveAccount() {
   saveAcctLoading.value = true
   try {
-    const config = {}
+    const config = { ...originalConfig }
     const pf = editForm.value.platform
     if (pf === 'wecom') {
       if (editForm.value.config_corp_id) config.corpid = editForm.value.config_corp_id
@@ -609,6 +640,15 @@ function connectEvents() {
           if (event.message.direction === 'incoming' && activeConv.value?.id !== event.conversation_id) {
             conversations.value[idx].unread_count = (conversations.value[idx].unread_count || 0) + 1
           }
+        }
+        break
+      }
+      case 'agent_changed': {
+        const idx = conversations.value.findIndex(c => c.id === event.conversation_id)
+        if (idx >= 0) conversations.value[idx].agent_id = event.agent_id
+        if (activeConv.value && activeConv.value.id === event.conversation_id) {
+          activeConvAgentId.value = event.agent_id
+          activeConv.value.agent_id = event.agent_id
         }
         break
       }
@@ -781,6 +821,7 @@ onUnmounted(() => {
 .mc-chat-contact { display:flex; align-items:center; gap:10px; }
 .mc-chat-name { font-size:15px; font-weight:700; color:var(--mc-text); }
 .mc-chat-platform { font-size:12px; color:var(--mc-text-muted); display:flex; align-items:center; gap:4px; }
+.mc-chat-agent { display:flex; align-items:center; gap:10px; }
 .mc-chat-mode { display:flex; align-items:center; gap:10px; }
 .mc-mode-label { font-size:12px; color:var(--mc-text-muted); font-weight:500; }
 

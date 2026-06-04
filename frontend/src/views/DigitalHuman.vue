@@ -192,12 +192,12 @@ async function chatWith(e) {
   try {
     const { data } = await req.post('/chat-sessions', {
       name: `${e.name}的对话`,
-      agent_id: ids[0],
+      agent_id: e.id,
       employee_id: e.id
     })
-    router.push(`/chat?session=${data.data.id}&agent=${ids[0]}&agentName=${e.name}&employee_id=${e.id}`)
+    router.push(`/chat?session=${data.data.id}&agent=${e.id}&agentName=${e.name}&employee_id=${e.id}`)
   } catch {
-    router.push(`/chat?agent=${ids[0]}&agentName=${e.name}`)
+    router.push(`/chat?agent=${e.id}&agentName=${e.name}`)
   }
 }
 

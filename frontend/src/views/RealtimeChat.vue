@@ -80,12 +80,12 @@ function agentKey() {
 
 async function loadMessages() {
   if (!sessionId.value) {
-    // 无会话时用旧方式
+    // 无会话时从空开始，不伪造历史
     try {
       const res = await getChatHistory(agentKey())
-      messages.value = res.data.data
+      messages.value = res.data.data || []
     } catch {
-      messages.value = [{ role: 'ai', content: '你好！我是 MClaw 助手，有什么可以帮助你的？' }]
+      messages.value = []
     }
   } else {
     try {
@@ -94,10 +94,7 @@ async function loadMessages() {
         role: m.role === 'assistant' ? 'ai' : m.role,
         content: m.content
       }))
-      if (messages.value.length === 0) {
-        messages.value = [{ role: 'ai', content: '你好！开始新的对话吧。' }]
-      }
-    } catch { messages.value = [{ role: 'ai', content: '会话加载失败' }] }
+    } catch { messages.value = [] }
   }
   scrollToBottom()
 }

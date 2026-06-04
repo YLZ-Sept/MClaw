@@ -17,6 +17,7 @@ export const channelConversationsApi = {
   get: (id) => GET(`/channel-conversations/${id}`),
   messages: (id, params) => GET(`/channel-conversations/${id}/messages`, { params }),
   setMode: (id, reply_mode) => PUT(`/channel-conversations/${id}/mode`, { reply_mode }),
+  setAgent: (id, agent_id) => PUT(`/channel-conversations/${id}/agent`, { agent_id }),
   reply: (id, content, reply_mode) => POST(`/channel-conversations/${id}/reply`, { content, reply_mode }),
   suggest: (id) => POST(`/channel-conversations/${id}/suggest`),
   remove: (id) => DEL(`/channel-conversations/${id}`)

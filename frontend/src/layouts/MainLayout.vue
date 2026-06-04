@@ -196,10 +196,7 @@ const currentSessionId = computed(() => route.query.session || null)
 
 async function loadChatSessions() {
   try {
-    const params = {}
-    if (route.query.agent) params.agent_id = route.query.agent
-    if (route.query.employee_id) params.employee_id = route.query.employee_id
-    const { data } = await req.get('/chat-sessions', { params })
+    const { data } = await req.get('/chat-sessions')
     chatSessions.value = data.data || []
   } catch { chatSessions.value = [] }
 }

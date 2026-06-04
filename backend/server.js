@@ -104,15 +104,7 @@ let chatHistories = {};
 function getHistory(agent) {
   const key = agent || 'default';
   if (!chatHistories[key]) {
-    const greetings = {
-      'internal-agent': '你好老板！我是小内，您的企业内部管理助手。CRM、进销存、人事、文档，四大模块随时待命。请问有什么需要处理的？',
-      'sales-agent': '你好老板！我是小销，您的销售管理助手。客户跟进、机会推进、合同签署，销售全流程我都能帮您盯着。请问今天需要处理什么？',
-    };
-    const greeting = greetings[key] || greetings['internal-agent'];
-    chatHistories[key] = [
-      { role: 'user', content: '你好！' },
-      { role: 'assistant', content: greeting }
-    ];
+    chatHistories[key] = [];
   }
   return chatHistories[key];
 }
@@ -129,81 +121,8 @@ function saveSessionMessage(sessionId, role, content, toolName) {
   require('./db').prepare('UPDATE chat_sessions SET updated_at=datetime(\'now\',\'localtime\') WHERE id=?').run(sessionId);
 }
 
-// Agent 配置加载
-const agentConfigs = {
-  'internal-agent': require('./agents/internal'),
-  'sales-agent': require('./agents/sales'),
-  'default': require('./agents/internal')
-};
+const { loadAgentConfig } = require('./channels/agent-bridge');
 const { exec: execTool } = require('./agents/executor');
-
-function loadAgentConfig(agent) {
-  // 基础配置
-  let base;
-  let dbRow = null;
-  if (agentConfigs[agent]) {
-    base = agentConfigs[agent];
-  } else {
-    try {
-      dbRow = require('./db').prepare('SELECT * FROM agent_apps WHERE id=? AND status=?').get(agent, 'active');
-      if (dbRow) {
-        if (dbRow.base_agent && agentConfigs[dbRow.base_agent]) {
-          const b = agentConfigs[dbRow.base_agent];
-          base = { systemPrompt: dbRow.system_prompt || b.systemPrompt, tools: [...b.tools] };
-        } else {
-          // 无基础 Agent — 纯自定义，仅系统提示词 + 技能 + 知识库，无内置工具
-          base = { systemPrompt: dbRow.system_prompt || '你是 MClaw 智能助手，请用中文简洁回复。', tools: [] };
-        }
-      }
-    } catch {}
-  }
-  if (!base) base = agentConfigs['default'];
-
-  let extraPrompt = '';
-
-  // 加载该 Agent 绑定的技能
-  try {
-    const skills = require('./db').prepare('SELECT * FROM agent_skills WHERE (agent_id=? OR agent_id IS NULL OR agent_id=\'\') AND status=\'active\'').all(agent);
-    if (skills.length) {
-      const prompts = skills.filter(s => s.prompt_snippet).map(s => `## ${s.name}\n${s.prompt_snippet}`).join('\n\n');
-      if (prompts) extraPrompt += '\n\n---\n\n# 附加技能\n' + prompts;
-      // 合并技能的工具定义
-      for (const s of skills) {
-        if (s.tools) {
-          try {
-            const skillTools = JSON.parse(s.tools);
-            if (Array.isArray(skillTools)) {
-              base.tools = [...(base.tools || []), ...skillTools];
-            }
-          } catch {}
-        }
-      }
-    }
-  } catch {}
-
-  // 加载该 Agent 绑定的知识库文档
-  try {
-    const articleIds = dbRow?.kb_article_ids;
-    if (articleIds) {
-      const ids = articleIds.split(',').filter(Boolean);
-      if (ids.length) {
-        const placeholders = ids.map(() => '?').join(',');
-        const articles = require('./db').prepare(
-          `SELECT title, content FROM kb_articles WHERE id IN (${placeholders}) AND status='published'`
-        ).all(...ids);
-        if (articles.length) {
-          const kbPrompt = articles.map(a => `## ${a.title}\n${(a.content || '').slice(0, 3000)}`).join('\n\n---\n\n');
-          if (kbPrompt) extraPrompt += '\n\n---\n\n# 参考知识库\n' + kbPrompt;
-        }
-      }
-    }
-  } catch {}
-
-  if (extraPrompt) {
-    return { systemPrompt: base.systemPrompt + extraPrompt, tools: base.tools };
-  }
-  return base;
-}
 
 app.get('/api/info', (req, res) => {
   res.json({

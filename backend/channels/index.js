@@ -1,7 +1,7 @@
 // 渠道管理器 — 统一处理多渠道消息收发、会话管理、Agent 路由
 const { randomUUID } = require('crypto');
 const db = require('../db');
-const { loadAgentConfig, callLLM, execTool, polishReply } = require('./agent-bridge');
+const { loadAgentConfig, callLLM, execTool, polishReply, scoreAgentForMessage } = require('./agent-bridge');
 const { broadcast } = require('./event-bus');
 
 // ─── 内部缓存：WebSocket 连接 ───
@@ -28,7 +28,7 @@ function kickSocket(accountId) {
 
 // ─── 会话管理 ───
 
-function getOrCreateConversation({ account_id, platform, contact_name, agent_id, reply_mode }) {
+function getOrCreateConversation({ account_id, platform, contact_name, agent_id, reply_mode, content }) {
   // 账号不存在则跳过（可能已被删除）
   const account = db.prepare('SELECT * FROM channel_accounts WHERE id=?').get(account_id);
   if (!account) {
@@ -43,7 +43,25 @@ function getOrCreateConversation({ account_id, platform, contact_name, agent_id,
     return existing;
   }
   const accountAgentIds = (() => { try { const a = JSON.parse(account.agent_id); return Array.isArray(a) ? a : [account.agent_id] } catch { return account.agent_id ? [account.agent_id] : [] } })();
-  const effectiveAgentId = agent_id || accountAgentIds[0] || 'sales-agent';
+
+  let effectiveAgentId;
+  if (agent_id) {
+    effectiveAgentId = agent_id;
+  } else if (accountAgentIds.length <= 1) {
+    effectiveAgentId = accountAgentIds[0] || 'sales-agent';
+  } else if (content) {
+    let bestAgent = accountAgentIds[0];
+    let bestScore = 0;
+    for (const aid of accountAgentIds) {
+      const s = scoreAgentForMessage(aid, content);
+      if (s > bestScore) { bestScore = s; bestAgent = aid; }
+    }
+    effectiveAgentId = bestAgent;
+    console.log(`[channels] 智能体自动分配: ${effectiveAgentId} (分数: ${bestScore})`);
+  } else {
+    effectiveAgentId = accountAgentIds[0] || 'sales-agent';
+  }
+
   const effectiveMode = reply_mode || account.default_reply_mode || 'manual';
 
   const id = randomUUID();
@@ -74,6 +92,16 @@ function saveMessage({ conversation_id, direction, content, reply_mode, ai_sugge
 function setConversationMode(conversationId, mode) {
   db.prepare('UPDATE channel_conversations SET reply_mode=? WHERE id=?').run(mode, conversationId);
   return { id: conversationId, reply_mode: mode };
+}
+
+function setConversationAgent(conversationId, agentId) {
+  const conv = db.prepare('SELECT * FROM channel_conversations WHERE id=?').get(conversationId);
+  if (!conv) throw new Error('会话不存在');
+  const config = loadAgentConfig(agentId);
+  if (!config) throw new Error('Agent 不存在');
+  db.prepare('UPDATE channel_conversations SET agent_id=? WHERE id=?').run(agentId, conversationId);
+  broadcast({ type: 'agent_changed', conversation_id: conversationId, agent_id: agentId });
+  return { id: conversationId, agent_id: agentId };
 }
 
 // ─── Agent 回复生成 ───
@@ -135,7 +163,7 @@ async function generateAIReply(conversationId, platform, agentId) {
 // 返回值：{ conversation, message, aiSuggestion }
 async function handleIncoming({ account_id, platform, contact_name, contact_avatar, content, raw_data }) {
   // 1. 获取或创建会话（账号不存在则跳过）
-  const conv = getOrCreateConversation({ account_id, platform, contact_name });
+  const conv = getOrCreateConversation({ account_id, platform, contact_name, content });
   if (!conv) return { conversation: null, message: null, aiSuggestion: null };
 
   // 2. 保存消息
@@ -208,6 +236,6 @@ async function sendReply(conversationId, content, replyMode) {
 
 module.exports = {
   registerSocket, unregisterSocket, kickSocket,
-  getOrCreateConversation, saveMessage, setConversationMode,
+  getOrCreateConversation, saveMessage, setConversationMode, setConversationAgent,
   handleIncoming, sendReply, generateAIReply
 };

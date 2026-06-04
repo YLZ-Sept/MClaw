@@ -1,7 +1,7 @@
 // 渠道会话管理 — 会话列表、消息记录、回复模式、手动回复
 const { Router } = require('express');
 const db = require('../db');
-const { setConversationMode, sendReply, generateAIReply } = require('../channels/index');
+const { setConversationMode, setConversationAgent, sendReply, generateAIReply } = require('../channels/index');
 const router = Router();
 
 // 会话列表（支持按平台/状态/账号筛选，带未读排序）
@@ -53,6 +53,18 @@ router.put('/:id/mode', (req, res) => {
   }
   const result = setConversationMode(req.params.id, reply_mode);
   res.json({ code: 200, data: result });
+});
+
+// 切换智能体
+router.put('/:id/agent', (req, res) => {
+  const { agent_id } = req.body;
+  if (!agent_id) return res.status(400).json({ code: 400, message: 'agent_id 不能为空' });
+  try {
+    const result = setConversationAgent(req.params.id, agent_id);
+    res.json({ code: 200, data: result });
+  } catch (err) {
+    res.status(400).json({ code: 400, message: err.message });
+  }
 });
 
 // 手动回复（手动模式 / 协同模式确认发送）
