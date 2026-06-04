@@ -18,6 +18,20 @@ if (fs.existsSync(frontendDist)) {
 
 require('./db');
 
+// 迁移：channel_accounts.agent_id 从单值转为 JSON 数组
+const db = require('./db');
+try {
+  const rows = db.prepare('SELECT id, agent_id FROM channel_accounts WHERE agent_id IS NOT NULL AND agent_id != \'\'').all();
+  let migrated = 0;
+  for (const r of rows) {
+    if (!r.agent_id.startsWith('[')) {
+      db.prepare('UPDATE channel_accounts SET agent_id=? WHERE id=?').run(JSON.stringify([r.agent_id]), r.id);
+      migrated++;
+    }
+  }
+  if (migrated > 0) console.log(`[migrate] channel_accounts.agent_id 转数组: ${migrated} 条`);
+} catch (e) { /* 表可能尚未创建 */ }
+
 // CRM
 app.use('/api/customers', require('./routes/customers'));
 app.use('/api/contacts', require('./routes/crm-contacts'));

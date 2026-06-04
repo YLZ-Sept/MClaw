@@ -42,7 +42,8 @@ function getOrCreateConversation({ account_id, platform, contact_name, agent_id,
     db.prepare('UPDATE channel_conversations SET updated_at=datetime(\'now\',\'localtime\') WHERE id=?').run(existing.id);
     return existing;
   }
-  const effectiveAgentId = agent_id || account.agent_id || 'sales-agent';
+  const accountAgentIds = (() => { try { const a = JSON.parse(account.agent_id); return Array.isArray(a) ? a : [account.agent_id] } catch { return account.agent_id ? [account.agent_id] : [] } })();
+  const effectiveAgentId = agent_id || accountAgentIds[0] || 'sales-agent';
   const effectiveMode = reply_mode || account.default_reply_mode || 'manual';
 
   const id = randomUUID();

@@ -4,9 +4,19 @@ const { randomUUID } = require('crypto');
 const db = require('../db');
 const router = Router();
 
+// 解析 agent_id → agent_ids 数组（兼容旧单值格式）
+function parseAgentIds(raw) {
+  if (!raw) return []
+  if (raw.startsWith('[')) {
+    try { const arr = JSON.parse(raw); return Array.isArray(arr) ? arr : [raw] } catch { return [raw] }
+  }
+  return [raw]
+}
+
 // 列表
 router.get('/', (req, res) => {
   const rows = db.prepare('SELECT * FROM channel_accounts ORDER BY created_at DESC').all();
+  for (const r of rows) r.agent_ids = parseAgentIds(r.agent_id);
   res.json({ code: 200, data: rows });
 });
 
@@ -14,7 +24,7 @@ router.get('/', (req, res) => {
 router.get('/:id', (req, res) => {
   const row = db.prepare('SELECT * FROM channel_accounts WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ code: 404, message: '账号不存在' });
-  // 脱敏
+  row.agent_ids = parseAgentIds(row.agent_id);
   if (row.config) {
     try { const cfg = JSON.parse(row.config); if (cfg.app_secret) cfg.app_secret = '***'; row.config = JSON.stringify(cfg); } catch {}
   }
@@ -23,11 +33,12 @@ router.get('/:id', (req, res) => {
 
 // 创建
 router.post('/', (req, res) => {
-  const { platform, account_name, agent_id, default_reply_mode, config } = req.body;
+  const { platform, account_name, agent_ids, agent_id, default_reply_mode, config } = req.body;
   if (!platform || !account_name) return res.status(400).json({ code: 400, message: 'platform 和 account_name 必填' });
+  const ids = agent_ids || (agent_id ? [agent_id] : []);
   const id = randomUUID();
   db.prepare(`INSERT INTO channel_accounts (id,platform,account_name,agent_id,default_reply_mode,config)
-    VALUES (?,?,?,?,?,?)`).run(id, platform, account_name, agent_id || null, default_reply_mode || 'manual', JSON.stringify(config || {}));
+    VALUES (?,?,?,?,?,?)`).run(id, platform, account_name, JSON.stringify(ids), default_reply_mode || 'manual', JSON.stringify(config || {}));
   res.json({ code: 200, data: { id, message: '渠道账号创建成功' } });
 });
 
@@ -35,15 +46,20 @@ router.post('/', (req, res) => {
 router.put('/:id', (req, res) => {
   const cur = db.prepare('SELECT * FROM channel_accounts WHERE id=?').get(req.params.id);
   if (!cur) return res.status(404).json({ code: 404, message: '账号不存在' });
-  const { platform, account_name, agent_id, default_reply_mode, config, status } = req.body;
+  const { platform, account_name, agent_ids, agent_id, default_reply_mode, config, status } = req.body;
+  let newAgentId = cur.agent_id;
+  if (agent_ids !== undefined) {
+    newAgentId = JSON.stringify(agent_ids);
+  } else if (agent_id !== undefined) {
+    newAgentId = JSON.stringify([agent_id]);
+  }
   db.prepare(`UPDATE channel_accounts SET platform=?,account_name=?,agent_id=?,default_reply_mode=?,config=?,status=? WHERE id=?`)
     .run(
       platform ?? cur.platform, account_name ?? cur.account_name,
-      agent_id ?? cur.agent_id, default_reply_mode ?? cur.default_reply_mode,
+      newAgentId, default_reply_mode ?? cur.default_reply_mode,
       config ? JSON.stringify(config) : cur.config, status ?? cur.status,
       req.params.id
     );
-  // 停用时踢掉已连接的 agent
   if (status === 'inactive') {
     try { require('../channels/index').kickSocket(req.params.id); } catch {}
   }

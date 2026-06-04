@@ -232,7 +232,7 @@ function ensureWechatAccount() {
       const id = crypto.randomUUID();
       db.prepare(`INSERT OR IGNORE INTO channel_accounts (id,platform,account_name,agent_id,default_reply_mode,config,status)
         VALUES (?,?,?,?,?,?,?)`).run(
-        id, 'wechat', `微信机器人 (${auth.userId.slice(-8)})`, 'sales-agent', 'manual',
+        id, 'wechat', `微信机器人 (${auth.userId.slice(-8)})`, JSON.stringify(['sales-agent']), 'manual',
         JSON.stringify({ token: auth.token, userId: auth.userId, baseUrl: auth.baseUrl || API_BASE }),
         'active'
       );

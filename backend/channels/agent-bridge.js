@@ -14,11 +14,33 @@ const agentConfigs = {
 function loadAgentConfig(agent) {
   let base;
   let dbRow = null;
-  if (agentConfigs[agent]) {
-    base = agentConfigs[agent];
+  let persona = null; // 数字人身份信息
+
+  // 解析数字人：查 digital_employees 表，取其底层 agent
+  let resolvedAgent = agent;
+  try {
+    const de = db.prepare('SELECT * FROM digital_employees WHERE id=? AND status=?').get(agent, 'active');
+    if (de) {
+      persona = { name: de.name, role: de.role, emoji: de.avatar_emoji, avatar: de.avatar_url };
+      // 优先用 agent_id，其次解析 agent_ids
+      if (de.agent_id && de.agent_id.trim()) {
+        resolvedAgent = de.agent_id.trim();
+      } else if (de.agent_ids && de.agent_ids.trim()) {
+        try {
+          const ids = JSON.parse(de.agent_ids);
+          resolvedAgent = Array.isArray(ids) ? ids[0] : de.agent_ids;
+        } catch {
+          resolvedAgent = de.agent_ids.split(',')[0].trim();
+        }
+      }
+    }
+  } catch {}
+
+  if (agentConfigs[resolvedAgent]) {
+    base = agentConfigs[resolvedAgent];
   } else {
     try {
-      dbRow = db.prepare('SELECT * FROM agent_apps WHERE id=? AND status=?').get(agent, 'active');
+      dbRow = db.prepare('SELECT * FROM agent_apps WHERE id=? AND status=?').get(resolvedAgent, 'active');
       if (dbRow) {
         if (dbRow.base_agent && agentConfigs[dbRow.base_agent]) {
           const b = agentConfigs[dbRow.base_agent];
@@ -30,6 +52,12 @@ function loadAgentConfig(agent) {
     } catch {}
   }
   if (!base) base = agentConfigs['default'];
+
+  // 数字人身份注入 system prompt
+  if (persona) {
+    const personaPrompt = `你现在的身份是「${persona.name}」${persona.role ? `，职位：${persona.role}` : ''}。请以此身份与用户交流。`;
+    base = { ...base, systemPrompt: personaPrompt + '\n\n' + base.systemPrompt };
+  }
 
   let extraPrompt = '';
 

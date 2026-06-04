@@ -25,3 +25,7 @@ export const channelConversationsApi = {
 export const agentAppsApi = {
   list: () => GET('/agent-apps')
 }
+
+export const digitalEmployeesApi = {
+  list: () => GET('/digital-employees')
+}

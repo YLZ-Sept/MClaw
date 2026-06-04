@@ -32,11 +32,14 @@ function startSightflowServer(httpServer) {
           }
           accountId = data.account_id;
           registerSocket(accountId, ws);
+          let agentIds = [];
+          try { const p = JSON.parse(account.agent_id); agentIds = Array.isArray(p) ? p : [account.agent_id] } catch (e) { agentIds = account.agent_id ? [account.agent_id] : [] }
           ws.send(JSON.stringify({
             type: 'auth_ok',
             account_id: accountId,
             platform: account.platform,
-            agent_id: account.agent_id,
+            agent_id: agentIds[0] || '',
+            agent_ids: agentIds,
             reply_mode: account.default_reply_mode
           }));
           console.log(`[sightflow] 认证成功: ${accountId} (${account.platform})`);
