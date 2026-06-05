@@ -187,7 +187,7 @@ class PlatformManager:
                 return UploadResponse(
                     success=True,
                     message="视频上传成功",
-                    title=platform_video_info.title
+                    title=request.video_info.title
                 )
             else:
                 return UploadResponse(
@@ -375,20 +375,16 @@ class PlatformManager:
             else:
                 douyin_uploader = self.uploaders["douyin"]
             
-            # 转换视频信息为抖音格式
-            from ..models.douyin import VideoInfo
-            douyin_video_info = VideoInfo(
-                video_path=video_info.video_path,
-                title=video_info.title,
-                tags=video_info.tags,
-                thumbnail_path=video_info.thumbnail_path,
-                location=video_info.location
-            )
-            
-            # 执行上传
+            # 执行上传（参数展开为 upload_video 接受的独立参数）
             success = await douyin_uploader.upload_video(
-                video_info=douyin_video_info,
-                publish_date=publish_date
+                video_path=str(video_info.video_path) if video_info.video_path else '',
+                title=video_info.title or '',
+                tags=video_info.tags or [],
+                description=video_info.description or '',
+                thumbnail_path=str(video_info.thumbnail_path) if video_info.thumbnail_path else None,
+                publish_date=publish_date,
+                location=video_info.location or '北京市',
+                cover_orientation=getattr(video_info, 'cover_orientation', 'portrait') or 'portrait',
             )
             
             return success
