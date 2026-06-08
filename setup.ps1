@@ -150,11 +150,48 @@ Write-Step "检查 Python 3.10+"
 $pythonCmd = $null
 $pythonInstalled = $false
 
-# 优先找 python3，再找 python
+function Find-PythonInDir($dir) {
+    foreach ($name in @("python.exe", "python3.exe")) {
+        $p = Join-Path $dir $name
+        if (Test-Path $p) { return $p }
+    }
+    return $null
+}
+
+function Find-PythonInstall {
+    # 搜索常见安装位置
+    $paths = @(
+        "$env:LOCALAPPDATA\Programs\Python\Python312",
+        "$env:LOCALAPPDATA\Programs\Python\Python311",
+        "$env:LOCALAPPDATA\Programs\Python\Python310",
+        "C:\Python312", "C:\Python311", "C:\Python310",
+        "C:\Program Files\Python312", "C:\Program Files\Python311",
+        "C:\Program Files\Python310",
+        "$env:APPDATA\Python\Python312", "$env:APPDATA\Python\Python311"
+    )
+    foreach ($p in $paths) {
+        $found = Find-PythonInDir $p
+        if ($found) { return $found }
+    }
+    return $null
+}
+
+# 先尝试 PATH 中的命令
 if (Test-Command python3) {
     $pythonCmd = "python3"
 } elseif (Test-Command python) {
     $pythonCmd = "python"
+}
+
+# PATH 中没找到，搜索磁盘常见位置
+if (-not $pythonCmd) {
+    $foundExe = Find-PythonInstall
+    if ($foundExe) {
+        $foundDir = Split-Path -Parent $foundExe
+        $env:Path = "$foundDir;$env:Path"
+        Write-Host "    找到 Python: $foundExe (已临时加入 PATH)" -ForegroundColor Gray
+        $pythonCmd = "python"
+    }
 }
 
 if ($pythonCmd) {
@@ -174,11 +211,17 @@ if ($pythonCmd) {
 if (-not $pythonInstalled) {
     Write-Host "    正在安装 Python 3.12..." -ForegroundColor Gray
     if ($hasWinget) {
-        $ok = Invoke-Exe winget "install Python.Python.3.12 --silent --accept-package-agreements --accept-source-agreements" "winget 安装 Python"
-        if ($ok) {
+        $wingetOutput = & winget install Python.Python.3.12 --silent --accept-package-agreements --accept-source-agreements 2>&1
+        $wingetExit = $LASTEXITCODE
+        if ($wingetExit -eq 0) {
             $needRefreshPath = $true
             Write-OK "Python 安装完成（winget）"
             $pythonCmd = "python"
+            $pythonInstalled = $true
+        } elseif ($wingetOutput -match "已安装|already installed|已存在的") {
+            # winget 发现已有但不在 PATH，刷新后重试
+            Write-Host "    Python 似乎已安装但不在 PATH 中，刷新后再试..." -ForegroundColor Gray
+            $needRefreshPath = $true
         } else {
             Write-Fail "winget 安装 Python 失败，请手动安装 https://www.python.org/downloads/"
             Write-Warn "Python 仅用于多平台发布服务，后端+前端仍可正常运行"
@@ -213,12 +256,25 @@ if ($needRefreshPath) {
         exit 1
     }
     if (-not $pythonCmd -or -not (Test-Command $pythonCmd)) {
-        # 重新探测 python
+        # PATH 刷新后重新探测
         if (Test-Command python3) {
             $pythonCmd = "python3"
         } elseif (Test-Command python) {
             $pythonCmd = "python"
+        } else {
+            # 仍然没找到，搜索磁盘常见位置
+            $foundExe = Find-PythonInstall
+            if ($foundExe) {
+                $foundDir = Split-Path -Parent $foundExe
+                $env:Path = "$foundDir;$env:Path"
+                Write-Host "    找到 Python: $foundExe (已临时加入 PATH)" -ForegroundColor Gray
+                $pythonCmd = "python"
+            }
         }
+    }
+    if ($pythonCmd) {
+        $pyVersion = & $pythonCmd --version 2>&1
+        Write-Host "    Python: $pyVersion" -ForegroundColor Gray
     }
 }
 
