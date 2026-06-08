@@ -32,6 +32,59 @@ try {
   if (migrated > 0) console.log(`[migrate] channel_accounts.agent_id 转数组: ${migrated} 条`);
 } catch (e) { /* 表可能尚未创建 */ }
 
+// 权限守卫：URL 路径 → 权限点映射
+const routePermMap = [
+  { prefix: '/api/customers', perm: 'crm' },
+  { prefix: '/api/contacts', perm: 'crm' },
+  { prefix: '/api/contracts', perm: 'crm' },
+  { prefix: '/api/opportunities', perm: 'crm' },
+  { prefix: '/api/asset-ledger', perm: 'crm' },
+  { prefix: '/api/purchase-orders', perm: 'inventory' },
+  { prefix: '/api/sales-orders', perm: 'inventory' },
+  { prefix: '/api/returns', perm: 'inventory' },
+  { prefix: '/api/employees', perm: 'hr' },
+  { prefix: '/api/departments', perm: 'hr' },
+  { prefix: '/api/recruitment', perm: 'hr' },
+  { prefix: '/api/candidates', perm: 'hr' },
+  { prefix: '/api/attendance', perm: 'hr' },
+  { prefix: '/api/personnel-changes', perm: 'hr' },
+  { prefix: '/api/performance', perm: 'hr' },
+  { prefix: '/api/documents', perm: 'docs' },
+  { prefix: '/api/doc-folders', perm: 'docs' },
+  { prefix: '/api/org-charts', perm: 'docs' },
+  { prefix: '/api/chat-sessions', perm: 'chat' },
+  { prefix: '/api/agent-apps', perm: 'digital' },
+  { prefix: '/api/agent-skills', perm: 'digital' },
+  { prefix: '/api/digital-employees', perm: 'digital' },
+  { prefix: '/api/digital-human', perm: 'digital' },
+  { prefix: '/api/trending', perm: 'trending' },
+  { prefix: '/api/hot-products', perm: 'trending' },
+  { prefix: '/api/hot-contents', perm: 'trending' },
+  { prefix: '/api/hot-extract', perm: 'trending' },
+  { prefix: '/api/hot-quick-reply', perm: 'trending' },
+  { prefix: '/api/hot-leads', perm: 'trending' },
+  { prefix: '/api/hot-chanjing', perm: 'trending' },
+  { prefix: '/api/faq', perm: 'knowledge' },
+  { prefix: '/api/knowledge-base', perm: 'knowledge' },
+  { prefix: '/api/doc-import', perm: 'knowledge' },
+  { prefix: '/api/model-configs', perm: 'model' },
+  { prefix: '/api/channel-accounts', perm: 'channels' },
+  { prefix: '/api/channel-conversations', perm: 'channels' },
+  { prefix: '/api/content-publish', perm: 'publish' },
+  { prefix: '/api/bids', perm: 'publish' },
+  { prefix: '/api/publish', perm: 'publish' },
+  { prefix: '/api/ppt', perm: 'publish' },
+  { prefix: '/api/download', perm: 'publish' },
+];
+function guardByRoute(req, res, next) {
+  const match = routePermMap.find(r => req.path.startsWith(r.prefix));
+  if (match) {
+    return requirePermission(match.perm)(req, res, next);
+  }
+  next();
+}
+app.use(guardByRoute);
+
 // CRM
 app.use('/api/customers', require('./routes/customers'));
 app.use('/api/contacts', require('./routes/crm-contacts'));
@@ -52,8 +105,11 @@ app.use('/api/candidates', require('./routes/hr-recruitment'));
 app.use('/api/attendance', require('./routes/hr-attendance'));
 app.use('/api/personnel-changes', require('./routes/hr-changes'));
 app.use('/api/performance', require('./routes/hr-performance'));
+const { requireAuth, requirePermission } = require('./routes/auth');
+
 app.use('/api/auth', require('./routes/auth'));
-app.use('/api/security', require('./routes/security'));
+app.use('/api/users', requireAuth, require('./routes/users'));
+app.use('/api/security', requirePermission('security'), require('./routes/security'));
 app.use('/api/io', require('./routes/io'));
 app.use('/api/bids', require('./routes/bids'));
 app.use('/api/content-publish', require('./routes/content-publish'));

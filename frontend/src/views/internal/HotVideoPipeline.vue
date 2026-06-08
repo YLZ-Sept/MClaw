@@ -4,7 +4,7 @@
     <div class="page-hd">
       <div>
         <span class="page-title">一键追爆款</span>
-        <span class="page-sub">内容提取 · AI改写 · 视频生成 · 抖音发布</span>
+        <span class="page-sub">内容提取 · AI改写 · 视频生成 · 全平台分发</span>
       </div>
     </div>
 

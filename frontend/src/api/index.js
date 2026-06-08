@@ -76,19 +76,49 @@ export function updateSecuritySettings(settings) {
 
 // 用户管理
 export function getUsers() {
-  return request.get('/security/users').then(res => res.data)
+  return request.get('/users').then(res => res.data)
 }
 
 export function createUser(data) {
-  return request.post('/security/users', data).then(res => res.data)
+  return request.post('/users', data).then(res => res.data)
+}
+
+export function updateUser(id, data) {
+  return request.put('/users/' + id, data).then(res => res.data)
 }
 
 export function deleteUser(id) {
-  return request.delete('/security/users/' + id).then(res => res.data)
+  return request.delete('/users/' + id).then(res => res.data)
 }
 
-export function resetUserPassword(id, newPassword) {
-  return request.post('/security/users/' + id + '/reset-password', { newPassword }).then(res => res.data)
+export function getPermissions() {
+  return request.get('/users/permissions').then(res => res.data)
+}
+
+// 系统维护
+export function getSystemInfo() {
+  return request.get('/security/system-info').then(res => res.data)
+}
+
+export function createBackup() {
+  return request.post('/security/backup').then(res => res.data)
+}
+
+export function getBackups() {
+  return request.get('/security/backups').then(res => res.data)
+}
+
+export function deleteBackup(filename) {
+  return request.delete('/security/backups/' + encodeURIComponent(filename)).then(res => res.data)
+}
+
+export function restoreBackup(filename) {
+  return request.post('/security/backups/' + encodeURIComponent(filename) + '/restore').then(res => res.data)
+}
+
+export function getBackupDownloadUrl(filename) {
+  const token = localStorage.getItem('token')
+  return '/api/security/backups/' + encodeURIComponent(filename) + '/download?token=' + encodeURIComponent(token)
 }
 
 export default request

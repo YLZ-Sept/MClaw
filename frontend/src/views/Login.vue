@@ -57,7 +57,7 @@ async function handleLogin() {
     const res = await login(form.username, form.password)
     if (res.code === 200) {
       localStorage.setItem('token', res.data.token)
-      localStorage.setItem('user', JSON.stringify({ name: res.data.name, role: res.data.role }))
+      localStorage.setItem('user', JSON.stringify({ name: res.data.name, role: res.data.role, permissions: res.data.permissions || [] }))
       ElMessage.success(`欢迎回来，${res.data.name}`)
       const redirect = route.query.redirect || '/'
       router.push(redirect)

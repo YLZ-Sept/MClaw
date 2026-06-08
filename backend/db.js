@@ -506,6 +506,7 @@ db.exec(`
     password_hash TEXT NOT NULL,
     name TEXT NOT NULL,
     role TEXT DEFAULT 'admin',
+    permissions TEXT DEFAULT '["chat","digital","trending","knowledge","skills","crm","inventory","hr","docs","channels","publish","model","security"]',
     created_at TEXT DEFAULT (datetime('now','localtime'))
   );
 
@@ -516,16 +517,24 @@ db.exec(`
   );
 `);
 
+// 迁移：补 permissions 字段
+try { db.exec('ALTER TABLE users ADD COLUMN permissions TEXT DEFAULT \'["chat","digital","trending","knowledge","skills","crm","inventory","hr","docs","channels","publish","model","security"]\''); } catch {}
+
 // 种子管理员账号
-const uc = db.prepare('SELECT COUNT(*) AS c FROM users').get();
-if (uc.c === 0) {
+function seedUser(username, password, name, role, permissions) {
+  const existing = db.prepare('SELECT id FROM users WHERE username=?').get(username);
+  if (existing) return;
   const { randomUUID } = require('crypto');
   const salt = randomUUID().replace(/-/g, '');
-  const hash = require('crypto').scryptSync('admin123', salt, 64).toString('hex');
-  db.prepare('INSERT INTO users (id, username, password_hash, name, role) VALUES (?,?,?,?,?)')
-    .run(randomUUID(), 'admin', salt + ':' + hash, '管理员', 'admin');
-  console.log('[seed] 管理员账号已创建 (admin/admin123)');
+  const hash = require('crypto').scryptSync(password, salt, 64).toString('hex');
+  db.prepare('INSERT INTO users (id, username, password_hash, name, role, permissions) VALUES (?,?,?,?,?,?)')
+    .run(randomUUID(), username, salt + ':' + hash, name, role, JSON.stringify(permissions));
+  console.log(`[seed] ${role} 账号已创建 (${username}/${password})`);
 }
+
+const ALL_PERMS = ["chat","digital","trending","knowledge","skills","crm","inventory","hr","docs","channels","publish","model","security"];
+seedUser('superadmin', '1qaz@WSX', '超级管理员', 'superadmin', ALL_PERMS);
+seedUser('admin', 'admin123', '管理员', 'admin', ALL_PERMS);
 
 // 种子安全设置默认值
 const ssc = db.prepare('SELECT COUNT(*) AS c FROM security_settings').get();

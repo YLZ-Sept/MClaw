@@ -1,8 +1,40 @@
 const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
+const path = require('path');
+const fs = require('fs');
+const os = require('os');
+const archiver = require('archiver');
+const AdmZip = require('adm-zip');
 const db = require('../db');
 const auth = require('./auth');
+
+const PROJECT_ROOT = path.join(__dirname, '..');
+const BACKUPS_DIR = path.join(PROJECT_ROOT, 'backups');
+if (!fs.existsSync(BACKUPS_DIR)) fs.mkdirSync(BACKUPS_DIR, { recursive: true });
+
+function dirSize(dirPath) {
+  if (!fs.existsSync(dirPath)) return 0;
+  let total = 0;
+  function walk(d) {
+    try {
+      for (const name of fs.readdirSync(d)) {
+        const p = path.join(d, name);
+        const st = fs.lstatSync(p);
+        if (st.isDirectory()) walk(p);
+        else total += st.size;
+      }
+    } catch {}
+  }
+  walk(dirPath);
+  return total;
+}
+
+function fmtBytes(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / 1048576).toFixed(1) + ' MB';
+}
 
 // 鉴权中间件
 function authRequired(req, res, next) {
@@ -162,6 +194,149 @@ router.post('/users/:id/reset-password', authRequired, (req, res) => {
     if (s.username === user.username) delete auth.tokens[tk];
   }
   res.json({ code: 200, message: '密码已重置' });
+});
+
+// ---- 系统维护 ----
+
+// 系统概览
+router.get('/system-info', authRequired, (req, res) => {
+  const dbSize = fs.existsSync(db.name)
+    ? fs.statSync(db.name).size : 0;
+  const uploadsSize = dirSize(path.join(PROJECT_ROOT, 'uploads'));
+  const videosSize = dirSize(path.join(PROJECT_ROOT, 'videos'));
+  const uptime = process.uptime();
+  const h = Math.floor(uptime / 3600), m = Math.floor((uptime % 3600) / 60), s = Math.floor(uptime % 60);
+
+  res.json({
+    code: 200,
+    data: {
+      version: 'v2026.5.7',
+      uptime: `${h}h ${m}m ${s}s`,
+      dbSize: fmtBytes(dbSize),
+      uploadsSize: fmtBytes(uploadsSize),
+      videosSize: fmtBytes(videosSize),
+      memory: `${Math.round((os.totalmem() - os.freemem()) / 1048576)}MB / ${Math.round(os.totalmem() / 1048576)}MB`,
+    }
+  });
+});
+
+// 创建备份
+router.post('/backup', authRequired, (req, res) => {
+  try {
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const filename = `backup_${ts}.zip`;
+    const filePath = path.join(BACKUPS_DIR, filename);
+    const output = fs.createWriteStream(filePath);
+    const archive = archiver('zip', { zlib: { level: 9 } });
+
+    archive.on('error', (err) => {
+      console.error('[backup] error:', err.message);
+      res.json({ code: 500, message: '备份失败: ' + err.message });
+    });
+
+    output.on('close', () => {
+      res.json({ code: 200, data: { filename, size: fmtBytes(archive.pointer()) } });
+    });
+
+    archive.pipe(output);
+
+    // DB 文件
+    const dbPath = db.name;
+    if (fs.existsSync(dbPath)) archive.file(dbPath, { name: 'internal.db' });
+
+    // .env
+    const envPath = path.join(PROJECT_ROOT, '.env');
+    if (fs.existsSync(envPath)) archive.file(envPath, { name: '.env' });
+
+    // uploads 目录（压缩整个目录）
+    const uploadsPath = path.join(PROJECT_ROOT, 'uploads');
+    if (fs.existsSync(uploadsPath)) archive.directory(uploadsPath, 'uploads');
+
+    archive.finalize();
+  } catch (err) {
+    console.error('[backup] error:', err.message);
+    res.json({ code: 500, message: '备份失败' });
+  }
+});
+
+// 备份列表
+router.get('/backups', authRequired, (req, res) => {
+  try {
+    const list = fs.readdirSync(BACKUPS_DIR)
+      .filter(f => f.endsWith('.zip'))
+      .map(f => {
+        const st = fs.statSync(path.join(BACKUPS_DIR, f));
+        return { filename: f, size: fmtBytes(st.size), sizeRaw: st.size, createdAt: new Date(st.mtime).toLocaleString('zh-CN') };
+      })
+      .sort((a, b) => b.sizeRaw - a.sizeRaw || b.createdAt.localeCompare(a.createdAt));
+    res.json({ code: 200, data: list });
+  } catch { res.json({ code: 200, data: [] }); }
+});
+
+// 下载备份
+router.get('/backups/:name/download', authRequired, (req, res) => {
+  const filePath = path.join(BACKUPS_DIR, req.params.name);
+  if (!fs.existsSync(filePath)) return res.json({ code: 404, message: '备份文件不存在' });
+  res.download(filePath);
+});
+
+// 删除备份
+router.delete('/backups/:name', authRequired, (req, res) => {
+  const filePath = path.join(BACKUPS_DIR, req.params.name);
+  if (!fs.existsSync(filePath)) return res.json({ code: 404, message: '备份文件不存在' });
+  fs.unlinkSync(filePath);
+  res.json({ code: 200, message: '已删除' });
+});
+
+// 恢复备份
+router.post('/backups/:name/restore', authRequired, (req, res) => {
+  const filePath = path.join(BACKUPS_DIR, req.params.name);
+  if (!fs.existsSync(filePath)) return res.json({ code: 404, message: '备份文件不存在' });
+
+  try {
+    const zip = new AdmZip(filePath);
+
+    // 先创建恢复前的安全备份（万一恢复出错可以回退）
+    const preRestoreBackup = path.join(BACKUPS_DIR, 'pre_restore_' + Date.now() + '.zip');
+    const safetyOutput = fs.createWriteStream(preRestoreBackup);
+    const safetyArchive = archiver('zip', { zlib: { level: 9 } });
+    safetyArchive.pipe(safetyOutput);
+    const dbPath = db.name;
+    if (fs.existsSync(dbPath)) safetyArchive.file(dbPath, { name: 'internal.db' });
+    const uploadsPath = path.join(PROJECT_ROOT, 'uploads');
+    if (fs.existsSync(uploadsPath)) safetyArchive.directory(uploadsPath, 'uploads');
+    safetyArchive.finalize();
+
+    // 关闭数据库连接
+    db.close();
+
+    // 恢复 DB
+    const dbEntry = zip.getEntry('internal.db');
+    if (dbEntry) {
+      zip.extractEntryTo(dbEntry, path.dirname(dbPath), true, true);
+    }
+
+    // 恢复 uploads（保持目录结构，跳过 .env）
+    const entries = zip.getEntries().filter(e => e.entryName.startsWith('uploads/'));
+    for (const entry of entries) {
+      zip.extractEntryTo(entry, PROJECT_ROOT, true, true);
+    }
+
+    // 恢复完成，退出进程让用户重启
+    console.log('[restore] 恢复完成，即将退出进程。请重新启动服务。');
+    res.json({ code: 200, message: '恢复成功，请重新启动服务以生效' });
+
+    // 延迟退出，确保响应已发送
+    setTimeout(() => process.exit(0), 500);
+  } catch (err) {
+    console.error('[restore] error:', err.message);
+    // 如果 DB 还没关闭，尝试重新打开
+    try {
+      const Database = require('better-sqlite3');
+      // db 已无法恢复，提示用户手动处理
+    } catch {}
+    res.json({ code: 500, message: '恢复失败: ' + err.message });
+  }
 });
 
 module.exports = router;

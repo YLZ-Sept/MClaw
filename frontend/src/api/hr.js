@@ -10,8 +10,14 @@ export const orgChartApi = {
     headers: { 'Content-Type': 'multipart/form-data' }
   }),
   remove: (id) => DEL(`/org-charts/${id}`),
-  previewUrl: (id) => `/api/org-charts/preview/${id}`,
-  downloadUrl: (id) => `/api/org-charts/download/${id}`,
+  previewUrl: (id) => {
+    const token = localStorage.getItem('token')
+    return `/api/org-charts/preview/${id}?token=${encodeURIComponent(token)}`
+  },
+  downloadUrl: (id) => {
+    const token = localStorage.getItem('token')
+    return `/api/org-charts/download/${id}?token=${encodeURIComponent(token)}`
+  },
   importDepartments: (formData) => POST('/org-charts/import-departments', formData, {
     headers: { 'Content-Type': 'multipart/form-data' }
   })
