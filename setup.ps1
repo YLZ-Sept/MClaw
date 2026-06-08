@@ -159,19 +159,33 @@ function Find-PythonInDir($dir) {
 }
 
 function Find-PythonInstall {
-    # 搜索常见安装位置
+    # 1) 查注册表（最可靠）
+    foreach ($hive in @("HKLM", "HKCU")) {
+        foreach ($ver in @("3.13", "3.12", "3.11", "3.10", "3.9")) {
+            try {
+                $key = "$hive\SOFTWARE\Python\PythonCore\$ver\InstallPath"
+                $installPath = (Get-ItemProperty -Path "Registry::$key" -Name "(Default)" -ErrorAction SilentlyContinue).'(Default)'
+                if ($installPath) {
+                    $found = Find-PythonInDir $installPath
+                    if ($found) { Write-Host "    注册表找到: $found" -ForegroundColor Gray; return $found }
+                }
+            } catch {}
+        }
+    }
+    # 2) 搜索磁盘常见位置
     $paths = @(
+        "$env:LOCALAPPDATA\Programs\Python\Python313",
         "$env:LOCALAPPDATA\Programs\Python\Python312",
         "$env:LOCALAPPDATA\Programs\Python\Python311",
         "$env:LOCALAPPDATA\Programs\Python\Python310",
-        "C:\Python312", "C:\Python311", "C:\Python310",
-        "C:\Program Files\Python312", "C:\Program Files\Python311",
-        "C:\Program Files\Python310",
+        "C:\Python313", "C:\Python312", "C:\Python311", "C:\Python310",
+        "C:\Program Files\Python313", "C:\Program Files\Python312",
+        "C:\Program Files\Python311", "C:\Program Files\Python310",
         "$env:APPDATA\Python\Python312", "$env:APPDATA\Python\Python311"
     )
     foreach ($p in $paths) {
         $found = Find-PythonInDir $p
-        if ($found) { return $found }
+        if ($found) { Write-Host "    磁盘找到: $found" -ForegroundColor Gray; return $found }
     }
     return $null
 }
@@ -225,6 +239,10 @@ if (-not $pythonInstalled) {
             Write-OK "Python 3.12.9 安装完成"
             $pythonCmd = "python"
             $pythonInstalled = $true
+        } elseif ($installProc.ExitCode -eq 1638) {
+            # 1638 = 此产品已安装。PATH 刷新后通过注册表/磁盘搜索定位
+            Write-Host "    Python 已安装但未在 PATH 中, PATH 刷新后自动定位" -ForegroundColor Gray
+            $needRefreshPath = $true
         } else {
             Write-Fail "Python 安装器返回错误码 $($installProc.ExitCode)"
             Write-Warn "Python 仅用于多平台发布服务，后端+前端仍可正常运行"
