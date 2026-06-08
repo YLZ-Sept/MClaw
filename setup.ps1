@@ -74,6 +74,13 @@ Write-Banner
 $os = Get-CimInstance Win32_OperatingSystem
 Write-Host "系统: $($os.Caption) ($($os.OSArchitecture))" -ForegroundColor Gray
 Write-Host "内存: $([math]::Round($os.TotalVisibleMemorySize/1MB, 1)) GB" -ForegroundColor Gray
+Write-Host "脚本路径: $ProjectRoot" -ForegroundColor Gray
+Write-Host "工作目录: $(Get-Location)" -ForegroundColor Gray
+# 快速校验项目完整性
+$hasBackend = Test-Path (Join-Path $ProjectRoot "backend\package.json")
+$hasFrontend = Test-Path (Join-Path $ProjectRoot "frontend\package.json")
+Write-Host "backend/package.json : $(if($hasBackend){'OK'}else{'MISSING'})" -ForegroundColor $(if($hasBackend){'Gray'}else{'Red'})
+Write-Host "frontend/package.json: $(if($hasFrontend){'OK'}else{'MISSING'})" -ForegroundColor $(if($hasFrontend){'Gray'}else{'Red'})
 Write-Host ""
 
 # ============================================================
@@ -238,7 +245,10 @@ if (Test-Path (Join-Path $backendDir "package.json")) {
     }
     Pop-Location
 } else {
-    Write-Fail "未找到 backend/package.json，请确认项目文件完整"
+    Write-Fail "未找到 $backendDir\package.json"
+    Write-Warn "请确认: 1) 项目文件已完整复制  2) setup.bat 放在项目根目录运行"
+    Write-Warn "当前脚本路径: $ProjectRoot"
+    Write-Warn "预期结构: $ProjectRoot\backend\package.json"
     exit 1
 }
 
@@ -267,7 +277,7 @@ if (Test-Path (Join-Path $frontendDir "package.json")) {
     }
     Pop-Location
 } else {
-    Write-Fail "未找到 frontend/package.json，请确认项目文件完整"
+    Write-Fail "未找到 $frontendDir\package.json"
     exit 1
 }
 
