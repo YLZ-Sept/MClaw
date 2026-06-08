@@ -130,6 +130,9 @@ if (-not $nodeInstalled) {
             Write-OK "Node.js 安装完成（winget）"
         } else {
             Write-Fail "winget 安装 Node.js 失败，请手动安装 https://nodejs.org/"
+            Write-Warn "安装完成后重新运行本脚本"
+            pause
+            exit 1
         }
     } else {
         Write-Warn "请手动安装 Node.js: https://nodejs.org/ (下载 LTS 版本)"
@@ -137,6 +140,16 @@ if (-not $nodeInstalled) {
         pause
         exit 1
     }
+}
+
+# 最终校验：node 和 npm 都必须可用
+if (-not (Test-Command node) -or -not (Test-Command npm)) {
+    Write-Fail "Node.js / npm 不可用，无法继续"
+    if (-not (Test-Command node)) { Write-Warn "node 命令未找到" }
+    if (-not (Test-Command npm))  { Write-Warn "npm 命令未找到" }
+    Write-Warn "请安装 Node.js 后重新运行: https://nodejs.org/"
+    pause
+    exit 1
 }
 
 # ============================================================
@@ -178,13 +191,15 @@ if (-not $pythonInstalled) {
             $pythonCmd = "python"
         } else {
             Write-Fail "winget 安装 Python 失败，请手动安装 https://www.python.org/downloads/"
+            Write-Warn "Python 仅用于多平台发布服务，后端+前端仍可正常运行"
+            Write-Warn "安装 Python 3.10+ 后重新运行本脚本即可补全"
+            $pythonCmd = $null
         }
     } else {
         Write-Warn "请手动安装 Python 3.10+: https://www.python.org/downloads/"
         Write-Warn "安装时请勾选 'Add Python to PATH'"
-        Write-Warn "安装完成后重新运行本脚本"
-        pause
-        exit 1
+        Write-Warn "Python 仅用于多平台发布服务，后端+前端仍可正常运行"
+        $pythonCmd = $null
     }
 }
 
@@ -287,7 +302,9 @@ if (Test-Path (Join-Path $frontendDir "package.json")) {
 Write-Step "安装 Python 发布服务依赖 (backend/auto_douyin/)"
 
 $pythonDir = Join-Path $ProjectRoot "backend\auto_douyin"
-if (Test-Path (Join-Path $pythonDir "main.py")) {
+if (-not $pythonCmd) {
+    Write-Warn "Python 未安装，跳过此步骤（后端+前端仍可正常运行）"
+} elseif (Test-Path (Join-Path $pythonDir "main.py")) {
     Write-Host "    安装 Python 包..." -ForegroundColor Gray
     Write-Host "    (fastapi, uvicorn, playwright, pydantic, loguru, aiofiles, biliup, mcp)" -ForegroundColor Gray
 
