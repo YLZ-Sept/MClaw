@@ -387,30 +387,43 @@ $pythonDir = Join-Path $ProjectRoot "backend\auto_douyin"
 if (-not $pythonCmd) {
     Write-Warn "Python 未安装，跳过此步骤（后端+前端仍可正常运行）"
 } elseif (Test-Path (Join-Path $pythonDir "main.py")) {
-    Write-Host "    安装 Python 包..." -ForegroundColor Gray
-    Write-Host "    (fastapi, uvicorn, playwright, pydantic, loguru, aiofiles, biliup, mcp)" -ForegroundColor Gray
-
-    $pipArgs = @(
-        "install",
-        "fastapi",
-        "uvicorn[standard]",
-        "playwright",
-        "pydantic",
-        "loguru",
-        "python-dotenv",
-        "aiofiles",
-        "biliup",
-        "mcp"
-    )
-    $pipOutput = & $pythonCmd -m pip @pipArgs 2>&1
-    $pipExit = $LASTEXITCODE
-
-    if ($pipExit -eq 0) {
-        Write-OK "Python 依赖安装完成"
+    # 先验证 Python 可用
+    $pyTest = & $pythonCmd -c "import sys; print(sys.version)" 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        Write-Fail "Python 命令不可用: $pyTest"
+        Write-Warn "可能是 Microsoft Store 版 Python 存根, 请安装官方版: https://www.python.org/downloads/"
     } else {
-        Write-Fail "Python 依赖安装失败"
-        Write-Host $pipOutput -ForegroundColor Red
-        Write-Warn "请手动执行: $pythonCmd -m pip install fastapi uvicorn playwright pydantic loguru aiofiles biliup mcp"
+        $pyVersionLine = ($pyTest -split "`n")[0].Trim()
+        Write-Host "    Python: $pyVersionLine" -ForegroundColor Gray
+
+        # 升级 pip
+        Write-Host "    升级 pip..." -ForegroundColor Gray
+        $pipUpgrade = & $pythonCmd -m pip install --upgrade pip 2>&1 | Out-String
+        $pipUpExit = $LASTEXITCODE
+
+        # 安装依赖
+        Write-Host "    安装 Python 包 (fastapi uvicorn playwright pydantic loguru aiofiles biliup mcp)..." -ForegroundColor Gray
+        $pipArgs = @("-m", "pip", "install", "fastapi", "uvicorn[standard]", "playwright", "pydantic", "loguru", "python-dotenv", "aiofiles", "biliup", "mcp")
+        $pipOutput = & $pythonCmd @pipArgs 2>&1 | Out-String
+        $pipExit = $LASTEXITCODE
+
+        if ($pipExit -eq 0) {
+            Write-OK "Python 依赖安装完成"
+        } else {
+            # 重试：加 --user 和 --trusted-host（兼容 SSL/权限问题）
+            Write-Host "    首次失败，重试 --user --trusted-host ..." -ForegroundColor Gray
+            $pipArgs2 = @("-m", "pip", "install", "--user", "--trusted-host", "pypi.org", "--trusted-host", "files.pythonhosted.org", "fastapi", "uvicorn[standard]", "playwright", "pydantic", "loguru", "python-dotenv", "aiofiles", "biliup", "mcp")
+            $pipOutput2 = & $pythonCmd @pipArgs2 2>&1 | Out-String
+            $pipExit2 = $LASTEXITCODE
+
+            if ($pipExit2 -eq 0) {
+                Write-OK "Python 依赖安装完成（--user）"
+            } else {
+                Write-Fail "Python 依赖安装失败"
+                Write-Host ("    " + ($pipOutput2 -split "`n" | Select-Object -Last 8 -ErrorAction SilentlyContinue)) -ForegroundColor Red
+                Write-Warn "请手动执行: $pythonCmd -m pip install fastapi uvicorn playwright pydantic loguru aiofiles biliup mcp"
+            }
+        }
     }
 } else {
     Write-Warn "未找到 backend/auto_douyin/main.py，跳过 Python 依赖"
