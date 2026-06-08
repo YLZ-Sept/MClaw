@@ -209,28 +209,31 @@ if ($pythonCmd) {
 }
 
 if (-not $pythonInstalled) {
-    Write-Host "    正在安装 Python 3.12..." -ForegroundColor Gray
-    if ($hasWinget) {
-        $wingetOutput = & winget install Python.Python.3.12 --silent --accept-package-agreements --accept-source-agreements 2>&1
-        $wingetExit = $LASTEXITCODE
-        if ($wingetExit -eq 0) {
+    Write-Host "    下载并安装 Python 3.12.9..." -ForegroundColor Gray
+    $pyInstaller = Join-Path $env:TEMP "python-3.12.9-amd64.exe"
+    $pyUrl = "https://www.python.org/ftp/python/3.12.9/python-3.12.9-amd64.exe"
+
+    try {
+        Write-Host "    下载 $pyUrl ..." -ForegroundColor Gray
+        Invoke-WebRequest -Uri $pyUrl -OutFile $pyInstaller -UseBasicParsing
+        Write-Host "    安装中（/quiet PrependPath=1）..." -ForegroundColor Gray
+        $installProc = Start-Process -FilePath $pyInstaller -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1 Include_test=0" -Wait -PassThru -NoNewWindow
+        Remove-Item $pyInstaller -Force -ErrorAction SilentlyContinue
+
+        if ($installProc.ExitCode -eq 0) {
             $needRefreshPath = $true
-            Write-OK "Python 安装完成（winget）"
+            Write-OK "Python 3.12.9 安装完成"
             $pythonCmd = "python"
             $pythonInstalled = $true
-        } elseif ($wingetOutput -match "已安装|already installed|已存在的") {
-            # winget 发现已有但不在 PATH，刷新后重试
-            Write-Host "    Python 似乎已安装但不在 PATH 中，刷新后再试..." -ForegroundColor Gray
-            $needRefreshPath = $true
         } else {
-            Write-Fail "winget 安装 Python 失败，请手动安装 https://www.python.org/downloads/"
+            Write-Fail "Python 安装器返回错误码 $($installProc.ExitCode)"
             Write-Warn "Python 仅用于多平台发布服务，后端+前端仍可正常运行"
-            Write-Warn "安装 Python 3.10+ 后重新运行本脚本即可补全"
+            Write-Warn "请手动安装: https://www.python.org/downloads/ (勾选 Add Python to PATH)"
             $pythonCmd = $null
         }
-    } else {
-        Write-Warn "请手动安装 Python 3.10+: https://www.python.org/downloads/"
-        Write-Warn "安装时请勾选 'Add Python to PATH'"
+    } catch {
+        Write-Fail "Python 下载失败: $_"
+        Write-Warn "请手动安装: https://www.python.org/downloads/ (勾选 Add Python to PATH)"
         Write-Warn "Python 仅用于多平台发布服务，后端+前端仍可正常运行"
         $pythonCmd = $null
     }
