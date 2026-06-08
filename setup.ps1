@@ -190,21 +190,41 @@ function Find-PythonInstall {
     return $null
 }
 
-# 先尝试 PATH 中的命令
-if (Test-Command python3) {
-    $pythonCmd = "python3"
-} elseif (Test-Command python) {
-    $pythonCmd = "python"
+# 测试 Python 命令是否真正可用（排除 MS Store 存根）
+function Test-PythonReal($cmd) {
+    try {
+        $out = & $cmd -c "import sys; print(sys.executable)" 2>&1 | Out-String
+        if ($LASTEXITCODE -eq 0 -and $out -match 'python') { return $true }
+    } catch {}
+    return $false
 }
 
-# PATH 中没找到，搜索磁盘常见位置
+# 先尝试 PATH 中的命令（python 优先，python3 通常是 Store 存根）
+if (Test-Command python -and (Test-PythonReal "python")) {
+    $pythonCmd = "python"
+} elseif (Test-Command python3 -and (Test-PythonReal "python3")) {
+    $pythonCmd = "python3"
+} else {
+    # PATH 中有存根但不可用，跳过
+    if (Test-Command python -or Test-Command python3) {
+        Write-Host "    PATH 中有 python/python3 但无法执行（可能是 MS Store 存根），已跳过" -ForegroundColor Gray
+    }
+}
+
+# PATH 中没找到可用的，搜索注册表/磁盘
 if (-not $pythonCmd) {
     $foundExe = Find-PythonInstall
     if ($foundExe) {
         $foundDir = Split-Path -Parent $foundExe
-        $env:Path = "$foundDir;$env:Path"
+        $foundDirScripts = Join-Path $foundDir "Scripts"
+        $env:Path = "$foundDir;$foundDirScripts;$env:Path"
         Write-Host "    找到 Python: $foundExe (已临时加入 PATH)" -ForegroundColor Gray
         $pythonCmd = "python"
+        # 验证找到的也是真 Python
+        if (-not (Test-PythonReal $foundExe)) {
+            Write-Warn "找到的 Python 无法执行: $foundExe"
+            $pythonCmd = $null
+        }
     }
 }
 
@@ -277,25 +297,25 @@ if ($needRefreshPath) {
         exit 1
     }
     if (-not $pythonCmd -or -not (Test-Command $pythonCmd)) {
-        # PATH 刷新后重新探测
-        if (Test-Command python3) {
-            $pythonCmd = "python3"
-        } elseif (Test-Command python) {
+        # PATH 刷新后重新探测（跳过 MS Store 存根）
+        if (Test-Command python -and (Test-PythonReal "python")) {
             $pythonCmd = "python"
+        } elseif (Test-Command python3 -and (Test-PythonReal "python3")) {
+            $pythonCmd = "python3"
         } else {
-            # 仍然没找到，搜索磁盘常见位置
             $foundExe = Find-PythonInstall
             if ($foundExe) {
                 $foundDir = Split-Path -Parent $foundExe
-                $env:Path = "$foundDir;$env:Path"
+                $foundDirScripts = Join-Path $foundDir "Scripts"
+                $env:Path = "$foundDir;$foundDirScripts;$env:Path"
                 Write-Host "    找到 Python: $foundExe (已临时加入 PATH)" -ForegroundColor Gray
                 $pythonCmd = "python"
             }
         }
     }
     if ($pythonCmd) {
-        $pyVersion = & $pythonCmd --version 2>&1
-        Write-Host "    Python: $pyVersion" -ForegroundColor Gray
+        $pyVersion = & $pythonCmd --version 2>&1 | Out-String
+        Write-Host "    Python: $($pyVersion.Trim())" -ForegroundColor Gray
     }
 }
 
@@ -588,7 +608,7 @@ Write-Host "========================================" -ForegroundColor Cyan
 
 # 检查各部分状态
 $nodeOK = Test-Command node
-$pythonOK = $pythonCmd -and (Test-Command $pythonCmd)
+$pythonOK = $pythonCmd -and (Test-PythonReal $pythonCmd)
 $backendNM = Test-Path (Join-Path $backendDir "node_modules")
 $frontendNM = Test-Path (Join-Path $frontendDir "node_modules")
 $frontendDist = Test-Path (Join-Path $frontendDir "dist")
