@@ -1,4 +1,4 @@
-# MClaw v1.0 环境安装脚本
+﻿# MClaw v1.0 环境安装脚本
 # 自动检测 + 安装 Node.js / Python / 依赖 / 构建前端
 
 $ErrorActionPreference = "Continue"
