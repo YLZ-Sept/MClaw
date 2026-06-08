@@ -55,10 +55,8 @@
 import { ref, onMounted, nextTick, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Promotion, Upload } from '@element-plus/icons-vue'
-import { getChatHistory, clearChat } from '../api'
+import request, { getChatHistory, clearChat } from '../api/index.js'
 import ChatMessage from '../components/ChatMessage.vue'
-import axios from 'axios'
-const req = axios.create({ baseURL: '/api' })
 
 const route = useRoute()
 const messages = ref([])
@@ -89,7 +87,7 @@ async function loadMessages() {
     }
   } else {
     try {
-      const { data } = await req.get('/chat-sessions/' + sessionId.value + '/messages')
+      const { data } = await request.get('/chat-sessions/' + sessionId.value + '/messages')
       messages.value = (data.data || []).map(m => ({
         role: m.role === 'assistant' ? 'ai' : m.role,
         content: m.content
@@ -147,7 +145,7 @@ async function handleUpload(options) {
   form.append('file', options.file)
 
   try {
-    const { data: res } = await req.post('/doc-import/upload', form)
+    const { data: res } = await request.post('/doc-import/upload', form)
     if (res.code === 200) {
       const d = res.data
       // 显示文件解析结果
@@ -254,7 +252,7 @@ async function streamResponse(body, aiIdx) {
 
 async function handleClear() {
   if (sessionId.value) {
-    await req.delete('/chat-sessions/' + sessionId.value + '/messages')
+    await request.delete('/chat-sessions/' + sessionId.value + '/messages')
     messages.value = [{ role: 'ai', content: '对话已清空，开始新的交流吧。' }]
   } else {
     await clearChat(agentKey()); messages.value = []
@@ -271,7 +269,7 @@ async function init() {
   if (sid) {
     sessionId.value = sid
     try {
-      const { data } = await req.get('/chat-sessions/' + sid)
+      const { data } = await request.get('/chat-sessions/' + sid)
       currentSessionName.value = data.data.name
     } catch {}
   }
@@ -281,7 +279,7 @@ async function init() {
 watch(() => route.query.session, (sid) => {
   if (sid) {
     sessionId.value = sid
-    req.get('/chat-sessions/' + sid).then(({ data }) => { currentSessionName.value = data.data.name }).catch(() => {})
+    request.get('/chat-sessions/' + sid).then(({ data }) => { currentSessionName.value = data.data.name }).catch(() => {})
     loadMessages()
   }
 })

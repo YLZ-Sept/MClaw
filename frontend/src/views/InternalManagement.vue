@@ -20,14 +20,15 @@
 
 <script setup>
 import { useRouter } from 'vue-router'
-import { Box, UserFilled, FolderOpened, ArrowLeft } from '@element-plus/icons-vue'
+import { Box, UserFilled, FolderOpened, ArrowLeft, Coin } from '@element-plus/icons-vue'
 
 const router = useRouter()
 
 const modules = [
   { path: '/internal/inventory', name: '进销存管理', desc: '采购入库、销售出库、库存台账、退换货、预警', icon: Box, color: 'linear-gradient(135deg, #818cf8, #4f46e5)' },
-  { path: '/internal/hr', name: '人力资源管理', desc: '员工档案、组织架构、招聘、请假考勤、绩效', icon: UserFilled, color: 'linear-gradient(135deg, #34d399, #10b981)' },
-  { path: '/internal/docs', name: '文档管理', desc: '文档上传、搜索、分类管理', icon: FolderOpened, color: 'linear-gradient(135deg, #fb7185, #ef4444)' }
+  { path: '/internal/hr', name: '人力资源管理', desc: '员工档案、组织架构、招聘、考勤、绩效', icon: UserFilled, color: 'linear-gradient(135deg, #34d399, #10b981)' },
+  { path: '/internal/docs', name: '文档管理', desc: '文档上传、搜索、分类管理', icon: FolderOpened, color: 'linear-gradient(135deg, #fb7185, #ef4444)' },
+  { path: '/internal/finance', name: '财务管理', desc: '应收账款、应付账款、财务报表', icon: Coin, color: 'linear-gradient(135deg, #f59e0b, #d97706)' }
 ]
 </script>
 

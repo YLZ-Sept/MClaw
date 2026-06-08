@@ -90,9 +90,7 @@
           <router-link v-if="hasPerm('channels')" to="/automation" class="nav-item" active-class="active">
             <el-icon><Promotion /></el-icon><span>通信与自动化</span>
           </router-link>
-          <router-link v-if="hasPerm('security')" to="/security-protection" class="nav-item" active-class="active">
-            <el-icon><Warning /></el-icon><span>安全防护</span>
-          </router-link>
+
           <router-link v-if="hasPerm('security')" to="/security" class="nav-item" active-class="active">
             <el-icon><Lock /></el-icon><span>安全设置</span>
           </router-link>
@@ -187,11 +185,9 @@ import { ElMessageBox, ElMessage } from 'element-plus'
 import {
   ChatDotSquare, DataAnalysis, List, Document,
   Cpu, Setting, ChatLineSquare, Promotion, Lock, UserFilled,
-  ArrowDown, ArrowUp, Close, Plus, MoreFilled, TrendCharts, Warning, Collection, MagicStick, Phone, Service
+  ArrowDown, ArrowUp, Close, Plus, MoreFilled, TrendCharts, Collection, MagicStick, Phone, Service
 } from '@element-plus/icons-vue'
-import { logout } from '../api'
-import axios from 'axios'
-const req = axios.create({ baseURL: '/api' })
+import request, { logout } from '../api/index.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -205,7 +201,7 @@ const currentSessionId = computed(() => route.query.session || null)
 
 async function loadChatSessions() {
   try {
-    const { data } = await req.get('/chat-sessions')
+    const { data } = await request.get('/chat-sessions')
     chatSessions.value = data.data || []
   } catch { chatSessions.value = [] }
 }
@@ -231,7 +227,7 @@ async function newChatSession() {
       inputValidator: (v) => v.trim() ? true : '名称不能为空'
     })
     const name = value.trim()
-    const { data } = await req.post('/chat-sessions', {
+    const { data } = await request.post('/chat-sessions', {
       name,
       agent_id: route.query.agent || '',
       employee_id: route.query.employee_id || ''
@@ -250,14 +246,14 @@ async function renameSession(s) {
       inputValue: s.name,
       inputValidator: (v) => v.trim() ? true : '名称不能为空'
     })
-    await req.put('/chat-sessions/' + s.id, { name: value.trim() })
+    await request.put('/chat-sessions/' + s.id, { name: value.trim() })
     await loadChatSessions()
     ElMessage.success('已重命名')
   } catch { /* 取消 */ }
 }
 
 async function delSession(id) {
-  await req.delete('/chat-sessions/' + id)
+  await request.delete('/chat-sessions/' + id)
   if (currentSessionId.value === id) router.push('/chat')
   await loadChatSessions()
 }

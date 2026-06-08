@@ -45,10 +45,12 @@ const routePermMap = [
   { prefix: '/api/employees', perm: 'hr' },
   { prefix: '/api/departments', perm: 'hr' },
   { prefix: '/api/recruitment', perm: 'hr' },
+  { prefix: '/api/recruitment-stats', perm: 'hr' },
   { prefix: '/api/candidates', perm: 'hr' },
   { prefix: '/api/attendance', perm: 'hr' },
   { prefix: '/api/personnel-changes', perm: 'hr' },
   { prefix: '/api/performance', perm: 'hr' },
+  { prefix: '/api/finance', perm: 'crm' },
   { prefix: '/api/documents', perm: 'docs' },
   { prefix: '/api/doc-folders', perm: 'docs' },
   { prefix: '/api/org-charts', perm: 'docs' },
@@ -70,7 +72,6 @@ const routePermMap = [
   { prefix: '/api/model-configs', perm: 'model' },
   { prefix: '/api/channel-accounts', perm: 'channels' },
   { prefix: '/api/channel-conversations', perm: 'channels' },
-  { prefix: '/api/content-publish', perm: 'publish' },
   { prefix: '/api/bids', perm: 'publish' },
   { prefix: '/api/publish', perm: 'publish' },
   { prefix: '/api/ppt', perm: 'publish' },
@@ -101,10 +102,12 @@ app.use('/api/returns', require('./routes/returns'));
 app.use('/api/employees', require('./routes/employees'));
 app.use('/api/departments', require('./routes/hr-departments'));
 app.use('/api/recruitment', require('./routes/hr-recruitment'));
+app.use('/api/recruitment-stats', require('./routes/hr-recruitment-stats'));
 app.use('/api/candidates', require('./routes/hr-recruitment'));
 app.use('/api/attendance', require('./routes/hr-attendance'));
 app.use('/api/personnel-changes', require('./routes/hr-changes'));
 app.use('/api/performance', require('./routes/hr-performance'));
+app.use('/api/finance', require('./routes/finance'));
 const { requireAuth, requirePermission } = require('./routes/auth');
 
 app.use('/api/auth', require('./routes/auth'));
@@ -112,7 +115,6 @@ app.use('/api/users', requireAuth, require('./routes/users'));
 app.use('/api/security', requirePermission('security'), require('./routes/security'));
 app.use('/api/io', require('./routes/io'));
 app.use('/api/bids', require('./routes/bids'));
-app.use('/api/content-publish', require('./routes/content-publish'));
 app.use('/api/chat-sessions', require('./routes/chat-sessions'));
 app.use('/api/agent-apps', require('./routes/agent-apps'));
 app.use('/api/agent-skills', require('./routes/agent-skills'));

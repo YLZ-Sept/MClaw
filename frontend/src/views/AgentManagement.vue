@@ -123,8 +123,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Avatar, Cpu, Check, Setting } from '@element-plus/icons-vue'
-import axios from 'axios'
-const req = axios.create({ baseURL: '/api' })
+import request from '../api/index.js'
 const router = useRouter()
 
 const agents = ref([])
@@ -141,10 +140,10 @@ const checkedIds = ref([])
 const skillSaving = ref(false)
 
 async function loadAgents() {
-  try { const { data } = await req.get('/agents'); agents.value = data.data || [] } catch { agents.value = [] }
+  try { const { data } = await request.get('/agents'); agents.value = data.data || [] } catch { agents.value = [] }
 }
 async function loadKB() {
-  try { const { data } = await req.get('/knowledge-base', { params: { status: 'published' } }); kbArticles.value = data.data || [] } catch { kbArticles.value = [] }
+  try { const { data } = await request.get('/knowledge-base', { params: { status: 'published' } }); kbArticles.value = data.data || [] } catch { kbArticles.value = [] }
 }
 
 function hasPanel(agent) {
@@ -163,7 +162,7 @@ async function manageSkills(agent) {
   skillDlg.agentId = agent.id; skillDlg.agentName = agent.name
   // 加载全部技能库技能
   try {
-    const { data } = await req.get('/agent-skills')
+    const { data } = await request.get('/agent-skills')
     allSkills.value = data.data || []
     // 已分配给当前 Agent 的技能默认勾选
     checkedIds.value = allSkills.value.filter(s => s.agent_id === agent.id).map(s => s.id)
@@ -183,9 +182,9 @@ async function saveSkillBinding() {
     for (const s of allSkills.value) {
       const shouldBind = checkedIds.value.includes(s.id)
       if (shouldBind && s.agent_id !== agentId) {
-        await req.put('/agent-skills/' + s.id, { agent_id: agentId })
+        await request.put('/agent-skills/' + s.id, { agent_id: agentId })
       } else if (!shouldBind && s.agent_id === agentId) {
-        await req.put('/agent-skills/' + s.id, { agent_id: '' })
+        await request.put('/agent-skills/' + s.id, { agent_id: '' })
       }
     }
     ElMessage.success('技能分配已保存')
@@ -211,15 +210,15 @@ function openEdit(agent) {
 async function saveAgent() {
   if (!dlg.form.name) return ElMessage.warning('请输入名称')
   const payload = { ...dlg.form, kb_article_ids: (dlg.form.kb_article_ids || []).join(',') }
-  if (dlg.isEdit) { await req.put('/agent-apps/' + dlg.form.id, payload) }
-  else { await req.post('/agent-apps', payload) }
+  if (dlg.isEdit) { await request.put('/agent-apps/' + dlg.form.id, payload) }
+  else { await request.post('/agent-apps', payload) }
   dlg.visible = false; await loadAgents(); ElMessage.success('OK')
 }
 async function generatePrompt() {
   if (!dlg.form.name) return ElMessage.warning('请先填写智能体名称')
   promptGenerating.value = true
   try {
-    const { data } = await req.post('/agent-apps/generate-prompt', {
+    const { data } = await request.post('/agent-apps/generate-prompt', {
       name: dlg.form.name,
       desc: dlg.form.desc || '',
       base_agent: dlg.form.base_agent || ''
@@ -235,7 +234,7 @@ async function generatePrompt() {
 }
 
 async function delAgent(id) {
-  try { await ElMessageBox.confirm('确认删除？'); await req.delete('/agent-apps/' + id); await loadAgents() } catch {}
+  try { await ElMessageBox.confirm('确认删除？'); await request.delete('/agent-apps/' + id); await loadAgents() } catch {}
 }
 
 onMounted(() => { loadAgents(); loadKB() })

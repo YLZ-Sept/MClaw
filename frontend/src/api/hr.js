@@ -69,3 +69,15 @@ export const recruitmentApi = {
   addCandidate: (id, d) => POST(`/recruitment/${id}/candidates`, d),
   updateCandidate: (id, d) => PUT(`/candidates/${id}`, d),
 }
+
+export const recruitmentStatsApi = {
+  list: (params) => GET('/recruitment-stats', { params }),
+  weeks: () => GET('/recruitment-stats/weeks'),
+  create: (d) => POST('/recruitment-stats', d),
+  update: (id, d) => PUT(`/recruitment-stats/${id}`, d),
+  remove: (id) => DEL(`/recruitment-stats/${id}`),
+  batch: (d) => POST('/recruitment-stats/batch', d),
+  import: (formData) => POST('/recruitment-stats/import', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  }),
+}

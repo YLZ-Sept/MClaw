@@ -97,8 +97,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import axios from 'axios'
-const req = axios.create({ baseURL: '/api' })
+import request from '../../api/index.js'
 const router = useRouter()
 
 const tab = ref('list')
@@ -115,13 +114,13 @@ function openDlg(r) { dlg.ed = !!r; dlg.form = r ? { ...r } : { category: '通�
 async function saveFaq() {
   const f = dlg.form
   if (!f.question || !f.answer) { ElMessage.warning('问题和答案必填'); return }
-  dlg.ed ? await req.put('/faq/' + f.id, f) : await req.post('/faq', f)
+  dlg.ed ? await request.put('/faq/' + f.id, f) : await request.post('/faq', f)
   dlg.visible = false; dlg.form = {}; dlg.ed = false; await refresh(); ElMessage.success('OK')
 }
-async function delFaq(id) { await ElMessageBox.confirm('确认?'); await req.delete('/faq/' + id); await refresh() }
+async function delFaq(id) { await ElMessageBox.confirm('确认?'); await request.delete('/faq/' + id); await refresh() }
 async function searchFaq() {
   if (!searchQ.value) { searchResults.value = []; return }
-  const r = await req.get('/faq/match', { params: { q: searchQ.value } })
+  const r = await request.get('/faq/match', { params: { q: searchQ.value } })
   searchResults.value = r.data.data
 }
 function exportExcel() {
@@ -134,7 +133,7 @@ async function handleImport(opt) {
   const formData = new FormData()
   formData.append('file', opt.file.raw || opt.file)
   try {
-    const res = await req.post('/faq/import', formData)
+    const res = await request.post('/faq/import', formData)
     const { type, items } = res.data.data
     if (items.length === 0) { ElMessage.warning('未解析到 FAQ 内容'); return }
     items.forEach(it => it._checked = true)
@@ -151,7 +150,7 @@ async function doBatchImport() {
   if (checked.length === 0) { ElMessage.warning('请至少选择一条'); return }
   importing.value = true
   try {
-    const res = await req.post('/faq/batch', { items: checked })
+    const res = await request.post('/faq/batch', { items: checked })
     ElMessage.success(`导入完成: ${res.data.data.imported} 条`)
     previewDlg.visible = false
     await refresh()
@@ -161,7 +160,7 @@ async function doBatchImport() {
   importing.value = false
 }
 
-async function refresh() { loading.value = true; faqs.value = (await req.get('/faq')).data.data; loading.value = false }
+async function refresh() { loading.value = true; faqs.value = (await request.get('/faq')).data.data; loading.value = false }
 onMounted(refresh)
 </script>
 

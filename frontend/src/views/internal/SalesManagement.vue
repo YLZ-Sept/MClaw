@@ -10,7 +10,6 @@
       <el-menu :default-active="tab" class="side-tabs" @select="handleTabSelect">
         <el-menu-item index="crm">客户关系管理</el-menu-item>
         <el-menu-item index="bids">招投标采集</el-menu-item>
-        <el-menu-item index="content">内容发布</el-menu-item>
       </el-menu>
       <div class="tab-content">
         <!-- ===== 客户关系管理 ===== -->
@@ -134,19 +133,6 @@
             <el-tag v-for="k in bidKeywords" :key="k.id" closable @close="delKeyword(k.id)" style="margin:4px">{{ k.keyword }}</el-tag>
             <el-empty v-if="bidKeywords.length===0" description="暂无关键词"/>
           </div>
-        </div>
-        <!-- ===== 内容发布 ===== -->
-        <div v-else-if="tab==='content'">
-          <div class="tb"><el-button type="primary" @click="pubDlg.visible=true">新建发布计划</el-button><el-button @click="handleExport('content_publish')">导出</el-button><el-button @click="handleImport('content_publish')">导入</el-button></div>
-          <el-table v-loading="loadingBids" :data="pubTasks" stripe border row-key="id">
-            <el-table-column type="index" label="#" width="50"/>
-            <el-table-column prop="platform" label="平台" width="100"/>
-            <el-table-column prop="content_type" label="类型" width="80"/>
-            <el-table-column prop="content" label="内容" min-width="200"/>
-            <el-table-column prop="scheduled_at" label="计划时间" width="160"/>
-            <el-table-column prop="status" label="状态" width="80"/>
-            <el-table-column label="操作" width="80"><template #default="{row}"><el-button size="small" type="danger" link @click="delPub(row.id)">删除</el-button></template></el-table-column>
-          </el-table>
         </div>
       </div>
     </div>
@@ -308,7 +294,6 @@
         <el-button type="primary" @click="doCollect">开始采集</el-button>
       </template>
     </el-dialog>
-    <el-dialog v-model="pubDlg.visible" title="新建发布计划" width="500px"><el-form :model="pubDlg.form" label-width="80px"><el-form-item label="平台"><el-select v-model="pubDlg.form.platform"><el-option label="微信" value="wechat"/><el-option label="抖音" value="douyin"/><el-option label="小红书" value="xiaohongshu"/></el-select></el-form-item><el-form-item label="类型"><el-select v-model="pubDlg.form.content_type"><el-option label="图文" value="text"/><el-option label="视频" value="video"/></el-select></el-form-item><el-form-item label="内容"><el-input v-model="pubDlg.form.content" type="textarea"/></el-form-item><el-form-item label="计划时间"><el-date-picker v-model="pubDlg.form.scheduled_at" type="datetime" value-format="YYYY-MM-DD HH:mm" style="width:100%"/></el-form-item></el-form><template #footer><el-button @click="pubDlg.visible=false">取消</el-button><el-button type="primary" @click="savePub">保存</el-button></template></el-dialog>
     <ImportDialog v-model="importVisible" :ioKey="importKey" @done="onImportDone" />
   </div>
 </template>
@@ -317,10 +302,9 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import axios from 'axios'
+import request from '../../api/index.js'
 import { customerApi, contactApi, opportunityApi, contractApi } from '../../api/crm'
 import ImportDialog from '../../components/ImportDialog.vue'
-const req = axios.create({ baseURL: '/api' })
 const router = useRouter()
 
 const tab = ref('crm')
@@ -337,7 +321,6 @@ const saving = ref(false)
 
 // ─── 招投标数据 ───
 const bidItems = ref([]), bidSources = ref([]), bidKeywords = ref([])
-const pubTasks = ref([])
 const loadingBids = ref(false)
 
 // ─── KPI ───
@@ -349,8 +332,7 @@ const kpis = computed(() => {
   ]
   return [
     { val: bidItems.value.filter(i=>i.status==='new').length, label: '新招标' },
-    { val: bidSources.value.length, label: '采集源' },
-    { val: pubTasks.value.filter(t=>t.status==='scheduled').length, label: '待发布' }
+    { val: bidSources.value.length, label: '采集源' }
   ]
 })
 
@@ -437,7 +419,6 @@ function onImportDone() { loadCrm(); loadBidData() }
 // ─── 招投标 ───
 const srcDlg = reactive({ visible: false, form: {} })
 const kwDlg = reactive({ visible: false, form: {} })
-const pubDlg = reactive({ visible: false, form: {} })
 const editDlg = reactive({ visible: false, form: {} })
 const srcEditDlg = reactive({ visible: false, form: {} })
 const collectDlg = reactive({ visible: false, method: 'api', start: '', end: '' })
@@ -445,14 +426,13 @@ const detailDlg = reactive({ visible: false, row: null })
 
 async function loadBidItems() {
   const p = bidFilter.value ? { params: { status: bidFilter.value } } : {}
-  bidItems.value = (await req.get('/bids/items', p)).data.data
+  bidItems.value = (await request.get('/bids/items', p)).data.data
 }
-async function loadBidSources() { bidSources.value = (await req.get('/bids/sources')).data.data }
-async function loadBidKeywords() { bidKeywords.value = (await req.get('/bids/keywords')).data.data }
-async function loadPubTasks() { pubTasks.value = (await req.get('/content-publish')).data.data }
+async function loadBidSources() { bidSources.value = (await request.get('/bids/sources')).data.data }
+async function loadBidKeywords() { bidKeywords.value = (await request.get('/bids/keywords')).data.data }
 async function doCollect() {
   const methodLabel = collectDlg.method === 'api' ? 'API' : collectDlg.method === 'crawl4ai' ? 'Crawl4AI' : '全部线路'
-  await req.post('/bids/collect', { method: collectDlg.method, start: collectDlg.start, end: collectDlg.end })
+  await request.post('/bids/collect', { method: collectDlg.method, start: collectDlg.start, end: collectDlg.end })
   collectDlg.visible = false; collectDlg.start = ''; collectDlg.end = ''; collectDlg.method = 'api'
   ElMessage.success(`${methodLabel} 采集完成`); await loadBidData()
 }
@@ -461,20 +441,17 @@ function onCloseCollect() {
   collectDlg.visible = false
   collectDlg.method = 'api'
 }
-async function saveSource() { await req.post('/bids/sources', srcDlg.form); srcDlg.visible = false; srcDlg.form = {}; await loadBidData(); ElMessage.success('OK') }
+async function saveSource() { await request.post('/bids/sources', srcDlg.form); srcDlg.visible = false; srcDlg.form = {}; await loadBidData(); ElMessage.success('OK') }
 function openEditSource(row) { srcEditDlg.form = { ...row }; srcEditDlg.visible = true }
-async function toggleSource(row, val) { await req.put('/bids/sources/'+row.id, { enabled: val ? 1 : 0 }); await loadBidData() }
-async function saveEditSource() { await req.put('/bids/sources/'+srcEditDlg.form.id, srcEditDlg.form); srcEditDlg.visible = false; await loadBidData(); ElMessage.success('OK') }
-async function delSource(id) { await ElMessageBox.confirm('确认?'); await req.delete('/bids/sources/'+id); await loadBidData() }
-async function saveKeyword() { try { await req.post('/bids/keywords', kwDlg.form); kwDlg.visible = false; kwDlg.form = {}; await loadBidData(); ElMessage.success('OK') } catch { ElMessage.error('关键词已存在') } }
-async function delKeyword(id) { await req.delete('/bids/keywords/'+id); await loadBidData() }
+async function toggleSource(row, val) { await request.put('/bids/sources/'+row.id, { enabled: val ? 1 : 0 }); await loadBidData() }
+async function saveEditSource() { await request.put('/bids/sources/'+srcEditDlg.form.id, srcEditDlg.form); srcEditDlg.visible = false; await loadBidData(); ElMessage.success('OK') }
+async function delSource(id) { await ElMessageBox.confirm('确认?'); await request.delete('/bids/sources/'+id); await loadBidData() }
+async function saveKeyword() { try { await request.post('/bids/keywords', kwDlg.form); kwDlg.visible = false; kwDlg.form = {}; await loadBidData(); ElMessage.success('OK') } catch { ElMessage.error('关键词已存在') } }
+async function delKeyword(id) { await request.delete('/bids/keywords/'+id); await loadBidData() }
 function openDetail(row) { detailDlg.row = row; detailDlg.visible = true }
 function openEditItem(row) { editDlg.form = { ...row }; editDlg.visible = true }
-async function saveEditItem() { await req.put('/bids/items/'+editDlg.form.id, editDlg.form); editDlg.visible = false; await loadBidData(); ElMessage.success('OK') }
-async function delBidItem(id) { await ElMessageBox.confirm('确认?'); await req.delete('/bids/items/'+id); await loadBidData() }
-async function savePub() { await req.post('/content-publish', pubDlg.form); pubDlg.visible = false; pubDlg.form = {}; await loadBidData(); ElMessage.success('OK') }
-async function delPub(id) { await ElMessageBox.confirm('确认?'); await req.delete('/content-publish/'+id); await loadBidData() }
-
+async function saveEditItem() { await request.put('/bids/items/'+editDlg.form.id, editDlg.form); editDlg.visible = false; await loadBidData(); ElMessage.success('OK') }
+async function delBidItem(id) { await ElMessageBox.confirm('确认?'); await request.delete('/bids/items/'+id); await loadBidData() }
 // ─── 数据加载 ───
 async function loadCrm() {
   loadingCrm.value = true
@@ -485,7 +462,7 @@ async function loadCrm() {
 }
 async function loadBidData() {
   loadingBids.value = true
-  await loadBidItems(); await loadBidSources(); await loadBidKeywords(); await loadPubTasks()
+  await loadBidItems(); await loadBidSources(); await loadBidKeywords()
   loadingBids.value = false
 }
 async function refresh() { await loadCrm(); await loadBidData() }

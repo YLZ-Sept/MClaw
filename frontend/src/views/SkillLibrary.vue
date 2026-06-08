@@ -70,8 +70,7 @@
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { marked } from 'marked'
-import axios from 'axios'
-const req = axios.create({ baseURL: '/api' })
+import request from '../api/index.js'
 
 const skills = ref([])
 const detailDlg = ref({ visible: false, skill: null })
@@ -91,7 +90,7 @@ function renderMd(text) {
 
 async function loadSkills() {
   try {
-    const { data } = await req.get('/agent-skills')
+    const { data } = await request.get('/agent-skills')
     skills.value = (data.data || []).map(s => ({ ...s, emoji: skillEmoji(s.name) }))
   } catch {}
 }
@@ -104,7 +103,7 @@ async function doGeneratePPT() {
   if (!pptDlg.value.prompt.trim()) return
   pptDlg.value.loading = true
   try {
-    const { data } = await req.post('/ppt/generate', { prompt: pptDlg.value.prompt })
+    const { data } = await request.post('/ppt/generate', { prompt: pptDlg.value.prompt })
     if (data.code === 200) {
       pptDlg.value.result = data.data
     } else {

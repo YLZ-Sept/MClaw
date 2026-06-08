@@ -241,8 +241,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Plus, Edit, Close, UploadFilled, Loading, Document, Collection, FolderOpened } from '@element-plus/icons-vue'
 import { marked } from 'marked'
-import axios from 'axios'
-const req = axios.create({ baseURL: '/api' })
+import request from '../api/index.js'
 
 const categories = ref([])
 const articles = ref([])
@@ -281,14 +280,14 @@ function fmtSize(bytes) {
 }
 
 async function loadCategories() {
-  const { data } = await req.get('/knowledge-base/categories')
+  const { data } = await request.get('/knowledge-base/categories')
   categories.value = data.data || []
 }
 async function load() {
   const params = {}
   if (activeCat.value) params.category = activeCat.value
   if (keyword.value) params.keyword = keyword.value
-  const { data } = await req.get('/knowledge-base', { params })
+  const { data } = await request.get('/knowledge-base', { params })
   articles.value = data.data || []
 }
 function stripContent(c) { return (c || '').replace(/[#*`>\-\[\]()!|]/g, '').slice(0, 120) }
@@ -324,7 +323,7 @@ async function onFileChange(file) {
   try {
     const fd = new FormData()
     fd.append('file', file.raw)
-    const { data } = await req.post('/doc-import/upload', fd)
+    const { data } = await request.post('/doc-import/upload', fd)
     importResult.value = data.data
   } catch (e) {
     ElMessage.error('文件解析失败: ' + (e.response?.data?.message || e.message))
@@ -342,7 +341,7 @@ async function fetchWeb() {
   importLoading.value = true
   importProgress.value = '正在抓取网页...'
   try {
-    const { data } = await req.post('/doc-import/fetch-url', { url: webUrl.value.trim() })
+    const { data } = await request.post('/doc-import/fetch-url', { url: webUrl.value.trim() })
     importResult.value = { text: data.data.content, tables: [], fileName: data.data.title }
     if (!dlg.value.form.title) dlg.value.form.title = data.data.title
     dlg.value.form.source = data.data.url
@@ -358,7 +357,7 @@ async function onBatchFileChange(file) {
   try {
     const fd = new FormData()
     fd.append('file', file.raw)
-    const { data } = await req.post('/doc-import/batch-urls', fd)
+    const { data } = await request.post('/doc-import/batch-urls', fd)
     batchUrls.value = data.data.urls
   } catch (e) {
     ElMessage.error(e.response?.data?.message || '解析失败')
@@ -380,8 +379,8 @@ async function batchImport() {
   for (let i = 0; i < batchUrls.value.length; i++) {
     importProgress.value = `导入中 ${i + 1}/${batchUrls.value.length}...`
     try {
-      const { data } = await req.post('/doc-import/fetch-url', { url: batchUrls.value[i] })
-      await req.post('/knowledge-base', {
+      const { data } = await request.post('/doc-import/fetch-url', { url: batchUrls.value[i] })
+      await request.post('/knowledge-base', {
         title: data.data.title || ('网页_' + (i + 1)),
         content: data.data.content,
         category: dlg.value.form.category,
@@ -400,7 +399,7 @@ async function batchImport() {
 
 async function saveImport() {
   const f = dlg.value.form
-  await req.post('/knowledge-base', {
+  await request.post('/knowledge-base', {
     title: f.title,
     content: importResult.value?.text || '',
     category: f.category,
@@ -424,14 +423,14 @@ async function saveArticle() {
   if (!dlg.value.form.title) return ElMessage.warning('标题必填')
   const f = dlg.value.form
   if (dlg.value.isEdit) {
-    await req.put('/knowledge-base/' + f.id, { title: f.title, content: f.content, category: f.category, tags: f.tags, source: f.source })
+    await request.put('/knowledge-base/' + f.id, { title: f.title, content: f.content, category: f.category, tags: f.tags, source: f.source })
   }
   dlg.value.visible = false
   await load()
   ElMessage.success('已保存')
 }
 async function delArticle(id) {
-  try { await ElMessageBox.confirm('确认删除？'); await req.delete('/knowledge-base/' + id); await loadCategories(); await load(); ElMessage.success('已删除') } catch {}
+  try { await ElMessageBox.confirm('确认删除？'); await request.delete('/knowledge-base/' + id); await loadCategories(); await load(); ElMessage.success('已删除') } catch {}
 }
 
 // 分类管理
@@ -440,16 +439,16 @@ function openEditCat(c) { catDlg.value = { visible: true, isEdit: true, id: c.id
 async function saveCat() {
   if (!catDlg.value.name.trim()) return ElMessage.warning('名称必填')
   if (catDlg.value.isEdit) {
-    await req.put('/knowledge-base/categories/' + catDlg.value.id, { name: catDlg.value.name.trim() })
+    await request.put('/knowledge-base/categories/' + catDlg.value.id, { name: catDlg.value.name.trim() })
   } else {
-    await req.post('/knowledge-base/categories', { name: catDlg.value.name.trim() })
+    await request.post('/knowledge-base/categories', { name: catDlg.value.name.trim() })
   }
   catDlg.value.visible = false
   await loadCategories()
   ElMessage.success('已保存')
 }
 async function delCat(c) {
-  try { await ElMessageBox.confirm(`删除"${c.name}"分类？文章将移至"通用"。`); await req.delete('/knowledge-base/categories/' + c.id); await loadCategories(); await load(); ElMessage.success('已删除') } catch {}
+  try { await ElMessageBox.confirm(`删除"${c.name}"分类？文章将移至"通用"。`); await request.delete('/knowledge-base/categories/' + c.id); await loadCategories(); await load(); ElMessage.success('已删除') } catch {}
 }
 
 onMounted(async () => { await loadCategories(); await load() })

@@ -147,54 +147,89 @@
             </el-table-column>
           </el-table>
         </div>
-        <!-- 招聘管理 -->
+        <!-- 招聘管理 — 每周招聘数据统计 -->
         <div v-else-if="tab==='recruitment'">
-          <div class="tb"><el-button type="primary" @click="openRecDlg()">新增职位</el-button></div>
-          <el-table v-loading="rLoading" :data="recruitments" stripe border row-key="id" @row-click="onRecRow" highlight-current-row>
-            <el-table-column type="index" label="#" width="50"/>
-            <el-table-column prop="position" label="职位" width="140"/>
-            <el-table-column prop="department" label="部门" width="110"/>
-            <el-table-column prop="headcount" label="人数" width="60"/>
-            <el-table-column prop="salary_range" label="薪资范围" width="110"/>
-            <el-table-column label="状态" width="80"><template #default="{row}"><el-tag :type="row.status==='open'?'success':'info'" size="small">{{ row.status==='open'?'招聘中':'已关闭' }}</el-tag></template></el-table-column>
-            <el-table-column prop="requirements" label="任职要求" min-width="200"/>
-            <el-table-column label="操作" width="140"><template #default="{row}"><el-button size="small" type="primary" link @click.stop="openRecDlg(row)">编辑</el-button><el-button size="small" type="danger" link @click.stop="delRec(row.id)">删除</el-button></template></el-table-column>
+          <div class="tb">
+            <el-select v-model="statsWeek" placeholder="选择周期" clearable style="width:220px" @change="loadStats">
+              <el-option v-for="w in statsWeeks" :key="w.week_start" :label="w.week_start + ' ~ ' + w.week_end" :value="w.week_start"/>
+            </el-select>
+            <el-button type="primary" @click="openStatsDlg()" style="margin-left:8px">新增记录</el-button>
+            <el-upload :http-request="handleStatsImport" :show-file-list="false" accept=".xlsx,.xls" style="display:inline-block;margin-left:8px">
+              <el-button>导入 Excel</el-button>
+            </el-upload>
+            <el-button @click="exportStats" style="margin-left:4px">导出 Excel</el-button>
+            <el-button v-if="statsWeek" type="danger" plain @click="delStatsWeek" style="margin-left:4px">删除本周</el-button>
+          </div>
+          <el-table v-loading="statsLoading" :data="statsData" stripe border row-key="id">
+            <el-table-column type="index" label="序号" width="55"/>
+            <el-table-column prop="position" label="岗位名称" width="130"/>
+            <el-table-column prop="new_resumes" label="新增简历数" width="100"/>
+            <el-table-column prop="valid_resumes" label="有效简历数" width="100"/>
+            <el-table-column prop="resume_valid_rate" label="简历有效率(%)" width="110"/>
+            <el-table-column prop="initial_screen_notify" label="初筛通知数" width="100"/>
+            <el-table-column prop="initial_screen_attend" label="初筛到场数" width="100"/>
+            <el-table-column prop="second_interview_notify" label="复试通知数" width="100"/>
+            <el-table-column prop="second_interview_attend" label="复试到场数" width="100"/>
+            <el-table-column prop="second_interview_pass_rate" label="复试通过率(%)" width="110"/>
+            <el-table-column prop="offer_count" label="offer发放数" width="100"/>
+            <el-table-column prop="onboard_count" label="入职人数" width="85"/>
+            <el-table-column label="操作" width="100" fixed="right">
+              <template #default="{row}"><el-button size="small" type="primary" link @click="openStatsDlg(row)">编辑</el-button><el-button size="small" type="danger" link @click="delStats(row.id)">删除</el-button></template>
+            </el-table-column>
           </el-table>
-
-          <!-- 候选人列表 -->
-          <el-divider v-if="curRec" content-position="left">候选人 — {{ curRec.position }}</el-divider>
-          <div class="tb" v-if="curRec"><el-button type="success" @click="openCandDlg()">添加候选人</el-button></div>
-          <el-table v-if="curRec" v-loading="cLoading" :data="candidates" stripe border row-key="id">
-            <el-table-column type="index" label="#" width="50"/>
-            <el-table-column prop="name" label="姓名" width="90"/>
-            <el-table-column prop="phone" label="电话" width="130"/>
-            <el-table-column prop="email" label="邮箱" width="160"/>
-            <el-table-column label="状态" width="110"><template #default="{row}"><el-select v-model="row.status" size="small" @change="v=>updateCandStatus(row.id,v)" style="width:100px"><el-option v-for="s in candStatuses" :key="s" :label="candLabel(s)" :value="s"/></el-select></template></el-table-column>
-            <el-table-column prop="remark" label="备注" min-width="150"/>
-            <el-table-column prop="created_at" label="投递时间" width="160"/>
-          </el-table>
+          <el-empty v-if="!statsLoading && statsData.length===0" description="暂无数据，请选择周期或新增记录" :image-size="80"/>
         </div>
-        <!-- 职位对话框 -->
-        <el-dialog v-model="showRecDlg" :title="recEdit?'编辑职位':'新增职位'" width="480px">
-          <el-form :model="recForm" label-width="80px">
-            <el-form-item label="职位"><el-input v-model="recForm.position"/></el-form-item>
-            <el-form-item label="部门"><el-input v-model="recForm.department"/></el-form-item>
-            <el-form-item label="招聘人数"><el-input-number v-model="recForm.headcount" :min="1" style="width:100%"/></el-form-item>
-            <el-form-item label="薪资范围"><el-input v-model="recForm.salary_range" placeholder="如 15K-25K"/></el-form-item>
-            <el-form-item label="任职要求"><el-input v-model="recForm.requirements" type="textarea" :rows="3"/></el-form-item>
-            <el-form-item label="状态" v-if="recEdit"><el-select v-model="recForm.status" style="width:100%"><el-option label="招聘中" value="open"/><el-option label="已关闭" value="closed"/></el-select></el-form-item>
+        <!-- 招聘统计编辑对话框 -->
+        <el-dialog v-model="statsDlg.visible" :title="statsDlg.ed?'编辑统计记录':'新增统计记录'" width="680px">
+          <el-form :model="statsDlg.form" label-width="110px">
+            <el-form-item label="统计周期">
+              <el-date-picker v-model="statsDlg.weekRange" type="daterange" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" value-format="YYYY-MM-DD" style="width:100%"/>
+            </el-form-item>
+            <el-form-item label="岗位名称" required><el-input v-model="statsDlg.form.position" placeholder="必填"/></el-form-item>
+            <el-row :gutter="12">
+              <el-col :span="12"><el-form-item label="新增简历数"><el-input-number v-model="statsDlg.form.new_resumes" :min="0" style="width:100%" controls-position="right"/></el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="有效简历数"><el-input-number v-model="statsDlg.form.valid_resumes" :min="0" style="width:100%" controls-position="right"/></el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="简历有效率(%)"><el-input-number v-model="statsDlg.form.resume_valid_rate" :min="0" :max="100" :precision="1" style="width:100%" controls-position="right"/></el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="初筛通知数"><el-input-number v-model="statsDlg.form.initial_screen_notify" :min="0" style="width:100%" controls-position="right"/></el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="初筛到场数"><el-input-number v-model="statsDlg.form.initial_screen_attend" :min="0" style="width:100%" controls-position="right"/></el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="复试通知数"><el-input-number v-model="statsDlg.form.second_interview_notify" :min="0" style="width:100%" controls-position="right"/></el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="复试到场数"><el-input-number v-model="statsDlg.form.second_interview_attend" :min="0" style="width:100%" controls-position="right"/></el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="复试通过率(%)"><el-input-number v-model="statsDlg.form.second_interview_pass_rate" :min="0" :max="100" :precision="1" style="width:100%" controls-position="right"/></el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="offer发放数"><el-input-number v-model="statsDlg.form.offer_count" :min="0" style="width:100%" controls-position="right"/></el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="入职人数"><el-input-number v-model="statsDlg.form.onboard_count" :min="0" style="width:100%" controls-position="right"/></el-form-item></el-col>
+            </el-row>
           </el-form>
-          <template #footer><el-button @click="showRecDlg=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveRec">保存</el-button></template>
+          <template #footer><el-button @click="statsDlg.visible=false">取消</el-button><el-button type="primary" @click="saveStats">保存</el-button></template>
         </el-dialog>
-        <!-- 候选人对话框 -->
-        <el-dialog v-model="showCandDlg" title="添加候选人" width="400px">
-          <el-form :model="candForm" label-width="80px">
-            <el-form-item label="姓名"><el-input v-model="candForm.name"/></el-form-item>
-            <el-form-item label="电话"><el-input v-model="candForm.phone"/></el-form-item>
-            <el-form-item label="邮箱"><el-input v-model="candForm.email"/></el-form-item>
-            <el-form-item label="备注"><el-input v-model="candForm.remark" type="textarea"/></el-form-item>
-          </el-form>
-          <template #footer><el-button @click="showCandDlg=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveCand">保存</el-button></template>
+        <!-- 招聘统计导入预览 -->
+        <el-dialog v-model="statsImportDlg.visible" title="导入预览" width="900px" top="3vh">
+          <div style="margin-bottom:10px;display:flex;gap:12px;align-items:center">
+            <el-button size="small" @click="statsImportDlg.items.forEach(it=>it._checked=true)">全选</el-button>
+            <el-button size="small" @click="statsImportDlg.items.forEach(it=>it._checked=false)">全不选</el-button>
+            <span style="color:#b8aad0;font-size:12px">已选 {{ statsImportDlg.items.filter(it=>it._checked!==false).length }} / {{ statsImportDlg.items.length }} 条</span>
+          </div>
+          <el-table :data="statsImportDlg.items" stripe border row-key="_idx" max-height="400">
+            <el-table-column prop="_checked" label="导入" width="55" align="center">
+              <template #default="{row}"><el-checkbox v-model="row._checked" size="small"/></template>
+            </el-table-column>
+            <el-table-column prop="position" label="岗位名称" width="130">
+              <template #default="{row}"><el-input v-model="row.position" size="small" :disabled="row._checked===false"/></template>
+            </el-table-column>
+            <el-table-column prop="new_resumes" label="新增简历" width="85"/>
+            <el-table-column prop="valid_resumes" label="有效简历" width="85"/>
+            <el-table-column prop="resume_valid_rate" label="有效率(%)" width="85"/>
+            <el-table-column prop="initial_screen_notify" label="初筛通知" width="85"/>
+            <el-table-column prop="initial_screen_attend" label="初筛到场" width="85"/>
+            <el-table-column prop="second_interview_notify" label="复试通知" width="85"/>
+            <el-table-column prop="second_interview_attend" label="复试到场" width="85"/>
+            <el-table-column prop="second_interview_pass_rate" label="复试通过率(%)" width="100"/>
+            <el-table-column prop="offer_count" label="offer" width="65"/>
+            <el-table-column prop="onboard_count" label="入职" width="60"/>
+          </el-table>
+          <template #footer>
+            <el-button @click="statsImportDlg.visible=false">取消</el-button>
+            <el-button type="primary" :loading="statsImporting" @click="doStatsBatchImport">确认导入 ({{ statsImportDlg.items.filter(it=>it._checked!==false).length }})</el-button>
+          </template>
         </el-dialog>
         <!-- 导入预览对话框 -->
         <el-dialog v-model="perfPreviewDlg" title="导入预览" width="850px">
@@ -276,10 +311,10 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { employeeApi, departmentApi, attendanceApi, performanceApi, orgChartApi, recruitmentApi } from '../../api/hr'
+import { employeeApi, departmentApi, attendanceApi, performanceApi, orgChartApi, recruitmentStatsApi } from '../../api/hr'
 import ImportDialog from '../../components/ImportDialog.vue'
 const router = useRouter()
 
@@ -474,45 +509,96 @@ async function savePerf() {
   ElMessage.success('已更新')
 }
 
-// ─── 招聘管理 ───
-const recruitments = ref([]), curRec = ref(null), candidates = ref([])
-const rLoading = ref(false), cLoading = ref(false)
-const showRecDlg = ref(false), recEdit = ref(false), recForm = ref({})
-const showCandDlg = ref(false), candForm = ref({})
-const candStatuses = ['pending','screening','interview','offer','hired','rejected']
-function candLabel(s) { const m = { pending:'待筛选',screening:'筛选中',interview:'面试',offer:'发Offer',hired:'已入职',rejected:'已拒绝' }; return m[s]||s }
+// ─── 招聘管理 — 每周统计 ───
+const statsData = ref([]), statsWeeks = ref([]), statsWeek = ref('')
+const statsLoading = ref(false), statsImporting = ref(false)
+const statsDlg = reactive({ visible: false, ed: false, form: {}, weekRange: null })
+const statsImportDlg = reactive({ visible: false, week_start: '', week_end: '', items: [] })
 
-async function loadRecruitments() {
-  rLoading.value = true
-  try { recruitments.value = (await recruitmentApi.list()).data.data } catch {}
-  rLoading.value = false
+async function loadStatsWeeks() {
+  try { statsWeeks.value = (await recruitmentStatsApi.weeks()).data.data } catch {}
 }
-async function loadCandidates() {
-  if (!curRec.value) return
-  cLoading.value = true
-  try { candidates.value = (await recruitmentApi.candidates(curRec.value.id)).data.data } catch {}
-  cLoading.value = false
+async function loadStats() {
+  statsLoading.value = true
+  try { statsData.value = (await recruitmentStatsApi.list({ week_start: statsWeek.value || undefined })).data.data } catch {}
+  statsLoading.value = false
 }
-function onRecRow(row) { curRec.value = row; loadCandidates() }
-function openRecDlg(r) {
-  recEdit.value = !!r; recForm.value = r ? { ...r } : { headcount: 1, status: 'open' }
-  showRecDlg.value = true
+function openStatsDlg(r) {
+  statsDlg.ed = !!r
+  if (r) {
+    statsDlg.form = { ...r }
+    statsDlg.weekRange = [r.week_start, r.week_end]
+  } else {
+    statsDlg.form = { position: '', new_resumes: 0, valid_resumes: 0, resume_valid_rate: 0, initial_screen_notify: 0, initial_screen_attend: 0, second_interview_notify: 0, second_interview_attend: 0, second_interview_pass_rate: 0, offer_count: 0, onboard_count: 0 }
+    statsDlg.weekRange = statsWeek.value ? [statsWeek.value, statsData.value[0]?.week_end || statsWeek.value] : null
+  }
+  statsDlg.visible = true
 }
-async function saveRec() {
-  const f = recForm.value
-  recEdit.value ? await recruitmentApi.update(f.id, f) : await recruitmentApi.create(f)
-  showRecDlg.value = false; await loadRecruitments(); ElMessage.success('OK')
+async function saveStats() {
+  const f = statsDlg.form
+  if (!f.position) { ElMessage.warning('岗位名称必填'); return }
+  if (!statsDlg.weekRange || statsDlg.weekRange.length !== 2) { ElMessage.warning('请选择统计周期'); return }
+  f.week_start = statsDlg.weekRange[0]
+  f.week_end = statsDlg.weekRange[1]
+  if (statsDlg.ed) {
+    await recruitmentStatsApi.update(f.id, f)
+  } else {
+    await recruitmentStatsApi.create(f)
+  }
+  statsDlg.visible = false
+  await loadStats(); await loadStatsWeeks()
+  ElMessage.success('OK')
 }
-async function delRec(id) {
-  try { await ElMessageBox.confirm('确认删除？该职位下的候选人也会清除'); await recruitmentApi.remove(id); curRec.value = null; candidates.value = []; await loadRecruitments(); ElMessage.success('已删除') } catch {}
+async function delStats(id) {
+  try { await ElMessageBox.confirm('确认删除？'); await recruitmentStatsApi.remove(id); await loadStats(); await loadStatsWeeks(); ElMessage.success('已删除') } catch {}
 }
-function openCandDlg() { candForm.value = {}; showCandDlg.value = true }
-async function saveCand() {
-  await recruitmentApi.addCandidate(curRec.value.id, candForm.value)
-  showCandDlg.value = false; await loadCandidates(); ElMessage.success('OK')
+async function delStatsWeek() {
+  try {
+    await ElMessageBox.confirm(`确认删除周期 ${statsWeek.value} 的所有记录？`)
+    for (const r of statsData.value) { await recruitmentStatsApi.remove(r.id) }
+    statsWeek.value = ''
+    await loadStats(); await loadStatsWeeks()
+    ElMessage.success('已删除')
+  } catch {}
 }
-async function updateCandStatus(id, status) {
-  try { await recruitmentApi.updateCandidate(id, { status }); ElMessage.success('已更新') } catch {}
+function exportStats() {
+  const token = localStorage.getItem('token')
+  const params = new URLSearchParams()
+  if (statsWeek.value) params.set('week_start', statsWeek.value)
+  params.set('token', token)
+  window.open(`/api/recruitment-stats/export?${params.toString()}`)
+}
+// Excel 导入：解析 → 预览 → 批量写入
+async function handleStatsImport(opt) {
+  const formData = new FormData()
+  formData.append('file', opt.file.raw || opt.file)
+  try {
+    const res = await recruitmentStatsApi.import(formData)
+    const { week_start, week_end, items } = res.data.data
+    if (!items.length) { ElMessage.warning('未解析到数据'); return }
+    items.forEach((it, i) => { it._idx = i; it._checked = true })
+    statsImportDlg.week_start = week_start
+    statsImportDlg.week_end = week_end
+    statsImportDlg.items = items
+    statsImportDlg.visible = true
+  } catch (e) {
+    ElMessage.error('解析失败: ' + (e.message || '网络错误'))
+  }
+}
+async function doStatsBatchImport() {
+  const checked = statsImportDlg.items.filter(it => it._checked !== false)
+  if (!checked.length) { ElMessage.warning('请至少选择一条'); return }
+  statsImporting.value = true
+  try {
+    await recruitmentStatsApi.batch({ week_start: statsImportDlg.week_start, week_end: statsImportDlg.week_end, rows: checked })
+    ElMessage.success(`导入完成: ${checked.length} 条`)
+    statsImportDlg.visible = false
+    statsWeek.value = statsImportDlg.week_start
+    await loadStats(); await loadStatsWeeks()
+  } catch (e) {
+    ElMessage.error(e.response?.data?.message || '导入失败')
+  }
+  statsImporting.value = false
 }
 
 const saving = ref(false)
@@ -521,7 +607,7 @@ async function reload() {
   try { employees.value = (await employeeApi.list()).data.data } catch {}
   try { departments.value = (await departmentApi.list()).data.data } catch {}
   try { orgCharts.value = (await orgChartApi.list()).data.data } catch {}
-  try { recruitments.value = (await recruitmentApi.list()).data.data } catch {}
+  try { await loadStatsWeeks() } catch {}
 }
 
 const loading = ref(false)

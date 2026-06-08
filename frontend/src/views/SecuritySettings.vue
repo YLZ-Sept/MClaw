@@ -90,6 +90,7 @@
             <el-table-column label="操作" min-width="200">
               <template #default="{ row }">
                 <template v-if="row.role !== 'superadmin'">
+                  <el-button size="small" @click="openEditUser(row)">编辑</el-button>
                   <el-button size="small" @click="openResetPwd(row)">重置密码</el-button>
                   <el-popconfirm
                     title="确定删除该用户？"
@@ -246,6 +247,33 @@
       </template>
     </el-dialog>
 
+    <!-- 编辑用户对话框 -->
+    <el-dialog v-model="editDlg.visible" title="编辑用户" width="520px">
+      <el-form :model="editDlg.form" ref="editFormRef" label-width="80px">
+        <el-form-item label="用户名">
+          <el-input :model-value="editDlg.form.username" disabled />
+        </el-form-item>
+        <el-form-item label="姓名">
+          <el-input v-model="editDlg.form.name" placeholder="显示名称" />
+        </el-form-item>
+        <el-form-item label="角色">
+          <el-select v-model="editDlg.form.role" style="width:100%" @change="onEditRoleChange">
+            <el-option label="管理员（全部权限）" value="admin" />
+            <el-option label="普通用户（自定义权限）" value="user" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="editDlg.form.role === 'user'" label="模块权限">
+          <el-checkbox-group v-model="editDlg.form.permissions" class="perm-checkbox-group">
+            <el-checkbox v-for="p in allPerms" :key="p.key" :value="p.key" :label="p.label" />
+          </el-checkbox-group>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="editDlg.visible = false">取消</el-button>
+        <el-button type="primary" @click="doEditUser" :loading="editDlg.loading">保存</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 重置密码对话框 -->
     <el-dialog v-model="resetDlg.visible" title="重置密码" width="400px">
       <p style="margin-bottom:12px;color:#606266">用户：<b>{{ resetDlg.username }}</b></p>
@@ -389,6 +417,48 @@ async function doCreateUser() {
     ElMessage.error('创建失败')
   } finally {
     createDlg.loading = false
+  }
+}
+
+const editFormRef = ref(null)
+const editDlg = reactive({
+  visible: false, loading: false,
+  form: { id: '', username: '', name: '', role: 'user', permissions: [] },
+})
+
+function openEditUser(row) {
+  editDlg.form = {
+    id: row.id,
+    username: row.username,
+    name: row.name,
+    role: row.role,
+    permissions: row.permissions || [],
+  }
+  editDlg.visible = true
+}
+
+function onEditRoleChange(role) {
+  if (role === 'admin') {
+    editDlg.form.permissions = allPerms.value.map(p => p.key)
+  }
+}
+
+async function doEditUser() {
+  editDlg.loading = true
+  try {
+    const { id, name, role, permissions } = editDlg.form
+    const res = await updateUser(id, { name, role, permissions })
+    if (res.code === 200) {
+      ElMessage.success('用户已更新')
+      editDlg.visible = false
+      loadUsers()
+    } else {
+      ElMessage.error(res.message)
+    }
+  } catch {
+    ElMessage.error('编辑失败')
+  } finally {
+    editDlg.loading = false
   }
 }
 

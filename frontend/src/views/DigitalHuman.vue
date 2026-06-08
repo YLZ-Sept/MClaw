@@ -99,8 +99,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { UserFilled, Cpu, Connection } from '@element-plus/icons-vue'
-import axios from 'axios'
-const req = axios.create({ baseURL: '/api' })
+import request from '../api/index.js'
 const router = useRouter()
 
 const roles = ['销售', '行政', '售后', '市场', '技术', '客服', '采购', '仓储', '人事', '法务', '运营', '财务', '商务']
@@ -147,11 +146,11 @@ function onAvatarRemove() {
 }
 
 async function loadEmployees() {
-  const { data } = await req.get('/digital-employees')
+  const { data } = await request.get('/digital-employees')
   employees.value = data.data || []
 }
 async function loadAgents() {
-  const { data } = await req.get('/agents')
+  const { data } = await request.get('/agents')
   agents.value = data.data || []
 }
 
@@ -179,18 +178,18 @@ async function saveEmployee() {
   if (avatarFile) { fd.append('avatar', avatarFile) }
   else if (dlg.form.avatar_url === '') { fd.append('avatar_url', '') }
 
-  if (dlg.isEdit) { await req.put('/digital-employees/' + dlg.form.id, fd) }
-  else { await req.post('/digital-employees', fd) }
+  if (dlg.isEdit) { await request.put('/digital-employees/' + dlg.form.id, fd) }
+  else { await request.post('/digital-employees', fd) }
   dlg.visible = false; await loadEmployees(); ElMessage.success('OK')
 }
 async function delEmployee(id) {
-  try { await ElMessageBox.confirm('确认删除？'); await req.delete('/digital-employees/' + id); await loadEmployees(); ElMessage.success('已删除') } catch {}
+  try { await ElMessageBox.confirm('确认删除？'); await request.delete('/digital-employees/' + id); await loadEmployees(); ElMessage.success('已删除') } catch {}
 }
 async function chatWith(e) {
   const ids = getAgentIds(e)
   if (!ids.length) return ElMessage.warning('该数字员工未绑定 Agent，无法聊天')
   try {
-    const { data } = await req.post('/chat-sessions', {
+    const { data } = await request.post('/chat-sessions', {
       name: `${e.name}的对话`,
       agent_id: e.id,
       employee_id: e.id
