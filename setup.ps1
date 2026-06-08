@@ -53,8 +53,8 @@ function Refresh-Path {
                 [System.Environment]::GetEnvironmentVariable("Path", "User")
 }
 
-function Invoke-Exe($exe, $args, $desc) {
-    $proc = Start-Process -FilePath $exe -ArgumentList $args -NoNewWindow -Wait -PassThru
+function Invoke-Exe($exe, $exeArgs, $desc) {
+    $proc = Start-Process -FilePath $exe -ArgumentList $exeArgs -NoNewWindow -Wait -PassThru
     if ($proc.ExitCode -ne 0) {
         Write-Fail "$desc (退出码: $($proc.ExitCode))"
         return $false
