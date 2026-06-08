@@ -142,16 +142,6 @@ if (-not $nodeInstalled) {
     }
 }
 
-# 最终校验：node 和 npm 都必须可用
-if (-not (Test-Command node) -or -not (Test-Command npm)) {
-    Write-Fail "Node.js / npm 不可用，无法继续"
-    if (-not (Test-Command node)) { Write-Warn "node 命令未找到" }
-    if (-not (Test-Command npm))  { Write-Warn "npm 命令未找到" }
-    Write-Warn "请安装 Node.js 后重新运行: https://nodejs.org/"
-    pause
-    exit 1
-}
-
 # ============================================================
 # 步骤 3: 检查/安装 Python
 # ============================================================
@@ -217,6 +207,11 @@ if ($needRefreshPath) {
         pause
         exit 1
     }
+    if (-not (Test-Command npm)) {
+        Write-Warn "npm 命令仍不可用，请关闭此窗口重新运行 setup.bat"
+        pause
+        exit 1
+    }
     if (-not $pythonCmd -or -not (Test-Command $pythonCmd)) {
         # 重新探测 python
         if (Test-Command python3) {
@@ -225,6 +220,16 @@ if ($needRefreshPath) {
             $pythonCmd = "python"
         }
     }
+}
+
+# 最终校验：node 和 npm 都必须可用（无论是否刷新过 PATH）
+if (-not (Test-Command node) -or -not (Test-Command npm)) {
+    Write-Fail "Node.js / npm 不可用，无法继续"
+    if (-not (Test-Command node)) { Write-Warn "node 命令未找到" }
+    if (-not (Test-Command npm))  { Write-Warn "npm 命令未找到" }
+    Write-Warn "请手动安装 Node.js: https://nodejs.org/"
+    pause
+    exit 1
 }
 
 # ============================================================
