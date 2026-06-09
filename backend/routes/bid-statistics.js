@@ -69,18 +69,18 @@ router.post('/batch', (req, res) => {
   res.json({ code: 200, data: { inserted: count } });
 });
 
-// ─── 乙方宝采集触发 ───
+// ─── 采集触发 ───
 
-router.get('/crawl-status', (req, res) => {
-  const fs = require('fs'), path = require('path');
-  const cookieFile = path.resolve(__dirname, '../data/woyaobid-cookies.json');
-  const hasCookies = fs.existsSync(cookieFile);
-  res.json({ code: 200, data: { loggedIn: hasCookies } });
-});
-
-router.post('/crawl', async (req, res) => {
+router.post('/collect', async (req, res) => {
   try {
-    const result = await require('../services/woyaobid-crawler').runCollect(req.body);
+    const { method } = req.body;
+    let result;
+    if (method === 'woyaobid') {
+      result = await require('../services/woyaobid-crawler').runCollect(req.body);
+    } else {
+      // default: web crawler from bid_sources
+      result = await require('../services/web-bid-crawler').runCollect(req.body);
+    }
     res.json({ code: 200, data: result });
   } catch (err) {
     res.status(500).json({ code: 500, message: err.message });

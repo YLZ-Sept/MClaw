@@ -285,16 +285,15 @@
       <el-form :model="collectDlg" label-width="80px">
         <el-form-item label="采集线路">
           <el-select v-model="collectDlg.method" style="width:100%">
-            <el-option label="Crawl4AI MCP 爬虫" value="crawl4ai"/>
-            <el-option label="乙方宝采集" value="woyaobid"/>
+            <el-option label="网页爬虫 — 基于采集来源+关键词" value="web"/>
+            <el-option label="乙方宝 — 需扫码登录 woyaobid.cn" value="woyaobid"/>
           </el-select>
         </el-form-item>
-        <template v-if="collectDlg.method==='crawl4ai'">
-          <el-form-item label="开始日期"><el-date-picker v-model="collectDlg.start" type="date" value-format="YYYY-MM-DD" style="width:100%"/></el-form-item>
-          <el-form-item label="结束日期"><el-date-picker v-model="collectDlg.end" type="date" value-format="YYYY-MM-DD" style="width:100%"/></el-form-item>
+        <template v-if="collectDlg.method==='web'">
+          <el-form-item label="说明"><span style="color:#b8aad0;font-size:13px">读取已配置的采集来源和关键词（自动附加云南），爬取搜索结果→保存TXT→LLM解析→写入招标信息统计</span></el-form-item>
         </template>
         <template v-else>
-          <el-form-item label="说明"><span style="color:#b8aad0;font-size:13px">从乙方宝搜索关键词并采集招标详情，需已配置 cookies</span></el-form-item>
+          <el-form-item label="说明"><span style="color:#b8aad0;font-size:13px">自动打开乙方宝网站，扫码登录后再次点击采集即可。基于关键词（自动附加云南）搜索并采集</span></el-form-item>
         </template>
       </el-form>
       <template #footer>
@@ -430,7 +429,7 @@ const srcDlg = reactive({ visible: false, form: {} })
 const kwDlg = reactive({ visible: false, form: {} })
 const editDlg = reactive({ visible: false, form: {} })
 const srcEditDlg = reactive({ visible: false, form: {} })
-const collectDlg = reactive({ visible: false, method: 'crawl4ai', start: '', end: '' })
+const collectDlg = reactive({ visible: false, method: 'web', start: '', end: '' })
 const collecting = ref(false)
 const detailDlg = reactive({ visible: false, row: null })
 
@@ -443,14 +442,13 @@ async function loadBidKeywords() { bidKeywords.value = (await request.get('/bids
 async function doCollect() {
   collecting.value = true
   try {
+    const res = await request.post('/bid-statistics/collect', { method: collectDlg.method })
     if (collectDlg.method === 'woyaobid') {
-      const res = await request.post('/bid-statistics/crawl')
       ElMessage.success(`乙方宝采集完成，新增 ${res.data.data?.inserted || 0} 条`)
     } else {
-      await request.post('/bids/collect', { method: collectDlg.method, start: collectDlg.start, end: collectDlg.end })
-      ElMessage.success('Crawl4AI 采集完成')
+      ElMessage.success(`网页爬虫采集完成，新增 ${res.data.data?.inserted || 0} 条，TXT: ${res.data.data?.txtFile || '-'}`)
     }
-    collectDlg.visible = false; collectDlg.start = ''; collectDlg.end = ''; collectDlg.method = 'crawl4ai'
+    collectDlg.visible = false; collectDlg.start = ''; collectDlg.end = ''; collectDlg.method = 'web'
     await loadBidData()
   } catch (e) {
     ElMessage.error('采集失败: ' + (e.response?.data?.message || e.message))
@@ -460,7 +458,7 @@ async function doCollect() {
 
 function onCloseCollect() {
   collectDlg.visible = false
-  collectDlg.method = 'crawl4ai'
+  collectDlg.method = 'web'
   collectDlg.start = ''; collectDlg.end = ''
 }
 async function saveSource() { await request.post('/bids/sources', srcDlg.form); srcDlg.visible = false; srcDlg.form = {}; await loadBidData(); ElMessage.success('OK') }

@@ -91,18 +91,16 @@
     <!-- 乙方宝采集弹窗 -->
     <el-dialog v-model="crawlDlg.visible" title="乙方宝采集" width="450px">
       <div style="text-align:center;padding:20px">
-        <div v-if="crawlDlg.loginNeeded" style="margin-bottom:12px">
-          <p style="color:#e53e3e;margin-bottom:8px">需要扫码登录乙方宝</p>
-          <p style="color:#b8aad0;font-size:12px">请在浏览器打开乙方宝扫码登录，然后将 cookies 粘贴到下方</p>
-          <el-input v-model="crawlDlg.cookies" type="textarea" :rows="4" placeholder="粘贴 JSON cookies..." style="margin-top:8px"/>
-          <el-button type="primary" style="margin-top:8px" @click="saveCookiesAndCrawl">保存并采集</el-button>
-        </div>
-        <div v-else-if="crawlDlg.running">
+        <div v-if="crawlDlg.running">
           <el-icon class="is-loading" :size="32"><Loading/></el-icon>
           <p style="margin-top:8px">采集中... {{ crawlDlg.progress }}</p>
         </div>
+        <div v-else-if="crawlDlg.loginNeeded">
+          <p style="color:#e53e3e;margin-bottom:8px">未检测到登录状态</p>
+          <p style="color:#b8aad0;font-size:12px">点击采集将自动打开浏览器，扫码登录后再次点击即可</p>
+        </div>
         <div v-else>
-          <p>开始从乙方宝采集招标数据</p>
+          <p>开始从乙方宝采集招标数据（关键词自动附加云南）</p>
           <el-button type="primary" style="margin-top:8px" @click="startCrawl">开始采集</el-button>
         </div>
       </div>
@@ -129,7 +127,7 @@ const keyword = ref(''), filterRegion = ref(''), filterIndustry = ref('')
 const page = ref(1), pageSize = ref(50)
 
 const dlg = reactive({ visible: false, editing: false, editId: '', form: {} })
-const crawlDlg = reactive({ visible: false, loginNeeded: false, running: false, cookies: '', progress: '' })
+const crawlDlg = reactive({ visible: false, loginNeeded: false, running: false, progress: '' })
 const crawling = ref(false)
 const importVisible = ref(false)
 
@@ -163,24 +161,14 @@ async function save() {
 async function del(id) { await ElMessageBox.confirm('确认删除?'); await request.delete('/bid-statistics/' + id); await loadData() }
 
 async function openCrawl() {
-  crawlDlg.visible = true; crawlDlg.running = false; crawlDlg.loginNeeded = false; crawlDlg.cookies = ''
-  try {
-    const res = await request.get('/bid-statistics/crawl-status')
-    crawlDlg.loginNeeded = !res.data.data.loggedIn
-  } catch { crawlDlg.loginNeeded = true }
-}
-
-async function saveCookiesAndCrawl() {
-  if (!crawlDlg.cookies) return ElMessage.warning('请粘贴 cookies')
-  await request.post('/bid-statistics/crawl', { cookies: crawlDlg.cookies })
-  crawlDlg.visible = false; await loadData(); ElMessage.success('采集完成')
+  crawlDlg.visible = true; crawlDlg.running = false; crawlDlg.loginNeeded = false
 }
 
 async function startCrawl() {
   crawlDlg.running = true; crawlDlg.progress = '正在搜索乙方宝...'
   crawling.value = true
   try {
-    const res = await request.post('/bid-statistics/crawl')
+    const res = await request.post('/bid-statistics/collect', { method: 'woyaobid' })
     crawlDlg.visible = false; await loadData()
     ElMessage.success(`采集完成，新增 ${res.data.data?.inserted || 0} 条`)
   } catch (e) { ElMessage.error('采集失败: ' + (e.response?.data?.message || e.message)) }

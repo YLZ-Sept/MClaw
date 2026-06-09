@@ -8,6 +8,7 @@ const db = require('../db');
 const { McpClient } = require('./mcp-client');
 
 const DATA_DIR = path.resolve(__dirname, '../data/crawls');
+const YUNNAN_CITIES = ['云南','昆明','曲靖','玉溪','保山','昭通','丽江','普洱','临沧','楚雄','红河','文山','版纳','大理','德宏','怒江','迪庆'];
 const COOKIE_FILE = path.resolve(__dirname, '../data/woyaobid-cookies.json');
 const WOYAOBID_SEARCH = 'https://www.woyaobid.cn/search';
 
@@ -51,9 +52,28 @@ function loadCookies() {
 
 function saveCookies(cookies) {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-  // Accept both JSON string and object
   const obj = typeof cookies === 'string' ? JSON.parse(cookies) : cookies;
   fs.writeFileSync(COOKIE_FILE, JSON.stringify(obj, null, 2));
+}
+
+function yunnanKeywords() {
+  const all = db.prepare('SELECT keyword FROM bid_keywords').all().map(r => r.keyword);
+  return all.map(kw => {
+    if (YUNNAN_CITIES.some(c => kw.includes(c))) return kw;
+    return kw + ' 云南';
+  });
+}
+
+function openBrowser() {
+  const url = 'https://www.woyaobid.cn';
+  const platform = process.platform;
+  const cmd = platform === 'win32'
+    ? `start "" "${url}"`
+    : platform === 'darwin'
+      ? `open "${url}"`
+      : `xdg-open "${url}"`;
+  require('child_process').exec(cmd);
+  console.log(`[woyaobid] 已打开浏览器: ${url}`);
 }
 
 async function crawlSearchPage(client, cookies, keyword, pageNum = 1) {
@@ -191,12 +211,13 @@ async function runCollect(opts = {}) {
     cookies = loadCookies();
   }
 
-  // If still no cookies, they need to be provided
+  // If still no cookies, auto-open browser for QR login
   if (!cookies || !cookies.length) {
-    throw new Error('未配置乙方宝 cookies，请先扫码登录并粘贴 cookies');
+    openBrowser();
+    throw new Error('请在浏览器中扫码登录乙方宝，登录完成后再次点击采集');
   }
 
-  const keywords = db.prepare('SELECT keyword FROM bid_keywords').all().map(r => r.keyword);
+  const keywords = yunnanKeywords();
   if (keywords.length === 0) {
     console.log('[woyaobid] 无关键词');
     return { found: 0, inserted: 0 };
