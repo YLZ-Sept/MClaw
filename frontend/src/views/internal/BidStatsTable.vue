@@ -8,7 +8,7 @@
       <div class="kpi-row">
         <div class="kpi"><div class="kpi-val">{{ total }}</div><div class="kpi-lbl">记录总数</div></div>
         <div class="kpi"><div class="kpi-val">{{ monthNew }}</div><div class="kpi-lbl">本月新增</div></div>
-        <div class="kpi"><div class="kpi-val">{{ crawlCount }}</div><div class="kpi-lbl">乙方宝采集</div></div>
+        <div class="kpi"><div class="kpi-val">{{ crawlCount }}</div><div class="kpi-lbl">爬虫采集</div></div>
       </div>
     </div>
     <div :class="embedded ? '' : 'pg-body'">
@@ -16,7 +16,6 @@
         <el-button type="primary" @click="openAdd">新增</el-button>
         <el-button @click="handleExport">导出</el-button>
         <el-button @click="handleImport">导入</el-button>
-        <el-button type="success" @click="openCrawl" :loading="crawling" :disabled="crawling">乙方宝采集</el-button>
         <el-input v-model="keyword" placeholder="搜索项目/招标人/中标单位" clearable style="width:240px;margin-left:8px" @change="loadData"/>
         <el-select v-model="filterRegion" placeholder="地区" clearable style="width:100px;margin-left:8px" @change="loadData">
           <el-option label="昆明" value="昆明"/><el-option label="曲靖" value="曲靖"/><el-option label="玉溪" value="玉溪"/>
@@ -88,25 +87,6 @@
       <template #footer><el-button @click="dlg.visible=false">取消</el-button><el-button type="primary" :loading="saving" @click="save">保存</el-button></template>
     </el-dialog>
 
-    <!-- 乙方宝采集弹窗 -->
-    <el-dialog v-model="crawlDlg.visible" title="乙方宝采集" width="450px">
-      <div style="text-align:center;padding:20px">
-        <div v-if="crawlDlg.running">
-          <el-icon class="is-loading" :size="32"><Loading/></el-icon>
-          <p style="margin-top:8px">采集中... {{ crawlDlg.progress }}</p>
-        </div>
-        <div v-else-if="crawlDlg.loginNeeded">
-          <p style="color:#e53e3e;margin-bottom:8px">未检测到登录状态</p>
-          <p style="color:#b8aad0;font-size:12px">点击采集将自动打开浏览器，扫码登录后再次点击即可</p>
-        </div>
-        <div v-else>
-          <p>开始从乙方宝采集招标数据（关键词自动附加云南）</p>
-          <el-button type="primary" style="margin-top:8px" @click="startCrawl">开始采集</el-button>
-        </div>
-      </div>
-      <template #footer><el-button @click="crawlDlg.visible=false">关闭</el-button></template>
-    </el-dialog>
-
     <ImportDialog v-model="importVisible" ioKey="bid_statistics" @done="loadData"/>
   </div>
 </template>
@@ -115,7 +95,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft, Loading } from '@element-plus/icons-vue'
+import { ArrowLeft } from '@element-plus/icons-vue'
 import request from '../../api/index.js'
 import ImportDialog from '../../components/ImportDialog.vue'
 const router = useRouter()
@@ -127,8 +107,6 @@ const keyword = ref(''), filterRegion = ref(''), filterIndustry = ref('')
 const page = ref(1), pageSize = ref(50)
 
 const dlg = reactive({ visible: false, editing: false, editId: '', form: {} })
-const crawlDlg = reactive({ visible: false, loginNeeded: false, running: false, progress: '' })
-const crawling = ref(false)
 const importVisible = ref(false)
 
 const monthNew = computed(() => {
@@ -160,21 +138,6 @@ async function save() {
 }
 async function del(id) { await ElMessageBox.confirm('确认删除?'); await request.delete('/bid-statistics/' + id); await loadData() }
 
-async function openCrawl() {
-  crawlDlg.visible = true; crawlDlg.running = false; crawlDlg.loginNeeded = false
-}
-
-async function startCrawl() {
-  crawlDlg.running = true; crawlDlg.progress = '正在搜索乙方宝...'
-  crawling.value = true
-  try {
-    const res = await request.post('/bid-statistics/collect', { method: 'woyaobid' })
-    crawlDlg.visible = false; await loadData()
-    ElMessage.success(`采集完成，新增 ${res.data.data?.inserted || 0} 条`)
-  } catch (e) { ElMessage.error('采集失败: ' + (e.response?.data?.message || e.message)) }
-  crawling.value = false; crawlDlg.running = false
-}
-
 onMounted(loadData)
 </script>
 
@@ -188,6 +151,4 @@ onMounted(loadData)
 .kpi-lbl { font-size: 11px; color: #b8aad0; }
 .pg-body { flex: 1; padding: 16px 24px; overflow-y: auto; }
 .tb { margin-bottom: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.is-loading { animation: rotating 2s linear infinite; }
-@keyframes rotating { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }
 </style>
