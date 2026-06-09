@@ -446,6 +446,28 @@ const TABLE_CONFIGS = {
       { field: 'created_at', header: '创建时间', width: 18, templateExclude: true },
     ],
   },
+
+  bid_statistics: {
+    table: 'bid_statistics',
+    columns: [
+      { field: 'project_name', header: '项目名称', width: 40, required: true },
+      { field: 'bid_win_time', header: '中标时间', width: 14 },
+      { field: 'notice_time', header: '公告发布时间', width: 14 },
+      { field: 'bid_time', header: '投标时间', width: 14 },
+      { field: 'region', header: '地区', width: 10 },
+      { field: 'industry', header: '一级行业', width: 10 },
+      { field: 'bidder', header: '招标人', width: 20 },
+      { field: 'bid_company', header: '招标公司', width: 20 },
+      { field: 'project_content', header: '项目产品及内容', width: 35 },
+      { field: 'budget_amount', header: '项目金额(万元)', width: 14 },
+      { field: 'url', header: '网页链接', width: 30 },
+      { field: 'bid_method', header: '招投标方式', width: 14 },
+      { field: 'win_company', header: '中标单位', width: 20 },
+      { field: 'win_amount', header: '成交金额(万元)', width: 14 },
+      { field: 'remark', header: '备注', width: 20 },
+      { field: 'created_at', header: '创建时间', width: 18, templateExclude: true },
+    ],
+  },
 };
 
 module.exports = TABLE_CONFIGS;

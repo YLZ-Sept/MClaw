@@ -26,6 +26,7 @@ const routes = [
       { path: 'internal/hr', name: 'HRMgmt', component: () => import('../views/internal/HRManagement.vue'), meta: { perm: 'hr' } },
       { path: 'internal/docs', name: 'DocMgmt', component: () => import('../views/internal/DocumentManagement.vue'), meta: { perm: 'docs' } },
       { path: 'internal/finance', name: 'FinanceMgmt', component: () => import('../views/internal/FinanceManagement.vue'), meta: { perm: 'crm' } },
+      { path: 'internal/bid-stats', name: 'BidStats', component: () => import('../views/internal/BidStatsTable.vue'), meta: { perm: 'publish' } },
       { path: 'support', name: 'FAQMgmt', component: () => import('../views/internal/FAQManagement.vue'), meta: { perm: 'knowledge' } },
       { path: 'tasks', name: 'Tasks', component: () => import('../views/Task.vue'), meta: { perm: 'chat' } },
       { path: 'services', name: 'ServiceManagement', component: () => import('../views/ServiceManagement.vue'), meta: { perm: 'security' } },

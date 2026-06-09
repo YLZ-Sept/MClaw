@@ -73,6 +73,7 @@ const routePermMap = [
   { prefix: '/api/channel-accounts', perm: 'channels' },
   { prefix: '/api/channel-conversations', perm: 'channels' },
   { prefix: '/api/bids', perm: 'publish' },
+  { prefix: '/api/bid-statistics', perm: 'publish' },
   { prefix: '/api/publish', perm: 'publish' },
   { prefix: '/api/ppt', perm: 'publish' },
   { prefix: '/api/download', perm: 'publish' },
@@ -115,6 +116,7 @@ app.use('/api/users', requireAuth, require('./routes/users'));
 app.use('/api/security', requirePermission('security'), require('./routes/security'));
 app.use('/api/io', require('./routes/io'));
 app.use('/api/bids', require('./routes/bids'));
+app.use('/api/bid-statistics', require('./routes/bid-statistics'));
 app.use('/api/chat-sessions', require('./routes/chat-sessions'));
 app.use('/api/agent-apps', require('./routes/agent-apps'));
 app.use('/api/agent-skills', require('./routes/agent-skills'));

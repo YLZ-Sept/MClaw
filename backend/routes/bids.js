@@ -1,7 +1,6 @@
 const { Router } = require('express');
 const { randomUUID } = require('crypto');
 const db = require('../db');
-const { runCollect } = require('../bid-collector');
 const router = Router();
 
 // 招投标来源
@@ -74,26 +73,11 @@ router.delete('/items/:id', (req, res) => {
   res.json({ code: 200 });
 });
 
-// 手动触发采集 — method: api(ShowAPI) / crawl4ai(Crawl4AI MCP) / all(两者)
+// 手动触发采集
 router.post('/collect', async (req, res) => {
   try {
-    const { start, end, method } = req.body;
-
-    if (method === 'crawl4ai') {
-      const result = await require('../services/crawl4ai-collector').runCollect({ start, end });
-      return res.json({ code: 200, data: result });
-    }
-
-    if (method === 'all') {
-      const [apiR, c4r] = await Promise.all([
-        require('../bid-collector').runCollect({ start, end }),
-        require('../services/crawl4ai-collector').runCollect({ start, end })
-      ].map(p => p.catch(e => ({ found: 0, inserted: 0, error: e.message }))));
-      return res.json({ code: 200, data: { found: apiR.found + c4r.found, inserted: apiR.inserted + c4r.inserted } });
-    }
-
-    // default: api (ShowAPI)
-    const result = await runCollect({ start, end });
+    const { start, end } = req.body;
+    const result = await require('../services/crawl4ai-collector').runCollect({ start, end });
     res.json({ code: 200, data: result });
   } catch (err) {
     res.status(500).json({ code: 500, message: err.message });

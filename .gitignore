@@ -5,6 +5,8 @@ dist/
 backend/data/
 backend/media-crawler/
 backend/uploads/
+backend/backups/
+frontend/data/
 backend/videos/
 backend/browser-profile/
 backend/test-hf-output.html

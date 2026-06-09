@@ -367,13 +367,24 @@ db.exec(`
     status TEXT DEFAULT 'new',
     created_at TEXT DEFAULT (datetime('now','localtime'))
   );
-  CREATE TABLE IF NOT EXISTS content_publish (
+  CREATE TABLE IF NOT EXISTS bid_statistics (
     id TEXT PRIMARY KEY,
-    platform TEXT NOT NULL,                   -- 平台：微信/抖音/小红书
-    content_type TEXT,                        -- 类型：图文/视频
-    content TEXT,                             -- 内容
-    scheduled_at TEXT,                        -- 计划发布时间
-    status TEXT DEFAULT 'draft',              -- 状态
+    bid_win_time TEXT,                        -- 中标时间
+    notice_time TEXT,                         -- 公告发布时间
+    bid_time TEXT,                            -- 投标时间
+    region TEXT DEFAULT '昆明',               -- 地区
+    industry TEXT,                            -- 一级行业
+    bidder TEXT,                              -- 招标人
+    bid_company TEXT,                         -- 招标公司（代理机构）
+    project_name TEXT NOT NULL,               -- 项目名称
+    project_content TEXT,                     -- 项目产品及内容
+    budget_amount REAL,                       -- 项目金额（万元）
+    url TEXT,                                 -- 网页链接
+    bid_method TEXT DEFAULT '公开招标',        -- 招投标方式
+    win_company TEXT,                         -- 中标单位
+    win_amount REAL,                          -- 成交金额（万元）
+    remark TEXT,                              -- 备注
+    source TEXT DEFAULT 'manual',             -- 数据来源：manual/crawl4ai
     created_at TEXT DEFAULT (datetime('now','localtime'))
   );
 `);
@@ -386,6 +397,10 @@ try { db.exec("ALTER TABLE bid_sources ADD COLUMN source_type TEXT DEFAULT 'api'
 // 兼容旧 bid_items 表：补充 project_no / purchase_requirements 字段
 try { db.exec("ALTER TABLE bid_items ADD COLUMN project_no TEXT DEFAULT ''"); } catch {}
 try { db.exec("ALTER TABLE bid_items ADD COLUMN purchase_requirements TEXT DEFAULT ''"); } catch {}
+// 乙方宝默认采集源
+try { db.prepare("INSERT INTO bid_sources (id,name,url,source_type,interval_minutes,enabled) VALUES (?,?,?,?,?,?)").run(
+  require('crypto').randomUUID(), '乙方宝', 'https://www.woyaobid.cn/search', 'crawl4ai', 360, 1
+); } catch {}
 try { db.exec("ALTER TABLE performance_reports ADD COLUMN category TEXT DEFAULT 'monthly'"); } catch {}
 // 兼容旧 returns 表：补充 executor 需要的字段
 try { db.exec("ALTER TABLE returns ADD COLUMN order_type TEXT DEFAULT 'sales'"); } catch {}

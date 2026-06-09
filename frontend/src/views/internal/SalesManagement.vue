@@ -122,7 +122,7 @@
               <el-table-column type="index" label="序号" width="55"/>
               <el-table-column prop="name" label="名称" width="140"/>
               <el-table-column prop="url" label="网址" min-width="200" show-overflow-tooltip/>
-              <el-table-column prop="source_type" label="类型" width="80"><template #default="{row}"><el-tag :type="row.source_type==='api'?'':'warning'" size="small">{{ row.source_type==='api'?'API':'网页' }}</el-tag></template></el-table-column>
+              <el-table-column prop="source_type" label="类型" width="80"><template #default="{row}"><el-tag :type="row.source_type==='web'?'warning':''" size="small">{{ row.source_type==='web'?'网页爬虫':'Crawl4AI' }}</el-tag></template></el-table-column>
               <el-table-column prop="interval_minutes" label="采集间隔(分)" width="100"/>
               <el-table-column prop="enabled" label="状态" width="70"><template #default="{row}"><el-switch :model-value="!!row.enabled" @change="toggleSource(row,$event)" size="small"/></template></el-table-column>
               <el-table-column label="操作" width="120"><template #default="{row}"><el-button size="small" type="primary" link @click="openEditSource(row)">编辑</el-button><el-button size="small" type="danger" link @click="delSource(row.id)">删除</el-button></template></el-table-column>
@@ -237,8 +237,8 @@
       <template #footer><el-button @click="cnDlg.visible=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveCn">保存</el-button></template>
     </el-dialog>
     <!-- ===== 招投标弹窗 ===== -->
-    <el-dialog v-model="srcDlg.visible" title="新增采集来源" width="500px"><el-form :model="srcDlg.form" label-width="100px"><el-form-item label="名称"><el-input v-model="srcDlg.form.name"/></el-form-item><el-form-item label="URL"><el-input v-model="srcDlg.form.url"/></el-form-item><el-form-item label="类型"><el-select v-model="srcDlg.form.source_type"><el-option label="API 接口" value="api"/><el-option label="网页爬虫" value="web"/></el-select></el-form-item><el-form-item label="采集间隔(分钟)"><el-input-number v-model="srcDlg.form.interval_minutes" :min="60" :max="1440"/></el-form-item></el-form><template #footer><el-button @click="srcDlg.visible=false">取消</el-button><el-button type="primary" @click="saveSource">保存</el-button></template></el-dialog>
-    <el-dialog v-model="srcEditDlg.visible" title="编辑采集来源" width="500px"><el-form :model="srcEditDlg.form" label-width="100px"><el-form-item label="名称"><el-input v-model="srcEditDlg.form.name"/></el-form-item><el-form-item label="URL"><el-input v-model="srcEditDlg.form.url"/></el-form-item><el-form-item label="类型"><el-select v-model="srcEditDlg.form.source_type"><el-option label="API 接口" value="api"/><el-option label="网页爬虫" value="web"/></el-select></el-form-item><el-form-item label="采集间隔(分钟)"><el-input-number v-model="srcEditDlg.form.interval_minutes" :min="60" :max="1440"/></el-form-item><el-form-item label="状态"><el-switch v-model="srcEditDlg.form.enabled" active-text="启用" inactive-text="停用" :active-value="1" :inactive-value="0"/></el-form-item></el-form><template #footer><el-button @click="srcEditDlg.visible=false">取消</el-button><el-button type="primary" @click="saveEditSource">保存</el-button></template></el-dialog>
+    <el-dialog v-model="srcDlg.visible" title="新增采集来源" width="500px"><el-form :model="srcDlg.form" label-width="100px"><el-form-item label="名称"><el-input v-model="srcDlg.form.name"/></el-form-item><el-form-item label="URL"><el-input v-model="srcDlg.form.url"/></el-form-item><el-form-item label="类型"><el-select v-model="srcDlg.form.source_type"><el-option label="网页爬虫 (Crawl4AI)" value="web"/><el-option label="Crawl4AI MCP" value="crawl4ai"/></el-select></el-form-item><el-form-item label="采集间隔(分钟)"><el-input-number v-model="srcDlg.form.interval_minutes" :min="60" :max="1440"/></el-form-item></el-form><template #footer><el-button @click="srcDlg.visible=false">取消</el-button><el-button type="primary" @click="saveSource">保存</el-button></template></el-dialog>
+    <el-dialog v-model="srcEditDlg.visible" title="编辑采集来源" width="500px"><el-form :model="srcEditDlg.form" label-width="100px"><el-form-item label="名称"><el-input v-model="srcEditDlg.form.name"/></el-form-item><el-form-item label="URL"><el-input v-model="srcEditDlg.form.url"/></el-form-item><el-form-item label="类型"><el-select v-model="srcEditDlg.form.source_type"><el-option label="网页爬虫 (Crawl4AI)" value="web"/><el-option label="Crawl4AI MCP" value="crawl4ai"/></el-select></el-form-item><el-form-item label="采集间隔(分钟)"><el-input-number v-model="srcEditDlg.form.interval_minutes" :min="60" :max="1440"/></el-form-item><el-form-item label="状态"><el-switch v-model="srcEditDlg.form.enabled" active-text="启用" inactive-text="停用" :active-value="1" :inactive-value="0"/></el-form-item></el-form><template #footer><el-button @click="srcEditDlg.visible=false">取消</el-button><el-button type="primary" @click="saveEditSource">保存</el-button></template></el-dialog>
     <el-dialog v-model="kwDlg.visible" title="新增关键词" width="400px"><el-form :model="kwDlg.form" label-width="80px"><el-form-item label="关键词"><el-input v-model="kwDlg.form.keyword"/></el-form-item></el-form><template #footer><el-button @click="kwDlg.visible=false">取消</el-button><el-button type="primary" @click="saveKeyword">保存</el-button></template></el-dialog>
     <!-- 编辑招标项目 -->
     <el-dialog v-model="editDlg.visible" title="编辑招标项目" width="650px"><el-form :model="editDlg.form" label-width="100px">
@@ -280,10 +280,8 @@
     <el-dialog v-model="collectDlg.visible" title="手动采集" width="550px">
       <el-form :model="collectDlg" label-width="80px">
         <el-form-item label="采集线路">
-          <el-select v-model="collectDlg.method" style="width:100%">
-            <el-option label="API 采集 (ShowAPI)" value="api"/>
+          <el-select v-model="collectDlg.method" style="width:100%" disabled>
             <el-option label="Crawl4AI MCP 爬虫" value="crawl4ai"/>
-            <el-option label="全部线路" value="all"/>
           </el-select>
         </el-form-item>
         <el-form-item label="开始日期"><el-date-picker v-model="collectDlg.start" type="date" value-format="YYYY-MM-DD" style="width:100%"/></el-form-item>
@@ -421,7 +419,7 @@ const srcDlg = reactive({ visible: false, form: {} })
 const kwDlg = reactive({ visible: false, form: {} })
 const editDlg = reactive({ visible: false, form: {} })
 const srcEditDlg = reactive({ visible: false, form: {} })
-const collectDlg = reactive({ visible: false, method: 'api', start: '', end: '' })
+const collectDlg = reactive({ visible: false, method: 'crawl4ai', start: '', end: '' })
 const detailDlg = reactive({ visible: false, row: null })
 
 async function loadBidItems() {
@@ -431,15 +429,14 @@ async function loadBidItems() {
 async function loadBidSources() { bidSources.value = (await request.get('/bids/sources')).data.data }
 async function loadBidKeywords() { bidKeywords.value = (await request.get('/bids/keywords')).data.data }
 async function doCollect() {
-  const methodLabel = collectDlg.method === 'api' ? 'API' : collectDlg.method === 'crawl4ai' ? 'Crawl4AI' : '全部线路'
   await request.post('/bids/collect', { method: collectDlg.method, start: collectDlg.start, end: collectDlg.end })
-  collectDlg.visible = false; collectDlg.start = ''; collectDlg.end = ''; collectDlg.method = 'api'
-  ElMessage.success(`${methodLabel} 采集完成`); await loadBidData()
+  collectDlg.visible = false; collectDlg.start = ''; collectDlg.end = ''; collectDlg.method = 'crawl4ai'
+  ElMessage.success('Crawl4AI 采集完成'); await loadBidData()
 }
 
 function onCloseCollect() {
   collectDlg.visible = false
-  collectDlg.method = 'api'
+  collectDlg.method = 'crawl4ai'
 }
 async function saveSource() { await request.post('/bids/sources', srcDlg.form); srcDlg.visible = false; srcDlg.form = {}; await loadBidData(); ElMessage.success('OK') }
 function openEditSource(row) { srcEditDlg.form = { ...row }; srcEditDlg.visible = true }
