@@ -369,18 +369,20 @@ db.exec(`
   );
   CREATE TABLE IF NOT EXISTS bid_statistics (
     id TEXT PRIMARY KEY,
-    bid_win_time TEXT,                        -- 中标时间
-    notice_time TEXT,                         -- 公告发布时间
+    bid_publish_time TEXT,                    -- 招标时间
+    registration_time TEXT,                   -- 报名时间
     bid_time TEXT,                            -- 投标时间
-    region TEXT DEFAULT '昆明',               -- 地区
+    region TEXT DEFAULT '昆明',               -- 区域
     industry TEXT,                            -- 一级行业
     bidder TEXT,                              -- 招标人
     bid_company TEXT,                         -- 招标公司（代理机构）
     project_name TEXT NOT NULL,               -- 项目名称
-    project_content TEXT,                     -- 项目产品及内容
+    project_content TEXT,                     -- 项目产品（服务）
     budget_amount REAL,                       -- 项目金额（万元）
     url TEXT,                                 -- 网页链接
     bid_method TEXT DEFAULT '公开招标',        -- 招投标方式
+    bid_win_time TEXT,                        -- 中标时间
+    notice_time TEXT,                         -- 公告发布时间
     win_company TEXT,                         -- 中标单位
     win_amount REAL,                          -- 成交金额（万元）
     remark TEXT,                              -- 备注
@@ -397,6 +399,9 @@ try { db.exec("ALTER TABLE bid_sources ADD COLUMN source_type TEXT DEFAULT 'api'
 // 兼容旧 bid_items 表：补充 project_no / purchase_requirements 字段
 try { db.exec("ALTER TABLE bid_items ADD COLUMN project_no TEXT DEFAULT ''"); } catch {}
 try { db.exec("ALTER TABLE bid_items ADD COLUMN purchase_requirements TEXT DEFAULT ''"); } catch {}
+// 招投标统计对齐 Excel 模板：新增 招标时间/报名时间 列
+try { db.exec("ALTER TABLE bid_statistics ADD COLUMN bid_publish_time TEXT"); } catch {}
+try { db.exec("ALTER TABLE bid_statistics ADD COLUMN registration_time TEXT"); } catch {}
 // 乙方宝默认采集源
 try { db.prepare("INSERT INTO bid_sources (id,name,url,source_type,interval_minutes,enabled) VALUES (?,?,?,?,?,?)").run(
   require('crypto').randomUUID(), '乙方宝', 'https://www.woyaobid.cn/search', 'crawl4ai', 360, 1

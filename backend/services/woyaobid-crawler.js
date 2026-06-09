@@ -105,10 +105,10 @@ function extractLinks(markdown, keywords) {
 async function parseDetailWithLLM(client, markdown) {
   const prompt = `从以下招标公告/中标公告的Markdown内容中提取结构化信息。返回JSON格式：
 {
-  "bid_win_time": "中标时间 YYYY-MM-DD",
-  "notice_time": "公告发布时间 YYYY-MM-DD",
+  "bid_publish_time": "招标时间 YYYY-MM-DD",
+  "registration_time": "报名截止时间 YYYY-MM-DD",
   "bid_time": "投标截止时间 YYYY-MM-DD",
-  "region": "地区（如昆明、曲靖）",
+  "region": "区域（如昆明、曲靖）",
   "industry": "一级行业（政府/学校/医院/企业）",
   "bidder": "招标人/采购单位",
   "bid_company": "招标代理公司",
@@ -117,6 +117,8 @@ async function parseDetailWithLLM(client, markdown) {
   "budget_amount": 项目预算金额数字（万元）,
   "url": "公告原始链接",
   "bid_method": "招标方式（公开招标/竞争性磋商/询价等）",
+  "bid_win_time": "中标时间 YYYY-MM-DD",
+  "notice_time": "公告发布时间 YYYY-MM-DD",
   "win_company": "中标单位",
   "win_amount": 中标金额数字（万元）
 }
@@ -130,7 +132,8 @@ ${markdown.slice(0, 8000)}`;
     // For now, return basic extraction from markdown patterns
     const data = {
       project_name: null, project_content: null, budget_amount: null,
-      bid_win_time: null, notice_time: null, bid_time: null,
+      bid_publish_time: null, registration_time: null, bid_time: null,
+      bid_win_time: null, notice_time: null,
       region: '昆明', industry: null, bidder: null, bid_company: null,
       bid_method: '公开招标', win_company: null, win_amount: null, url: null
     };
@@ -153,9 +156,10 @@ ${markdown.slice(0, 8000)}`;
 
     const dateMatch = markdown.match(/(\d{4}[-/]\d{1,2}[-/]\d{1,2})/g);
     if (dateMatch) {
-      if (dateMatch.length >= 1) data.notice_time = dateMatch[0].replace(/\//g, '-');
-      if (dateMatch.length >= 2) data.bid_time = dateMatch[1].replace(/\//g, '-');
-      if (dateMatch.length >= 3) data.bid_win_time = dateMatch[2].replace(/\//g, '-');
+      if (dateMatch.length >= 1) data.bid_publish_time = dateMatch[0].replace(/\//g, '-');
+      if (dateMatch.length >= 2) data.registration_time = dateMatch[1].replace(/\//g, '-');
+      if (dateMatch.length >= 3) data.bid_time = dateMatch[2].replace(/\//g, '-');
+      if (dateMatch.length >= 4) data.bid_win_time = dateMatch[3].replace(/\//g, '-');
     }
 
     if (markdown.includes('竞争性磋商')) data.bid_method = '竞争性磋商';
@@ -239,7 +243,7 @@ async function runCollect(opts = {}) {
 
   // Parse and insert
   let inserted = 0;
-  const insert = db.prepare(`INSERT OR IGNORE INTO bid_statistics (id,bid_win_time,notice_time,bid_time,region,industry,bidder,bid_company,project_name,project_content,budget_amount,url,bid_method,win_company,win_amount,remark,source) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+  const insert = db.prepare(`INSERT OR IGNORE INTO bid_statistics (id,bid_publish_time,registration_time,bid_time,region,industry,bidder,bid_company,project_name,project_content,budget_amount,url,bid_method,bid_win_time,notice_time,win_company,win_amount,remark,source) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
 
   for (const text of allDetailTexts) {
     const urlMatch = text.match(/^URL: (.+)$/m);
@@ -261,11 +265,11 @@ async function runCollect(opts = {}) {
 
     try {
       insert.run(randomUUID(),
-        parsed.bid_win_time||null, parsed.notice_time||null, parsed.bid_time||null,
+        parsed.bid_publish_time||null, parsed.registration_time||null, parsed.bid_time||null,
         parsed.region||'昆明', parsed.industry||null, parsed.bidder||null, parsed.bid_company||null,
         parsed.project_name||title||'未知项目', parsed.project_content||null, parsed.budget_amount||null,
-        parsed.url, parsed.bid_method||'公开招标', parsed.win_company||null,
-        parsed.win_amount||null, null, 'crawl4ai');
+        parsed.url, parsed.bid_method||'公开招标', parsed.bid_win_time||null, parsed.notice_time||null,
+        parsed.win_company||null, parsed.win_amount||null, null, 'crawl4ai');
       inserted++;
     } catch (e) {
       console.log(`[woyaobid] insert error: ${e.message}`);

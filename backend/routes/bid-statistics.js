@@ -20,9 +20,11 @@ router.get('/', (req, res) => {
   res.json({ code: 200, data: { rows, total, page: Number(page), pageSize: Number(pageSize) } });
 });
 
+const ALL_FIELDS = ['bid_publish_time','registration_time','bid_time','region','industry','bidder','bid_company',
+  'project_name','project_content','budget_amount','url','bid_method','bid_win_time','notice_time','win_company','win_amount','remark','source'];
+
 router.post('/', (req, res) => {
-  const fields = ['bid_win_time','notice_time','bid_time','region','industry','bidder','bid_company',
-    'project_name','project_content','budget_amount','url','bid_method','win_company','win_amount','remark','source'];
+  const fields = ALL_FIELDS;
   const vals = fields.map(f => req.body[f] ?? null);
   if (!req.body.project_name) return res.status(400).json({ code: 400, message: '项目名称必填' });
   const id = randomUUID();
@@ -32,8 +34,7 @@ router.post('/', (req, res) => {
 });
 
 router.put('/:id', (req, res) => {
-  const fields = ['bid_win_time','notice_time','bid_time','region','industry','bidder','bid_company',
-    'project_name','project_content','budget_amount','url','bid_method','win_company','win_amount','remark'];
+  const fields = ALL_FIELDS;
   const sets = fields.map(f => `${f}=COALESCE(?,${f})`).join(',');
   const vals = fields.map(f => req.body[f] ?? null);
   db.prepare(`UPDATE bid_statistics SET ${sets} WHERE id=?`).run(...vals, req.params.id);
@@ -49,17 +50,17 @@ router.delete('/:id', (req, res) => {
 router.post('/batch', (req, res) => {
   const { items } = req.body;
   if (!items || !items.length) return res.status(400).json({ code: 400, message: '无数据' });
-  const insert = db.prepare(`INSERT OR IGNORE INTO bid_statistics (id,bid_win_time,notice_time,bid_time,region,industry,bidder,bid_company,project_name,project_content,budget_amount,url,bid_method,win_company,win_amount,remark,source) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+  const insert = db.prepare(`INSERT OR IGNORE INTO bid_statistics (id,${ALL_FIELDS.join(',')}) VALUES (?,${ALL_FIELDS.map(()=>'?').join(',')})`);
   const tx = db.transaction(() => {
     let count = 0;
     for (const item of items) {
       if (!item.project_name) continue;
       const r = insert.run(randomUUID(),
-        item.bid_win_time||null, item.notice_time||null, item.bid_time||null,
+        item.bid_publish_time||null, item.registration_time||null, item.bid_time||null,
         item.region||'昆明', item.industry||null, item.bidder||null, item.bid_company||null,
         item.project_name, item.project_content||null, item.budget_amount||null,
-        item.url||null, item.bid_method||'公开招标', item.win_company||null,
-        item.win_amount||null, item.remark||null, item.source||'crawl4ai');
+        item.url||null, item.bid_method||'公开招标', item.bid_win_time||null, item.notice_time||null,
+        item.win_company||null, item.win_amount||null, item.remark||null, item.source||'crawl4ai');
       count += r.changes;
     }
     return count;

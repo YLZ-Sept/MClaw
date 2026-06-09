@@ -88,6 +88,7 @@
             <el-tab-pane label="招标项目" name="items"></el-tab-pane>
             <el-tab-pane label="采集来源" name="sources"></el-tab-pane>
             <el-tab-pane label="关键词" name="keywords"></el-tab-pane>
+            <el-tab-pane label="招标信息统计" name="stats"></el-tab-pane>
           </el-tabs>
           <div v-if="bidTab==='items'">
             <div class="tb">
@@ -132,6 +133,9 @@
             <div class="tb"><el-button type="primary" @click="kwDlg.visible=true">新增关键词</el-button><el-button @click="handleExport('bid_keywords')">导出</el-button><el-button @click="handleImport('bid_keywords')">导入</el-button></div>
             <el-tag v-for="k in bidKeywords" :key="k.id" closable @close="delKeyword(k.id)" style="margin:4px">{{ k.keyword }}</el-tag>
             <el-empty v-if="bidKeywords.length===0" description="暂无关键词"/>
+          </div>
+          <div v-else-if="bidTab==='stats'">
+            <BidStatsTable embedded/>
           </div>
         </div>
       </div>
@@ -303,6 +307,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '../../api/index.js'
 import { customerApi, contactApi, opportunityApi, contractApi } from '../../api/crm'
 import ImportDialog from '../../components/ImportDialog.vue'
+import BidStatsTable from './BidStatsTable.vue'
 const router = useRouter()
 
 const tab = ref('crm')

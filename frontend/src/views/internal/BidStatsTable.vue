@@ -1,6 +1,6 @@
 <template>
-  <div class="pg">
-    <div class="pg-hd">
+  <div :class="embedded ? '' : 'pg'">
+    <div v-if="!embedded" class="pg-hd">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
         <el-button text @click="router.push('/internal')"><el-icon><ArrowLeft/></el-icon></el-button>
         <span class="pg-title">招标信息统计表</span>
@@ -11,7 +11,7 @@
         <div class="kpi"><div class="kpi-val">{{ crawlCount }}</div><div class="kpi-lbl">乙方宝采集</div></div>
       </div>
     </div>
-    <div class="pg-body">
+    <div :class="embedded ? '' : 'pg-body'">
       <div class="tb">
         <el-button type="primary" @click="openAdd">新增</el-button>
         <el-button @click="handleExport">导出</el-button>
@@ -32,22 +32,21 @@
       </div>
       <el-table v-loading="loading" :data="rows" stripe border row-key="id" style="width:100%" size="small">
         <el-table-column type="index" label="#" width="40" fixed/>
-        <el-table-column prop="bid_win_time" label="中标时间" width="100"/>
-        <el-table-column prop="notice_time" label="公告时间" width="100"/>
+        <el-table-column prop="bid_publish_time" label="招标时间" width="100"/>
+        <el-table-column prop="registration_time" label="报名时间" width="100"/>
         <el-table-column prop="bid_time" label="投标时间" width="100"/>
-        <el-table-column prop="region" label="地区" width="70"/>
-        <el-table-column prop="industry" label="行业" width="70"/>
+        <el-table-column prop="region" label="区域" width="70"/>
+        <el-table-column prop="industry" label="一级行业" width="80"/>
         <el-table-column prop="bidder" label="招标人" width="140" show-overflow-tooltip/>
         <el-table-column prop="bid_company" label="招标公司" width="140" show-overflow-tooltip/>
-        <el-table-column prop="project_name" label="项目名称" min-width="180" show-overflow-tooltip/>
-        <el-table-column prop="project_content" label="产品及内容" min-width="160" show-overflow-tooltip/>
-        <el-table-column prop="budget_amount" label="预算(万)" width="90"/>
-        <el-table-column label="链接" width="60" fixed="right">
+        <el-table-column prop="project_name" label="项目名称" min-width="200" show-overflow-tooltip/>
+        <el-table-column prop="project_content" label="项目产品（服务）" min-width="160" show-overflow-tooltip/>
+        <el-table-column prop="budget_amount" label="项目金额(万)" width="100"/>
+        <el-table-column label="网页链接" width="60" fixed="right">
           <template #default="{row}"><a v-if="row.url" :href="row.url" target="_blank" style="color:#7c3aed">查看</a><span v-else>-</span></template>
         </el-table-column>
-        <el-table-column prop="bid_method" label="方式" width="80"/>
         <el-table-column prop="win_company" label="中标单位" width="140" show-overflow-tooltip/>
-        <el-table-column prop="win_amount" label="成交(万)" width="90"/>
+        <el-table-column prop="win_amount" label="成交金额(万)" width="100"/>
         <el-table-column prop="remark" label="备注" width="100" show-overflow-tooltip/>
         <el-table-column label="操作" width="120" fixed="right">
           <template #default="{row}">
@@ -63,21 +62,21 @@
 
     <!-- 编辑弹窗 -->
     <el-dialog v-model="dlg.visible" :title="dlg.editing?'编辑':'新增'" width="750px" destroy-on-close>
-      <el-form :model="dlg.form" label-width="100px">
+      <el-form :model="dlg.form" label-width="110px">
         <el-row :gutter="12">
-          <el-col :span="8"><el-form-item label="中标时间"><el-date-picker v-model="dlg.form.bid_win_time" type="date" value-format="YYYY-MM-DD" style="width:100%"/></el-form-item></el-col>
-          <el-col :span="8"><el-form-item label="公告发布时间"><el-date-picker v-model="dlg.form.notice_time" type="date" value-format="YYYY-MM-DD" style="width:100%"/></el-form-item></el-col>
+          <el-col :span="8"><el-form-item label="招标时间"><el-date-picker v-model="dlg.form.bid_publish_time" type="date" value-format="YYYY-MM-DD" style="width:100%"/></el-form-item></el-col>
+          <el-col :span="8"><el-form-item label="报名时间"><el-date-picker v-model="dlg.form.registration_time" type="date" value-format="YYYY-MM-DD" style="width:100%"/></el-form-item></el-col>
           <el-col :span="8"><el-form-item label="投标时间"><el-date-picker v-model="dlg.form.bid_time" type="date" value-format="YYYY-MM-DD" style="width:100%"/></el-form-item></el-col>
         </el-row>
         <el-row :gutter="12">
-          <el-col :span="8"><el-form-item label="地区"><el-input v-model="dlg.form.region"/></el-form-item></el-col>
+          <el-col :span="8"><el-form-item label="区域"><el-input v-model="dlg.form.region"/></el-form-item></el-col>
           <el-col :span="8"><el-form-item label="一级行业"><el-select v-model="dlg.form.industry"><el-option label="政府" value="政府"/><el-option label="学校" value="学校"/><el-option label="医院" value="医院"/><el-option label="企业" value="企业"/></el-select></el-form-item></el-col>
           <el-col :span="8"><el-form-item label="招投标方式"><el-select v-model="dlg.form.bid_method"><el-option label="公开招标" value="公开招标"/><el-option label="邀请招标" value="邀请招标"/><el-option label="竞争性磋商" value="竞争性磋商"/><el-option label="竞争性谈判" value="竞争性谈判"/><el-option label="询价" value="询价"/><el-option label="单一来源" value="单一来源"/></el-select></el-form-item></el-col>
         </el-row>
         <el-form-item label="招标人"><el-input v-model="dlg.form.bidder"/></el-form-item>
         <el-form-item label="招标公司"><el-input v-model="dlg.form.bid_company"/></el-form-item>
         <el-form-item label="项目名称"><el-input v-model="dlg.form.project_name"/></el-form-item>
-        <el-form-item label="产品及内容"><el-input v-model="dlg.form.project_content" type="textarea" :rows="3"/></el-form-item>
+        <el-form-item label="项目产品（服务）"><el-input v-model="dlg.form.project_content" type="textarea" :rows="3"/></el-form-item>
         <el-row :gutter="12">
           <el-col :span="12"><el-form-item label="项目金额(万)"><el-input-number v-model="dlg.form.budget_amount" :min="0" :precision="2" style="width:100%"/></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="成交金额(万)"><el-input-number v-model="dlg.form.win_amount" :min="0" :precision="2" style="width:100%"/></el-form-item></el-col>
@@ -122,6 +121,8 @@ import { ArrowLeft, Loading } from '@element-plus/icons-vue'
 import request from '../../api/index.js'
 import ImportDialog from '../../components/ImportDialog.vue'
 const router = useRouter()
+
+const props = defineProps({ embedded: { type: Boolean, default: false } })
 
 const rows = ref([]), total = ref(0), loading = ref(false), saving = ref(false)
 const keyword = ref(''), filterRegion = ref(''), filterIndustry = ref('')
