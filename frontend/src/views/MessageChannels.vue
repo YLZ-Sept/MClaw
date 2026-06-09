@@ -37,8 +37,18 @@
             <span class="mc-platform-badge" :class="c.platform">{{ platShort(c.platform) }}</span>
           </div>
           <div class="mc-conv-body">
-            <div class="mc-conv-top">
-              <span class="mc-conv-name">{{ c.contact_name }}</span>
+            <div class="mc-conv-top" @dblclick.stop="startRename(c)">
+              <span class="mc-conv-name" v-if="renamingId !== c.id">{{ c.contact_name }}</span>
+              <el-input
+                v-else
+                v-model="renameText"
+                size="small"
+                class="mc-rename-input"
+                @blur="finishRename(c)"
+                @keydown.enter="finishRename(c)"
+                @keydown.escape="renamingId=null"
+                @click.stop
+              />
               <span class="mc-conv-time">{{ fmtTime(c.updated_at || c.last_message_at) }}</span>
             </div>
             <div class="mc-conv-bottom">
@@ -80,20 +90,6 @@
               <div class="mc-chat-platform">{{ platLabel(activeConv.platform) }} · {{ activeConv.account_id?.slice(0,8) }}</div>
             </div>
           </div>
-          <div class="mc-chat-agent">
-            <span class="mc-mode-label">智能体</span>
-            <el-select v-model="activeConvAgentId" size="small" style="width:170px" @change="changeAgent" :disabled="!activeConv">
-              <el-option v-for="opt in currentAccountAgentOptions" :key="opt.id" :label="opt.name" :value="opt.id" />
-            </el-select>
-          </div>
-          <div class="mc-chat-mode">
-            <span class="mc-mode-label">回复模式</span>
-            <el-radio-group v-model="activeConv.reply_mode" size="small" @change="changeMode">
-              <el-radio-button value="auto">AI 托管</el-radio-button>
-              <el-radio-button value="assisted">协同</el-radio-button>
-              <el-radio-button value="manual">手动</el-radio-button>
-            </el-radio-group>
-          </div>
         </div>
 
         <!-- 消息列表 -->
@@ -122,6 +118,24 @@
             <el-button size="small" text @click="aiSuggestion=''">忽略</el-button>
           </div>
           <div class="mc-suggestion-body">{{ aiSuggestion }}</div>
+        </div>
+
+        <!-- 底部控制栏 -->
+        <div class="mc-bottom-bar">
+          <div class="mc-bottom-agent">
+            <span class="mc-mode-label">智能体</span>
+            <el-select v-model="activeConvAgentId" size="small" style="width:170px" @change="changeAgent" :disabled="!activeConv">
+              <el-option v-for="opt in currentAccountAgentOptions" :key="opt.id" :label="opt.name" :value="opt.id" />
+            </el-select>
+          </div>
+          <div class="mc-bottom-mode">
+            <span class="mc-mode-label">回复模式</span>
+            <el-radio-group v-model="activeConv.reply_mode" size="small" @change="changeMode">
+              <el-radio-button value="auto">AI 托管</el-radio-button>
+              <el-radio-button value="assisted">协同</el-radio-button>
+              <el-radio-button value="manual">手动</el-radio-button>
+            </el-radio-group>
+          </div>
         </div>
 
         <!-- 输入区 -->
@@ -198,7 +212,7 @@
       <el-form :model="editForm" label-width="90px" size="small">
         <el-form-item label="平台" required>
           <el-select v-model="editForm.platform" style="width:100%">
-            <el-option label="微信 (Sightflow 桌面端)" value="wechat" />
+            <el-option label="微信 (iLink Bot)" value="wechat" />
             <el-option label="企业微信 (官方 API)" value="wecom" />
             <el-option label="飞书 (官方 API)" value="feishu" />
             <el-option label="抖音 (Sightflow 桌面端)" value="douyin" />
@@ -207,9 +221,43 @@
         <el-form-item label="账号名称" required>
           <el-input v-model="editForm.account_name" placeholder="如：张三的微信" />
           <template v-if="editForm.platform==='wechat'||editForm.platform==='douyin'">
-            <span class="mc-form-hint">需在对应电脑上运行 Sightflow 桌面端，启动时使用此账号 ID 连接</span>
+            <span class="mc-form-hint" v-if="editForm.platform==='douyin'">需在对应电脑上运行 Sightflow 桌面端，启动时使用此账号 ID 连接</span>
           </template>
         </el-form-item>
+        <template v-if="editForm.platform==='wechat'">
+          <el-divider content-position="left">iLink Bot API 配置</el-divider>
+          <el-form-item>
+            <div v-if="!qrState" style="display:flex;gap:8px;align-items:center">
+              <el-button type="primary" plain size="small" @click="startQRAuth" :loading="qrLoading">
+                扫码获取 Token
+              </el-button>
+              <span style="font-size:12px;color:#909399">点击后将弹出二维码页面，用微信扫码即可自动填入</span>
+            </div>
+            <div v-else-if="qrState==='scanning'" style="display:flex;align-items:center;gap:8px">
+              <el-icon class="is-loading" :size="16"><Loading /></el-icon>
+              <span style="font-size:13px;color:#7c3aed;font-weight:600">等待扫码确认...</span>
+              <span style="font-size:12px;color:#909399">{{ qrCountdown }}s 后过期</span>
+              <el-button size="small" text type="primary" @click="startQRAuth">重新打开</el-button>
+            </div>
+            <div v-else-if="qrState==='confirmed'" style="text-align:left">
+              <span style="color:#10b981;font-size:14px;font-weight:600">&#10003; 扫码成功，Token 和 User ID 已自动填入</span>
+            </div>
+            <div v-else-if="qrState==='expired'" style="display:flex;align-items:center;gap:8px">
+              <span style="color:#f56c6c;font-size:13px">二维码已过期</span>
+              <el-button size="small" text type="primary" @click="startQRAuth">重新获取</el-button>
+            </div>
+            <div v-else-if="qrState==='error'" style="display:flex;align-items:center;gap:8px">
+              <span style="color:#f56c6c;font-size:13px">{{ qrErrorMsg }}</span>
+              <el-button size="small" text type="primary" @click="startQRAuth">重试</el-button>
+            </div>
+          </el-form-item>
+          <el-form-item label="Bot Token">
+            <el-input v-model="editForm.config_ilink_token" type="password" placeholder="扫码自动填入，也可手动粘贴（必填）" />
+          </el-form-item>
+          <el-form-item label="User ID">
+            <el-input v-model="editForm.config_ilink_userid" placeholder="扫码自动填入，也可手动粘贴（必填）" />
+          </el-form-item>
+        </template>
         <el-form-item label="绑定智能体">
           <el-select v-model="editForm.agent_ids" multiple clearable style="width:100%" placeholder="选择数字人或智能体">
             <el-option-group v-if="digitalEmployees.length" label="数字人">
@@ -282,7 +330,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, MagicStick, Promotion, Delete } from '@element-plus/icons-vue'
+import { Plus, MagicStick, Promotion, Delete, Loading } from '@element-plus/icons-vue'
 import { channelAccountsApi, channelConversationsApi, agentAppsApi, digitalEmployeesApi } from '../api/channels'
 
 // ─── 数据 ───
@@ -310,6 +358,8 @@ const saveAcctLoading = ref(false)
 const editForm = ref({})
 const msgListRef = ref(null)
 const activeConvAgentId = ref('')
+const renamingId = ref(null)
+const renameText = ref('')
 
 // 当前会话对应账号绑定的 Agent 选项
 const currentAccountAgentOptions = computed(() => {
@@ -321,7 +371,54 @@ const currentAccountAgentOptions = computed(() => {
 
 let pollTimer = null
 let wsEvents = null
+let qrPollTimer = null
 const onlineAccounts = ref(new Set())
+
+// ─── 微信扫码获取凭证 ───
+const qrState = ref(null)       // null | scanning | confirmed | expired | error
+const qrCountdown = ref(120)
+const qrLoading = ref(false)
+const qrErrorMsg = ref('')
+
+async function startQRAuth() {
+  qrLoading.value = true
+  qrState.value = null
+  try {
+    const { data } = await channelAccountsApi.wechatQrcode()
+    const qrData = data.data
+    if (!qrData) { qrState.value = 'error'; qrErrorMsg.value = '获取二维码失败'; return }
+    // 在新窗口打开二维码页面
+    window.open(qrData.img_url, '_blank', 'width=400,height=500')
+    qrCountdown.value = 120
+    qrState.value = 'scanning'
+    // 倒计时
+    const countdownTimer = setInterval(() => {
+      qrCountdown.value--
+      if (qrCountdown.value <= 0) { clearInterval(countdownTimer); if (qrState.value === 'scanning') qrState.value = 'expired' }
+    }, 1000)
+    // 轮询扫码状态
+    if (qrPollTimer) clearInterval(qrPollTimer)
+    qrPollTimer = setInterval(async () => {
+      if (qrState.value !== 'scanning') { clearInterval(countdownTimer); clearInterval(qrPollTimer); return }
+      try {
+        const res = await channelAccountsApi.wechatQrcodeStatus(qrData.qrcode)
+        const statusData = res.data.data
+        if (statusData.status === 'confirmed') {
+          clearInterval(countdownTimer)
+          clearInterval(qrPollTimer)
+          qrState.value = 'confirmed'
+          editForm.value.config_ilink_token = statusData.token || ''
+          editForm.value.config_ilink_userid = statusData.userId || ''
+        } else if (statusData.status === 'expired') {
+          clearInterval(countdownTimer)
+          clearInterval(qrPollTimer)
+          qrState.value = 'expired'
+        }
+      } catch {}
+    }, 3000)
+  } catch { qrState.value = 'error'; qrErrorMsg.value = '请求失败' }
+  qrLoading.value = false
+}
 
 // ─── 平台/模式标签 ───
 const platLabel = (p) => ({ wechat: '微信', wecom: '企微', feishu: '飞书', douyin: '抖音' }[p] || p)
@@ -508,6 +605,8 @@ let originalConfig = {}
 function editAccount(row) {
   editingAccount.value = row || null
   originalConfig = {}
+  qrState.value = null
+  if (qrPollTimer) { clearInterval(qrPollTimer); qrPollTimer = null }
   if (row) {
     let cfg = {}
     try { if (row.config) cfg = typeof row.config === 'string' ? JSON.parse(row.config) : row.config } catch {}
@@ -520,12 +619,14 @@ function editAccount(row) {
       config_corp_id: cfg.corpid || '', config_agent_id: cfg.agentid || '',
       config_token: cfg.token || '', config_aes_key: cfg.encodingAESKey || '',
       config_app_id: cfg.app_id || '', config_encrypt_key: cfg.encrypt_key || '',
-      config_verification_token: cfg.verification_token || ''
+      config_verification_token: cfg.verification_token || '',
+      config_ilink_token: cfg.token || '', config_ilink_userid: cfg.userId || ''
     }
   } else {
     editForm.value = { platform: 'wechat', account_name: '', agent_ids: [], default_reply_mode: 'assisted', status_active: true,
       app_secret: '', config_corp_id: '', config_agent_id: '', config_token: '', config_aes_key: '',
-      config_app_id: '', config_encrypt_key: '', config_verification_token: '' }
+      config_app_id: '', config_encrypt_key: '', config_verification_token: '',
+      config_ilink_token: '', config_ilink_userid: '' }
   }
   showEditDlg.value = true
 }
@@ -546,6 +647,9 @@ async function saveAccount() {
       if (editForm.value.app_secret) config.app_secret = editForm.value.app_secret
       if (editForm.value.config_encrypt_key) config.encrypt_key = editForm.value.config_encrypt_key
       if (editForm.value.config_verification_token) config.verification_token = editForm.value.config_verification_token
+    } else if (pf === 'wechat') {
+      if (editForm.value.config_ilink_token) config.token = editForm.value.config_ilink_token
+      if (editForm.value.config_ilink_userid) config.userId = editForm.value.config_ilink_userid
     } else {
       if (editForm.value.app_secret) config.app_secret = editForm.value.app_secret
     }
@@ -563,7 +667,7 @@ async function saveAccount() {
     } else {
       const { data } = await channelAccountsApi.create(body)
       const newId = data.data?.id
-      if (newId && (editForm.value.platform === 'wechat' || editForm.value.platform === 'douyin')) {
+      if (newId && editForm.value.platform === 'douyin') {
         ElMessage.success({ message: `账号已创建，Sightflow 连接 ID: ${newId}`, duration: 8000 })
       } else {
         ElMessage.success('已创建')
@@ -600,6 +704,26 @@ async function delConv(id) {
   } catch (e) {
     if (e?.message) ElMessage.error(e.message)
   }
+}
+
+async function startRename(c) {
+  renamingId.value = c.id
+  renameText.value = c.contact_name
+  await nextTick()
+  const input = document.querySelector('.mc-rename-input input')
+  if (input) { input.focus(); input.select() }
+}
+
+async function finishRename(c) {
+  if (!renamingId.value) return
+  const newName = renameText.value.trim()
+  renamingId.value = null
+  if (!newName || newName === c.contact_name) return
+  try {
+    await channelConversationsApi.rename(c.id, newName)
+    c.contact_name = newName
+    if (activeConv.value?.id === c.id) activeConv.value.contact_name = newName
+  } catch { ElMessage.error('重命名失败') }
 }
 
 function scrollBottom() {
@@ -788,7 +912,8 @@ onUnmounted(() => {
 
 .mc-conv-body { flex:1; min-width:0; overflow:hidden; }
 .mc-conv-top { display:flex; justify-content:space-between; align-items:baseline; }
-.mc-conv-name { font-size:14px; font-weight:600; color:var(--mc-text); }
+.mc-conv-name { font-size:14px; font-weight:600; color:var(--mc-text); cursor:default; }
+.mc-rename-input { width:100%; }
 .mc-conv-time { font-size:11px; color:var(--mc-text-muted); flex-shrink:0; margin-left:8px; }
 .mc-conv-bottom { display:flex; align-items:center; gap:6px; margin-top:3px; }
 .mc-conv-preview {
@@ -903,9 +1028,16 @@ onUnmounted(() => {
   max-height:80px; overflow-y:auto; white-space:pre-wrap;
 }
 
+/* ─── Bottom Bar ─── */
+.mc-bottom-bar {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:10px 20px; border-top:1px solid var(--mc-border); background:var(--mc-white);
+}
+.mc-bottom-agent, .mc-bottom-mode { display:flex; align-items:center; gap:8px; }
+
 /* ─── Input Area ─── */
 .mc-input-area {
-  border-top:1px solid var(--mc-border); padding:12px 20px; background:var(--mc-white);
+  padding:12px 20px; background:var(--mc-white);
 }
 .mc-input-area :deep(.el-textarea__inner) {
   border-radius:10px; border-color:var(--mc-border); font-size:14px;
@@ -946,8 +1078,8 @@ onUnmounted(() => {
 .mc-msg-list::-webkit-scrollbar-thumb:hover { background:#9ca3af; }
 
 /* ─── Mode Radio Button Polish ─── */
-.mc-chat-mode :deep(.el-radio-group) { border-radius:8px; overflow:hidden; }
-.mc-chat-mode :deep(.el-radio-button__inner) {
+.mc-bottom-mode :deep(.el-radio-group) { border-radius:8px; overflow:hidden; }
+.mc-bottom-mode :deep(.el-radio-button__inner) {
   border:1px solid var(--mc-border); font-size:12px; padding:5px 12px;
   transition:all var(--mc-transition);
 }

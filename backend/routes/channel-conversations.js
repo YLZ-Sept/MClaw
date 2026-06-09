@@ -75,6 +75,16 @@ router.post('/:id/reply', async (req, res) => {
   res.json({ code: 200, data: msg });
 });
 
+// 重命名联系人
+router.put('/:id/rename', (req, res) => {
+  const { contact_name } = req.body;
+  if (!contact_name) return res.status(400).json({ code: 400, message: 'contact_name 不能为空' });
+  const conv = db.prepare('SELECT * FROM channel_conversations WHERE id=?').get(req.params.id);
+  if (!conv) return res.status(404).json({ code: 404, message: '会话不存在' });
+  db.prepare('UPDATE channel_conversations SET contact_name=? WHERE id=?').run(contact_name, req.params.id);
+  res.json({ code: 200, data: { id: req.params.id, contact_name } });
+});
+
 // 删除会话及其所有消息
 router.delete('/:id', (req, res) => {
   db.prepare('DELETE FROM channel_messages WHERE conversation_id=?').run(req.params.id);

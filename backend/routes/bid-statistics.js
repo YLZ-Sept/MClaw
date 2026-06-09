@@ -83,6 +83,10 @@ router.post('/collect', async (req, res) => {
     }
     res.json({ code: 200, data: result });
   } catch (err) {
+    // "no cookies" for 乙方宝 is not really an error — browser opened, user needs to login
+    if (err.message && err.message.includes('扫码登录')) {
+      return res.json({ code: 200, data: { needsLogin: true, message: err.message } });
+    }
     res.status(500).json({ code: 500, message: err.message });
   }
 });

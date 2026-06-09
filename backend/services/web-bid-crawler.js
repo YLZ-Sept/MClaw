@@ -6,7 +6,7 @@ const db = require('../db');
 const { McpClient } = require('./mcp-client');
 
 const DATA_DIR = path.resolve(__dirname, '../data/crawls');
-const YUNNAN_CITIES = ['云南','昆明','曲靖','玉溪','保山','昭通','丽江','普洱','临沧','楚雄','红河','文山','版纳','大理','德宏','怒江','迪庆'];
+const YUNNAN_CITIES = ['昆明','曲靖','玉溪','保山','昭通','丽江','普洱','临沧','楚雄','红河','文山','版纳','大理','德宏','怒江','迪庆','云南'];
 
 let mcpClient = null;
 
@@ -31,44 +31,52 @@ async function getClient() {
   return mcpClient;
 }
 
-function yunnanKeywords() {
-  const all = db.prepare('SELECT keyword FROM bid_keywords').all().map(r => r.keyword);
-  // If keyword already contains Yunnan city name, use as-is; otherwise append " 云南"
-  return all.map(kw => {
-    if (YUNNAN_CITIES.some(c => kw.includes(c))) return kw;
-    return kw + ' 云南';
-  });
-}
-
-// Extract markdown links from crawled page
-function extractLinks(markdown, keywords) {
-  const linkPattern = /\[([^\]]+)\]\(((?:https?:)?\/\/[^)]+)\)/g;
+// Extract all valid markdown links from crawled page, with region detection from surrounding text.
+// Many gov sites put region info outside the link (e.g. "地域：云南"), so we check ~200 chars after each link.
+function extractAllLinks(markdown) {
+  const linkPattern = /(?<!!)\[([^\]]+)\]\(((?:https?:)?\/\/[^)]+)\)/g;
   const links = [];
   let m;
   while ((m = linkPattern.exec(markdown)) !== null) {
     const title = m[1].trim().replace(/\s+/g, ' ');
     let href = m[2].trim();
+    // Strip markdown title attribute: "url \"title\"" → "url"
+    const quoteIdx = href.indexOf('"');
+    if (quoteIdx > 0) href = href.substring(0, quoteIdx).trim();
     if (href.startsWith('//')) href = 'https:' + href;
     if (!href.startsWith('http')) continue;
     if (title.length < 8 || title.length > 300) continue;
-    if (/^(首页|上一页|下一页|末页|返回|更多|详情|查看|附件|下载|登录|注册|注销)$/.test(title)) continue;
-    for (const kw of keywords) {
-      if (title.includes(kw)) { links.push({ title, href }); break; }
-    }
+    // Skip image URLs and non-HTML resources
+    if (/\.(png|jpg|jpeg|gif|svg|ico|css|js|pdf|zip|rar|doc|xls)(\?|$)/i.test(href)) continue;
+    const skip = ['首页','上一页','下一页','末页','返回','更多','详情','查看','附件','下载','登录','注册','注销','English','中文','无障碍','适老化','网站地图','关于','联系','版权','隐私','RSS','订阅'];
+    if (skip.includes(title)) continue;
+
+    // Check surrounding text for region marker (e.g. "地域：云南")
+    const afterLink = markdown.substring(m.index, m.index + 400);
+    const regionMatch = afterLink.match(/地域[：:]\s*_?\s*(\S+?)(?:\s|_|$)/);
+    const contextRegion = regionMatch ? regionMatch[1].replace(/_/g, '').trim() : null;
+
+    links.push({ title, href, contextRegion });
   }
   return links;
 }
 
-// Crawl search/listing page
-async function crawlListingPage(client, sourceUrl, keyword, pageNum = 1) {
-  // Build search URL — most Chinese gov bid sites use ?keyword= or ?q=
-  const sep = sourceUrl.includes('?') ? '&' : '?';
-  const searchUrl = pageNum === 1
-    ? `${sourceUrl}${sep}keyword=${encodeURIComponent(keyword)}`
-    : `${sourceUrl}${sep}keyword=${encodeURIComponent(keyword)}&page=${pageNum}`;
+// Crawl listing page (paginated)
+async function crawlListingPage(client, sourceUrl, pageNum = 1) {
+  // Build page URL — most gov sites use index.html for page 1, index_1.html for page 2+
+  let pageUrl = sourceUrl;
+  if (pageNum > 1) {
+    if (sourceUrl.endsWith('/')) {
+      pageUrl = sourceUrl + `index_${pageNum - 1}.html`;
+    } else if (sourceUrl.includes('?')) {
+      pageUrl = sourceUrl + `&page=${pageNum}`;
+    } else {
+      pageUrl = sourceUrl + `?page=${pageNum}`;
+    }
+  }
 
-  console.log(`[web-crawler] 搜索: ${searchUrl}`);
-  const result = await client.callTool('crawl_page', { url: searchUrl, wait_for: 'networkidle', timeout: 30000 });
+  console.log(`[web-crawler] 列表页: ${pageUrl}`);
+  const result = await client.callTool('crawl_page', { url: pageUrl, wait_for: 'networkidle', timeout: 30000 });
   const text = result.content?.filter(c => c.type === 'text').map(c => c.text).join('\n') || '';
   return text;
 }
@@ -94,20 +102,20 @@ async function parseDetail(client, markdown, url, title) {
   const titleMatch = markdown.match(/^\s*#+\s*(.+?)(?:\n|$)/m) || markdown.match(/(?:项目名称|采购项目名称|招标项目)[：:]\s*(.+?)(?:\n|$)/);
   if (!data.project_name && titleMatch) data.project_name = titleMatch[1].trim().substring(0, 300);
 
-  const budgetMatch = markdown.match(/(?:预算金额|项目预算|采购预算|预算)[：:]?\s*(\d+(?:\.\d+)?)\s*(?:万元|万)/);
+  const budgetMatch = markdown.match(/(?:预算金额|项目预算|采购预算|预算)[：:]?\s*\|?\s*[¥￥]?\s*(\d+(?:\.\d+)?)\s*(?:万元|万)/);
   if (budgetMatch) data.budget_amount = parseFloat(budgetMatch[1]);
 
-  const winAmountMatch = markdown.match(/(?:中标金额|成交金额|中标价|中标总金额)[：:]?\s*(\d+(?:\.\d+)?)\s*(?:万元|万)/);
+  const winAmountMatch = markdown.match(/(?:中标金额|成交金额|中标价|中标总金额)[：:]?\s*\|?\s*[¥￥]?\s*(\d+(?:\.\d+)?)\s*(?:万元|万)/);
   if (winAmountMatch) data.win_amount = parseFloat(winAmountMatch[1]);
 
   const winMatch = markdown.match(/(?:中标人|中标单位|成交供应商|供应商名称|中标供应商)[：:]?\s*(.+?)(?:\n|$)/);
   if (winMatch) data.win_company = winMatch[1].trim().substring(0, 200);
 
   const bidderMatch = markdown.match(/(?:采购人|招标人|采购单位|招标单位)[：:]?\s*(.+?)(?:\n|$)/);
-  if (bidderMatch) data.bidder = bidderMatch[1].trim().substring(0, 200);
+  if (bidderMatch) data.bidder = bidderMatch[1].trim().replace(/^\|\s*|\s*\|$/g, '').substring(0, 200);
 
-  const agencyMatch = markdown.match(/(?:采购代理机构|招标代理|代理机构)[：:]?\s*(.+?)(?:\n|$)/);
-  if (agencyMatch) data.bid_company = agencyMatch[1].trim().substring(0, 200);
+  const agencyMatch = markdown.match(/(?:采购代理机构|招标代理|代理机构)(?:名称)?[：:]?\s*\|?\s*(.+?)(?:\n|$)/);
+  if (agencyMatch) data.bid_company = agencyMatch[1].trim().replace(/^\|\s*|\s*\|$/g, '').substring(0, 200);
 
   const dateMatch = markdown.match(/(\d{4}[-/年]\d{1,2}[-/月]\d{1,2})/g);
   if (dateMatch) {
@@ -129,54 +137,69 @@ async function parseDetail(client, markdown, url, title) {
   else if (/政府|局|委员会|办公室|公安|法院|检察院/.test(markdown)) data.industry = '政府';
   else data.industry = '企业';
 
-  // Region detection
-  for (const city of YUNNAN_CITIES) {
-    if (markdown.includes(city)) { data.region = city === '云南' ? '昆明' : city; break; }
+  // Region detection — check "行政区域" field first to avoid false matches (e.g. agency address in 昆明 for a 德宏 project)
+  const adminAreaMatch = markdown.match(/行政区域[：:]?\s*\|?\s*(\S+?)(?:\s|\||$)/);
+  const adminArea = adminAreaMatch ? adminAreaMatch[1].trim() : null;
+  let regionFound = false;
+  if (adminArea) {
+    for (const city of YUNNAN_CITIES) {
+      if (adminArea.includes(city)) { data.region = city === '云南' ? '昆明' : city; regionFound = true; break; }
+    }
+  }
+  if (!regionFound) {
+    for (const city of YUNNAN_CITIES) {
+      if (markdown.includes(city)) { data.region = city === '云南' ? '昆明' : city; break; }
+    }
   }
 
   return data;
 }
 
 async function runCollect(opts = {}) {
-  const sources = db.prepare("SELECT * FROM bid_sources WHERE enabled=1 AND (source_type='web' OR source_type='crawl4ai')").all();
-  const keywords = yunnanKeywords();
-
+  const sources = db.prepare("SELECT * FROM bid_sources WHERE enabled=1 AND (source_type='web' OR source_type='crawl4ai') AND url NOT LIKE '%qiye.qianlima.com%'").all();
   if (sources.length === 0) throw new Error('无启用的网页采集源');
-  if (keywords.length === 0) throw new Error('无关键词，请先添加关键词');
 
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
-  console.log(`[web-crawler] ${sources.length} 个源, ${keywords.length} 个关键词(含云南)`);
+  console.log(`[web-crawler] ${sources.length} 个源`);
   const client = await getClient();
 
   const allDetailTexts = [];
   const urlSet = new Set();
 
   for (const source of sources) {
-    for (const kw of keywords) {
-      console.log(`[web-crawler] ${source.name}: ${kw}`);
-      // Crawl up to 2 pages per keyword per source
-      for (let page = 1; page <= 2; page++) {
-        const searchMd = await crawlListingPage(client, source.url, kw, page);
-        if (!searchMd || searchMd.length < 100) break;
+    console.log(`[web-crawler] 采集源: ${source.name} (${source.url})`);
+    let sourceHits = 0;
 
-        const links = extractLinks(searchMd, keywords);
-        console.log(`[web-crawler] ${kw} 第${page}页: ${links.length} 条匹配`);
-        if (links.length === 0) break;
+    // Crawl up to 3 listing pages per source
+    for (let page = 1; page <= 3; page++) {
+      const listingMd = await crawlListingPage(client, source.url, page);
+      if (!listingMd || listingMd.length < 100) break;
 
-        for (const link of links) {
-          if (urlSet.has(link.href)) continue;
-          urlSet.add(link.href);
-          await sleep(3000 + Math.random() * 5000);
-          const detailMd = await crawlDetailPage(client, link.href);
-          if (detailMd) {
-            allDetailTexts.push(`\n---\nURL: ${link.href}\nTitle: ${link.title}\n\n${detailMd}`);
-          }
+      // Extract ALL links, filter by Yunnan region (in title OR context "地域：云南")
+      const allLinks = extractAllLinks(listingMd);
+      const yunnanLinks = allLinks.filter(l => {
+        if (YUNNAN_CITIES.some(c => l.title.includes(c))) return true;
+        if (l.contextRegion && YUNNAN_CITIES.some(c => l.contextRegion.includes(c))) return true;
+        return false;
+      });
+      console.log(`[web-crawler] ${source.name} 第${page}页: ${allLinks.length} 条链接, ${yunnanLinks.length} 条云南`);
+      if (allLinks.length === 0) break;
+
+      for (const link of yunnanLinks) {
+        if (urlSet.has(link.href)) continue;
+        urlSet.add(link.href);
+        await sleep(3000 + Math.random() * 5000);
+        const detailMd = await crawlDetailPage(client, link.href);
+        if (detailMd) {
+          allDetailTexts.push(`\n---\nURL: ${link.href}\nTitle: ${link.title}\n\n${detailMd}`);
+          sourceHits++;
         }
       }
     }
+    console.log(`[web-crawler] ${source.name}: 共采集 ${sourceHits} 条详情`);
     // Delay between sources
-    if (source !== sources[sources.length - 1]) await sleep(10000 + Math.random() * 10000);
+    if (source !== sources[sources.length - 1]) await sleep(8000 + Math.random() * 8000);
   }
 
   // Save TXT

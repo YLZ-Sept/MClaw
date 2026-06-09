@@ -286,7 +286,7 @@
         <el-form-item label="采集线路">
           <el-select v-model="collectDlg.method" style="width:100%">
             <el-option label="网页爬虫 — 基于采集来源+关键词" value="web"/>
-            <el-option label="乙方宝 — 需扫码登录 woyaobid.cn" value="woyaobid"/>
+            <el-option label="乙方宝 — 需登录 qiye.qianlima.com" value="woyaobid"/>
           </el-select>
         </el-form-item>
         <template v-if="collectDlg.method==='web'">
@@ -443,6 +443,10 @@ async function doCollect() {
   collecting.value = true
   try {
     const res = await request.post('/bid-statistics/collect', { method: collectDlg.method })
+    if (res.data.data?.needsLogin) {
+      ElMessage({ message: res.data.data.message, type: 'info', duration: 8000 })
+      collecting.value = false; return
+    }
     if (collectDlg.method === 'woyaobid') {
       ElMessage.success(`乙方宝采集完成，新增 ${res.data.data?.inserted || 0} 条`)
     } else {

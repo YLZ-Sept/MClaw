@@ -9,7 +9,9 @@ export const channelAccountsApi = {
   get: (id) => GET(`/channel-accounts/${id}`),
   create: (d) => POST('/channel-accounts', d),
   update: (id, d) => PUT(`/channel-accounts/${id}`, d),
-  remove: (id) => DEL(`/channel-accounts/${id}`)
+  remove: (id) => DEL(`/channel-accounts/${id}`),
+  wechatQrcode: () => GET('/channel-accounts/wechat-qrcode'),
+  wechatQrcodeStatus: (qrcode) => GET('/channel-accounts/wechat-qrcode-status', { params: { qrcode } })
 }
 
 export const channelConversationsApi = {
@@ -20,6 +22,7 @@ export const channelConversationsApi = {
   setAgent: (id, agent_id) => PUT(`/channel-conversations/${id}/agent`, { agent_id }),
   reply: (id, content, reply_mode) => POST(`/channel-conversations/${id}/reply`, { content, reply_mode }),
   suggest: (id) => POST(`/channel-conversations/${id}/suggest`),
+  rename: (id, contact_name) => PUT(`/channel-conversations/${id}/rename`, { contact_name }),
   remove: (id) => DEL(`/channel-conversations/${id}`)
 }
 

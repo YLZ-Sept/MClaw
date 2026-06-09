@@ -121,19 +121,13 @@ async def handle_tool_call(name: str, args: dict) -> str:
         url = args["url"]
         wait_for = args.get("wait_for", "")
         timeout = args.get("timeout", 30000)
-        cookies = args.get("cookies")
 
         wait_selectors = {"load", "domcontentloaded", "networkidle", ""}
-        config_kwargs = dict(
+        config = CrawlerRunConfig(
             wait_for=wait_for if wait_for not in wait_selectors else None,
             page_timeout=timeout,
             cache_mode=CacheMode.BYPASS
         )
-        # Inject cookies if provided (list of {name,value,domain,path} dicts)
-        if cookies and isinstance(cookies, list) and len(cookies) > 0:
-            config_kwargs["cookies"] = cookies
-
-        config = CrawlerRunConfig(**config_kwargs)
         result = await crawler.arun(url=url, config=config)
         return result.markdown or result.html[:10000] if result.html else ""
 

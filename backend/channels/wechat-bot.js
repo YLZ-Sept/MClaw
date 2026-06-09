@@ -122,7 +122,10 @@ async function handleWechatMessage(account, raw) {
 
     if (!content.trim()) return;
 
-    const contactName = raw.from_user_id || raw.from_nickname || '微信用户';
+    // 格式化联系人名称：摘取 user_id 简短标识
+    const rawId = raw.from_user_id || '';
+    const shortName = rawId.includes('@') ? rawId.split('@')[0].slice(0, 12) : rawId.slice(0, 12);
+    const contactName = raw.from_nickname || shortName || '微信用户';
 
     await handleIncoming({
       account_id: account.id,
