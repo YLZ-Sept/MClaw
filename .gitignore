@@ -3,7 +3,7 @@ dist/
 .local
 *.log
 backend/data/
-backend/media-crawler/
+
 backend/uploads/
 backend/backups/
 frontend/data/
