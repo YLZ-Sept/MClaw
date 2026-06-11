@@ -460,6 +460,10 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_cconv_acc ON channel_conversations(account_id, updated_at);
 `);
 
+try { db.exec("ALTER TABLE channel_conversations ADD COLUMN contact_external_id TEXT DEFAULT ''"); } catch {}
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_cconv_extid ON channel_conversations(account_id, contact_external_id)"); } catch {}
+try { db.exec("ALTER TABLE channel_messages ADD COLUMN attachments TEXT DEFAULT ''"); } catch {}
+
 // ===== 一键追爆款 =====
 db.exec(`
   CREATE TABLE IF NOT EXISTS hot_products (

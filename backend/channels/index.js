@@ -28,18 +28,35 @@ function kickSocket(accountId) {
 
 // ─── 会话管理 ───
 
-function getOrCreateConversation({ account_id, platform, contact_name, agent_id, reply_mode, content }) {
+function getOrCreateConversation({ account_id, platform, contact_name, agent_id, reply_mode, content, contact_external_id }) {
   // 账号不存在则跳过（可能已被删除）
   const account = db.prepare('SELECT * FROM channel_accounts WHERE id=?').get(account_id);
   if (!account) {
     console.warn(`[channels] 账号 ${account_id} 不存在，忽略消息`);
     return null;
   }
-  const existing = db.prepare(
-    'SELECT * FROM channel_conversations WHERE account_id=? AND contact_name=? AND status=?'
-  ).get(account_id, contact_name, 'active');
+
+  // 先用平台侧稳定 ID 匹配，避免重命名联系人后重复创建会话
+  let existing = null;
+  if (contact_external_id) {
+    existing = db.prepare(
+      'SELECT * FROM channel_conversations WHERE account_id=? AND contact_external_id=? AND status=?'
+    ).get(account_id, contact_external_id, 'active');
+  }
+  // 降级：用 contact_name 匹配（兼容旧数据和无 external ID 的渠道）
+  if (!existing) {
+    existing = db.prepare(
+      'SELECT * FROM channel_conversations WHERE account_id=? AND contact_name=? AND status=?'
+    ).get(account_id, contact_name, 'active');
+  }
+
   if (existing) {
-    db.prepare('UPDATE channel_conversations SET updated_at=datetime(\'now\',\'localtime\') WHERE id=?').run(existing.id);
+    // 如果外部 ID 变化（如之前没有，现在有了），补上
+    if (contact_external_id && (!existing.contact_external_id || existing.contact_external_id !== contact_external_id)) {
+      db.prepare('UPDATE channel_conversations SET contact_external_id=?, updated_at=datetime(\'now\',\'localtime\') WHERE id=?').run(contact_external_id, existing.id);
+    } else {
+      db.prepare('UPDATE channel_conversations SET updated_at=datetime(\'now\',\'localtime\') WHERE id=?').run(existing.id);
+    }
     return existing;
   }
   const accountAgentIds = (() => { try { const a = JSON.parse(account.agent_id); return Array.isArray(a) ? a : [account.agent_id] } catch { return account.agent_id ? [account.agent_id] : [] } })();
@@ -65,8 +82,8 @@ function getOrCreateConversation({ account_id, platform, contact_name, agent_id,
   const effectiveMode = reply_mode || account.default_reply_mode || 'manual';
 
   const id = randomUUID();
-  db.prepare(`INSERT INTO channel_conversations (id,account_id,platform,contact_name,agent_id,reply_mode)
-    VALUES (?,?,?,?,?,?)`).run(id, account_id, platform, contact_name, effectiveAgentId, effectiveMode);
+  db.prepare(`INSERT INTO channel_conversations (id,account_id,platform,contact_name,contact_external_id,agent_id,reply_mode)
+    VALUES (?,?,?,?,?,?,?)`).run(id, account_id, platform, contact_name, contact_external_id || '', effectiveAgentId, effectiveMode);
   const conv = db.prepare('SELECT * FROM channel_conversations WHERE id=?').get(id);
   broadcast({ type: 'new_conversation', conversation: conv });
   return conv;
@@ -159,11 +176,28 @@ async function generateAIReply(conversationId, platform, agentId) {
   }
 }
 
+// ─── 从 raw_data 提取平台侧稳定用户 ID ───
+function extractExternalId(platform, raw_data, extra) {
+  if (!raw_data) return null;
+  switch (platform) {
+    case 'wechat':
+      return raw_data.from_user_id || null;
+    case 'wecom':
+      return raw_data.FromUserName || null;
+    case 'feishu':
+      return extra?.sender_id || raw_data.sender?.sender_id?.open_id || null;
+    default:
+      return raw_data.from_user_id || raw_data.user_id || raw_data.sender_id || null;
+  }
+}
+
 // ─── 处理 incoming 消息的完整流程 ───
 // 返回值：{ conversation, message, aiSuggestion }
-async function handleIncoming({ account_id, platform, contact_name, contact_avatar, content, raw_data }) {
+async function handleIncoming({ account_id, platform, contact_name, contact_avatar, content, raw_data, extra }) {
+  const contact_external_id = extractExternalId(platform, raw_data, extra);
+
   // 1. 获取或创建会话（账号不存在则跳过）
-  const conv = getOrCreateConversation({ account_id, platform, contact_name, content });
+  const conv = getOrCreateConversation({ account_id, platform, contact_name, content, contact_external_id });
   if (!conv) return { conversation: null, message: null, aiSuggestion: null };
 
   // 2. 保存消息

@@ -90,6 +90,11 @@
               <div class="mc-chat-platform">{{ platLabel(activeConv.platform) }} · {{ activeConv.account_id?.slice(0,8) }}</div>
             </div>
           </div>
+          <el-popconfirm title="确定清空该会话的所有聊天记录？" @confirm="clearMessages">
+            <template #reference>
+              <el-button size="small" text type="danger">清空记录</el-button>
+            </template>
+          </el-popconfirm>
         </div>
 
         <!-- 消息列表 -->
@@ -99,6 +104,14 @@
             <div class="mc-msg-row" :class="m.direction">
               <div class="mc-msg-bubble" :class="m.direction">
                 <div class="mc-msg-text">{{ m.content }}</div>
+                <div v-if="getAttachments(m).length" class="mc-msg-attachments">
+                  <div v-for="(att, ai) in getAttachments(m)" :key="ai" class="mc-attach-item">
+                    <img v-if="att.type?.startsWith('image/')" :src="att.url" class="mc-attach-img" @click="previewImg=att.url" />
+                    <a v-else :href="att.url" target="_blank" class="mc-attach-file">
+                      <el-icon><Document /></el-icon> {{ att.name }}
+                    </a>
+                  </div>
+                </div>
                 <div class="mc-msg-time">{{ fmtTime(m.created_at) }}</div>
                 <el-tag v-if="m.reply_mode!=='manual'" size="small" :type="m.reply_mode==='auto'?'success':'warning'" class="mc-msg-mode-tag">
                   {{ m.reply_mode==='auto'?'AI':'协同' }}
@@ -149,7 +162,15 @@
             @keydown.enter.ctrl="sendReply"
           />
           <div class="mc-input-actions">
-            <span class="mc-input-hint">Ctrl+Enter 发送</span>
+            <div style="display:flex;align-items:center;gap:8px">
+              <label class="mc-upload-btn" title="上传文件">
+                <el-icon :size="18"><UploadFilled /></el-icon>
+                <input type="file" hidden @change="onFileSelected" ref="fileInputRef" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip" />
+              </label>
+              <span v-if="uploading" style="font-size:11px;color:var(--mc-primary)">上传中...</span>
+              <span v-else-if="pendingFile" style="font-size:11px;color:#10b981">{{ pendingFile.name }}</span>
+              <span v-else class="mc-input-hint">Ctrl+Enter 发送</span>
+            </div>
             <div>
               <el-button v-if="activeConv.reply_mode==='assisted'" size="small" @click="getSuggestion" :loading="suggestLoading">
                 <el-icon><MagicStick /></el-icon> 获取建议
@@ -330,7 +351,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, MagicStick, Promotion, Delete, Loading } from '@element-plus/icons-vue'
+import { Plus, MagicStick, Promotion, Delete, Loading, UploadFilled, Document } from '@element-plus/icons-vue'
 import { channelAccountsApi, channelConversationsApi, agentAppsApi, digitalEmployeesApi } from '../api/channels'
 
 // ─── 数据 ───
@@ -360,6 +381,10 @@ const msgListRef = ref(null)
 const activeConvAgentId = ref('')
 const renamingId = ref(null)
 const renameText = ref('')
+const fileInputRef = ref(null)
+const pendingFile = ref(null)
+const uploading = ref(false)
+const previewImg = ref(null)
 
 // 当前会话对应账号绑定的 Agent 选项
 const currentAccountAgentOptions = computed(() => {
@@ -584,19 +609,55 @@ function editSuggestion() {
   aiSuggestion.value = ''
 }
 
+// ─── 文件上传 ───
+function getAttachments(msg) {
+  if (!msg.attachments) return []
+  try { const a = typeof msg.attachments === 'string' ? JSON.parse(msg.attachments) : msg.attachments; return Array.isArray(a) ? a : [] }
+  catch { return [] }
+}
+
+function onFileSelected(e) {
+  const file = e.target.files?.[0]
+  if (!file) return
+  pendingFile.value = file
+  if (!inputText.value.trim()) inputText.value = '[文件]'
+}
+
 // ─── 发送回复 ───
 async function sendReply() {
-  if (!activeConv.value || !inputText.value.trim()) return
+  if (!activeConv.value) return
+  const hasText = inputText.value.trim()
+  const hasFile = pendingFile.value
+  if (!hasText && !hasFile) return
+
   sendLoading.value = true
   try {
     const mode = activeConv.value.reply_mode
-    await channelConversationsApi.reply(activeConv.value.id, inputText.value.trim(), mode)
+
+    // 有文件时先上传
+    if (hasFile) {
+      uploading.value = true
+      const fd = new FormData()
+      fd.append('file', pendingFile.value)
+      if (inputText.value.trim()) fd.append('content', inputText.value.trim())
+      await channelConversationsApi.upload(activeConv.value.id, fd)
+      uploading.value = false
+      pendingFile.value = null
+      if (fileInputRef.value) fileInputRef.value.value = ''
+    }
+
+    // 有文本时发送文本
+    if (hasText && !hasFile) {
+      await channelConversationsApi.reply(activeConv.value.id, inputText.value.trim(), mode)
+    }
+
     inputText.value = ''
     aiSuggestion.value = ''
     loadMessages()
     loadConversations()
   } catch { ElMessage.error('发送失败') }
   sendLoading.value = false
+  uploading.value = false
 }
 
 // ─── 账号管理 ───
@@ -704,6 +765,16 @@ async function delConv(id) {
   } catch (e) {
     if (e?.message) ElMessage.error(e.message)
   }
+}
+
+async function clearMessages() {
+  if (!activeConv.value) return
+  try {
+    await channelConversationsApi.clearMessages(activeConv.value.id)
+    messages.value = []
+    ElMessage.success('聊天记录已清空')
+    loadConversations()
+  } catch { ElMessage.error('清空失败') }
 }
 
 async function startRename(c) {
@@ -1096,4 +1167,27 @@ onUnmounted(() => {
 .mc-input-actions :deep(.el-button--primary:hover) {
   box-shadow:0 4px 12px rgba(124,58,237,.4); transform:translateY(-1px);
 }
+
+/* ─── Upload Button ─── */
+.mc-upload-btn {
+  display:flex; align-items:center; justify-content:center;
+  width:34px; height:34px; border-radius:8px; cursor:pointer;
+  color:var(--mc-text-muted); transition:all var(--mc-transition);
+  border:1px dashed var(--mc-border);
+}
+.mc-upload-btn:hover { color:var(--mc-primary); border-color:var(--mc-primary); background:var(--mc-primary-bg); }
+
+/* ─── Message Attachments ─── */
+.mc-msg-attachments { margin-top:8px; display:flex; flex-direction:column; gap:4px; }
+.mc-attach-img {
+  max-width:200px; max-height:200px; border-radius:8px; cursor:pointer;
+  border:1px solid rgba(0,0,0,.08); transition:transform var(--mc-transition);
+}
+.mc-attach-img:hover { transform:scale(1.02); }
+.mc-attach-file {
+  display:flex; align-items:center; gap:6px; padding:6px 10px;
+  background:rgba(0,0,0,.04); border-radius:6px; font-size:12px;
+  color:var(--mc-primary); text-decoration:none; transition:background var(--mc-transition);
+}
+.mc-attach-file:hover { background:rgba(0,0,0,.08); }
 </style>

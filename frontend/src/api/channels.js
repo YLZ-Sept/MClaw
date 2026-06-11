@@ -23,6 +23,8 @@ export const channelConversationsApi = {
   reply: (id, content, reply_mode) => POST(`/channel-conversations/${id}/reply`, { content, reply_mode }),
   suggest: (id) => POST(`/channel-conversations/${id}/suggest`),
   rename: (id, contact_name) => PUT(`/channel-conversations/${id}/rename`, { contact_name }),
+  clearMessages: (id) => DEL(`/channel-conversations/${id}/messages`),
+  upload: (id, formData) => POST(`/channel-conversations/${id}/upload`, formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
   remove: (id) => DEL(`/channel-conversations/${id}`)
 }
 

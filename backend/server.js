@@ -15,6 +15,7 @@ if (fs.existsSync(frontendDist)) {
   app.use(express.static(frontendDist));
   console.log('[server] 生产模式：serve 前端静态文件', frontendDist);
 }
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 require('./db');
 

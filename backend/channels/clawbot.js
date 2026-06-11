@@ -6,7 +6,7 @@ const { handleIncoming, sendReply: channelSendReply } = require('./index');
 
 const router = Router();
 
-const OPENCLAW_URL = process.env.OPENCLAW_URL || 'http://localhost:3098';
+const OPENCLAW_URL = process.env.OPENCLAW_URL || 'http://localhost:18622';
 
 // Rate limit: max sends per contact per minute (WeChat anti-spam)
 const sendWindow = new Map(); // key → [timestamps]

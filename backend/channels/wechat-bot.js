@@ -3,6 +3,7 @@
 const crypto = require('crypto');
 const db = require('../db');
 const { handleIncoming, sendReply: channelSendReply } = require('./index');
+const { broadcast } = require('./event-bus');
 
 // 每个 bot 的轮询状态
 const pollingStates = new Map(); // accountId → { running, lastBuf, timer }
@@ -62,12 +63,14 @@ async function pollLoop(accountId) {
       const account = db.prepare('SELECT * FROM channel_accounts WHERE id=? AND status=?').get(accountId, 'active');
       if (!account || account.platform !== 'wechat') {
         console.log(`[wechat-bot] 账号 ${accountId} 不可用，停止轮询`);
+        broadcast({ type: 'account_status', account_id: accountId, online: false });
         break;
       }
 
       const config = parseConfig(account);
       if (!config.token) {
         console.log(`[wechat-bot] 账号 ${accountId} 缺少 token，停止轮询`);
+        broadcast({ type: 'account_status', account_id: accountId, online: false });
         break;
       }
 
@@ -142,6 +145,205 @@ async function handleWechatMessage(account, raw) {
   } catch (err) {
     console.error('[wechat-bot] 消息处理异常:', err.message);
   }
+}
+
+// ─── 图片上传到微信 CDN ───
+
+const CDN_BASE = 'https://novac2c.cdn.weixin.qq.com/c2c';
+
+function aesEcbEncrypt(plaintext, key) {
+  const cipher = crypto.createCipheriv('aes-128-ecb', key, null);
+  return Buffer.concat([cipher.update(plaintext), cipher.final()]);
+}
+
+async function uploadMediaToWeixin(account, fileBuf, toUserId, mediaType) {
+  const fs = require('fs');
+  const rawsize = fileBuf.length;
+  const rawfilemd5 = crypto.createHash('md5').update(fileBuf).digest('hex');
+  const fileSizeCiphertext = Math.ceil((rawsize + 1) / 16) * 16; // AES-ECB padded size
+  const filekey = crypto.randomBytes(16).toString('hex');
+  const aeskey = crypto.randomBytes(16);
+
+  // 1. 获取上传凭证
+  const getUploadBody = {
+    filekey,
+    media_type: mediaType,
+    to_user_id: toUserId,
+    rawsize,
+    rawfilemd5,
+    filesize: fileSizeCiphertext,
+    no_need_thumb: true,
+    aeskey: aeskey.toString('hex'),
+    base_info: { channel_version: '1.0.2' }
+  };
+  const uploadUrlResp = await apiPost(account, '/ilink/bot/getuploadurl', getUploadBody, 15000);
+  console.log('[wechat-bot] getUploadUrl 响应:', JSON.stringify(uploadUrlResp).slice(0, 300));
+  const uploadFullUrl = uploadUrlResp.upload_full_url?.trim();
+  const uploadParam = uploadUrlResp.upload_param;
+
+  if (!uploadFullUrl && !uploadParam) {
+    throw new Error('getUploadUrl 未返回上传地址');
+  }
+
+  // 2. 加密并上传到 CDN
+  const ciphertext = aesEcbEncrypt(fileBuf, aeskey);
+  let cdnUrl;
+  if (uploadFullUrl) {
+    cdnUrl = uploadFullUrl;
+  } else {
+    cdnUrl = `${CDN_BASE}/upload?encrypted_query_param=${encodeURIComponent(uploadParam)}&filekey=${encodeURIComponent(filekey)}`;
+  }
+
+  const cdnResp = await fetch(cdnUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/octet-stream' },
+    body: new Uint8Array(ciphertext),
+    signal: AbortSignal.timeout(30000)
+  });
+
+  if (cdnResp.status !== 200) {
+    const errMsg = cdnResp.headers.get('x-error-message') || `status ${cdnResp.status}`;
+    throw new Error(`CDN 上传失败: ${errMsg}`);
+  }
+
+  const downloadEncryptedQueryParam = cdnResp.headers.get('x-encrypted-param');
+  if (!downloadEncryptedQueryParam) {
+    throw new Error('CDN 响应缺少 x-encrypted-param');
+  }
+
+  return {
+    filekey,
+    aeskey,
+    downloadEncryptedQueryParam,
+    fileSizeCiphertext,
+    rawsize,
+  };
+}
+
+// ─── 发送图片消息 ───
+
+async function sendImage(account, contactName, imagePath, captionText) {
+  const config = parseConfig(account);
+  const fs = require('fs');
+  if (!fs.existsSync(imagePath)) throw new Error(`图片文件不存在: ${imagePath}`);
+
+  // 查 toUserId 和 contextToken
+  let toUserId = null;
+  let ctxToken = '';
+  const conv = db.prepare(
+    "SELECT cm.raw_data FROM channel_messages cm JOIN channel_conversations cc ON cm.conversation_id=cc.id WHERE cc.account_id=? AND cc.contact_name=? AND cm.direction='incoming' ORDER BY cm.created_at DESC LIMIT 1"
+  ).get(account.id, contactName);
+  if (conv && conv.raw_data) {
+    try {
+      const raw = JSON.parse(conv.raw_data);
+      toUserId = raw.from_user_id;
+      ctxToken = raw.context_token || '';
+    } catch {}
+  }
+  if (!toUserId) toUserId = contactName;
+
+  // 读取并上传图片
+  const imageBuf = fs.readFileSync(imagePath);
+  const uploaded = await uploadMediaToWeixin(account, imageBuf, toUserId, 1); // IMAGE
+
+  const imageItem = {
+    type: 2,
+    image_item: {
+      media: {
+        encrypt_query_param: uploaded.downloadEncryptedQueryParam,
+        aes_key: Buffer.from(uploaded.aeskey.toString('hex')).toString('base64'),
+        encrypt_type: 1,
+      },
+      mid_size: uploaded.fileSizeCiphertext,
+    },
+  };
+
+  // 发送文本和图片分开发送（iLink 每条消息 item_list 仅一个条目）
+  const sendOne = async (item) => {
+    const body = {
+      msg: {
+        from_user_id: '',
+        to_user_id: toUserId,
+        client_id: `mclaw-${crypto.randomBytes(8).toString('hex')}`,
+        message_type: 2,
+        message_state: 2,
+        context_token: ctxToken,
+        item_list: [item],
+      },
+      base_info: { channel_version: '1.0.2' }
+    };
+    return apiPost(account, '/ilink/bot/sendmessage', body);
+  };
+
+  if (captionText && captionText !== '[文件]') {
+    await sendOne({ type: 1, text_item: { text: captionText } });
+  }
+  await sendOne(imageItem);
+
+  console.log(`[wechat-bot] 图片发送成功: ${contactName}`);
+  return { sent: true };
+}
+
+// ─── 发送文件消息 ───
+
+async function sendFile(account, contactName, filePath, fileName) {
+  const fs = require('fs');
+  if (!fs.existsSync(filePath)) throw new Error(`文件不存在: ${filePath}`);
+
+  // 查 toUserId 和 contextToken
+  let toUserId = null;
+  let ctxToken = '';
+  const conv = db.prepare(
+    "SELECT cm.raw_data FROM channel_messages cm JOIN channel_conversations cc ON cm.conversation_id=cc.id WHERE cc.account_id=? AND cc.contact_name=? AND cm.direction='incoming' ORDER BY cm.created_at DESC LIMIT 1"
+  ).get(account.id, contactName);
+  if (conv && conv.raw_data) {
+    try {
+      const raw = JSON.parse(conv.raw_data);
+      toUserId = raw.from_user_id;
+      ctxToken = raw.context_token || '';
+    } catch {}
+  }
+  if (!toUserId) toUserId = contactName;
+
+  // 读取并上传文件
+  const fileBuf = fs.readFileSync(filePath);
+  const uploaded = await uploadMediaToWeixin(account, fileBuf, toUserId, 3); // FILE
+
+  const fileItem = {
+    type: 4,
+    file_item: {
+      media: {
+        encrypt_query_param: uploaded.downloadEncryptedQueryParam,
+        aes_key: Buffer.from(uploaded.aeskey.toString('hex')).toString('base64'),
+        encrypt_type: 1,
+      },
+      file_name: fileName,
+      len: String(uploaded.rawsize),
+    },
+  };
+
+  // 发送文件名作为文本标题，文件作为独立消息
+  const sendOne = async (item) => {
+    const body = {
+      msg: {
+        from_user_id: '',
+        to_user_id: toUserId,
+        client_id: `mclaw-${crypto.randomBytes(8).toString('hex')}`,
+        message_type: 2,
+        message_state: 2,
+        context_token: ctxToken,
+        item_list: [item],
+      },
+      base_info: { channel_version: '1.0.2' }
+    };
+    return apiPost(account, '/ilink/bot/sendmessage', body);
+  };
+
+  await sendOne({ type: 1, text_item: { text: `[文件] ${fileName}` } });
+  await sendOne(fileItem);
+
+  console.log(`[wechat-bot] 文件发送成功: ${contactName}, file=${fileName}`);
+  return { sent: true };
 }
 
 // ─── 发送消息 ───
@@ -252,6 +454,7 @@ function startPolling(accountId) {
 
   if (existing) existing.running = false;
   console.log(`[wechat-bot] 开始轮询: ${accountId}`);
+  broadcast({ type: 'account_status', account_id: accountId, online: true });
   // 小延迟避免启动风暴
   setTimeout(() => pollLoop(accountId), Math.random() * 2000);
 }
@@ -259,12 +462,21 @@ function startPolling(accountId) {
 function stopPolling(accountId) {
   const state = pollingStates.get(accountId);
   if (state) state.running = false;
+  broadcast({ type: 'account_status', account_id: accountId, online: false });
 }
 
 function stopAll() {
   for (const [id, state] of pollingStates) {
     state.running = false;
   }
+}
+
+function getOnlineAccountIds() {
+  const ids = [];
+  for (const [id, state] of pollingStates) {
+    if (state.running) ids.push(id);
+  }
+  return ids;
 }
 
 // 启动所有活跃的微信 bot
@@ -276,4 +488,4 @@ async function startAllBots() {
   console.log(`[wechat-bot] 已启动 ${accounts.length} 个微信 Bot 轮询`);
 }
 
-module.exports = { sendMessage, startPolling, stopPolling, stopAll, startAllBots, ensureWechatAccount };
+module.exports = { sendMessage, sendImage, sendFile, startPolling, stopPolling, stopAll, startAllBots, ensureWechatAccount, getOnlineAccountIds };
