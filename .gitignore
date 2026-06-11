@@ -2,6 +2,11 @@ node_modules/
 dist/
 .local
 *.log
+*.db
+*.db-wal
+*.db-shm
+*.ttf
+*.zip
 backend/data/
 
 backend/uploads/
@@ -14,3 +19,8 @@ backend/test-hf-output.html
 .vite/deps/
 backend/.env
 __pycache__/
+backend/media-crawler/docs/.vitepress/
+backend/media-crawler/docs/static/
+backend/media-crawler/media_platform/tieba/test_data/
+backend/auto_douyin/uv.lock
+backend/auto_douyin/full_page.txt
