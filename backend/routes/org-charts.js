@@ -35,7 +35,7 @@ const upload = multer({
     if (ALLOWED_EXTS.includes(ext) || ALLOWED_MIME.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error(`不支持的文件类型: .${ext}`));
+      cb(null, false);
     }
   }
 });

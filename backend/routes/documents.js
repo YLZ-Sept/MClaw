@@ -40,7 +40,7 @@ const upload = multer({
   fileFilter: (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase().replace('.', '');
     if (ALL_EXTS.includes(ext)) return cb(null, true);
-    cb(new Error(`不支持的文件类型: .${ext}`));
+    cb(null, false);
   }
 });
 

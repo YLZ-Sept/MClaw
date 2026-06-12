@@ -24,7 +24,7 @@ const updateUpload = multer({
   limits: { fileSize: 500 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     if (path.extname(file.originalname).toLowerCase() === '.zip') return cb(null, true);
-    cb(new Error('仅支持 .zip 文件'));
+    cb(null, false);
   }
 });
 

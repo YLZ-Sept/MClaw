@@ -454,6 +454,14 @@ if (fs.existsSync(frontendDist)) {
   });
 }
 
+// 全局错误处理（防止 multer/async 中间件异常导致进程崩溃）
+app.use((err, req, res, next) => {
+  if (err) {
+    console.error('[server] unhandled error:', err.message || err);
+    res.status(err.status || 500).json({ code: err.status || 500, message: err.message || '服务器内部错误' });
+  } else { next(); }
+});
+
 const PORT = 18621;
 const server = http.createServer(app);
 
