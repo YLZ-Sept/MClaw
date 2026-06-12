@@ -128,6 +128,18 @@ export function createBackup() {
   return request.post('/security/backup').then(res => res.data)
 }
 
+export function updateSystem() {
+  return request.post('/security/update').then(res => res.data)
+}
+
+export function updateSystemOffline(file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return request.post('/security/update-offline', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  }).then(res => res.data)
+}
+
 export function getBackups() {
   return request.get('/security/backups').then(res => res.data)
 }

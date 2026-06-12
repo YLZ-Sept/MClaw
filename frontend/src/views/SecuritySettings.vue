@@ -132,6 +132,37 @@
           </div>
         </div>
 
+        <div class="section-card card-accent-update">
+          <div class="section-hd">
+            <div class="section-title">在线更新</div>
+            <div class="section-hd-right">
+              <span style="font-size:12px;color:#909399;margin-right:8px">从 GitHub 拉取最新版本，自动构建并重启</span>
+              <el-button type="primary" size="small" @click="doUpdate" :loading="updateLoading" :icon="Upload">
+                检查更新
+              </el-button>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-card card-accent-update">
+          <div class="section-hd">
+            <div class="section-title">离线升级</div>
+            <div class="section-hd-right">
+              <span style="font-size:12px;color:#909399;margin-right:8px">上传最新版本 ZIP，自动构建并重启</span>
+              <input
+                ref="offlineFileInput"
+                type="file"
+                accept=".zip"
+                style="display:none"
+                @change="onOfflineFileChange"
+              />
+              <el-button type="warning" size="small" @click="$refs.offlineFileInput.click()" :loading="updateOfflineLoading" :icon="Upload">
+                上传升级包
+              </el-button>
+            </div>
+          </div>
+        </div>
+
         <div class="section-card card-accent-backup">
           <div class="section-hd">
             <div class="section-title">备份管理</div>
@@ -214,13 +245,13 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue'
-import { ElMessage } from 'element-plus'
-import { Lock, Connection, Monitor, Download, FolderOpened, Document } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Lock, Connection, Monitor, Download, FolderOpened, Document, Upload } from '@element-plus/icons-vue'
 import {
   changePassword, getSessions, kickSession as kickSessionApi,
   getSecuritySettings, updateSecuritySettings,
   getSystemInfo, createBackup, getBackups, deleteBackup, restoreBackup,
-  getLogs,
+  getLogs, updateSystem, updateSystemOffline,
 } from '../api/index.js'
 
 const userPerms = (() => {
@@ -353,6 +384,9 @@ async function kickSession(token) {
 const sysInfo = ref({})
 const backups = ref([])
 const backupLoading = ref(false)
+const updateLoading = ref(false)
+const updateOfflineLoading = ref(false)
+const offlineFileInput = ref(null)
 
 async function loadSystemInfo() {
   try {
@@ -366,6 +400,61 @@ async function loadBackups() {
     const res = await getBackups()
     if (res.code === 200) backups.value = res.data || []
   } catch { backups.value = [] }
+}
+
+async function doUpdate() {
+  try {
+    await ElMessageBox.confirm(
+      '将从 GitHub 下载最新代码并覆盖本地文件，数据库和上传文件不会被影响。更新完成后服务会自动重启，确认继续？',
+      '在线更新',
+      { confirmButtonText: '确认更新', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch { return }
+
+  updateLoading.value = true
+  try {
+    const res = await updateSystem()
+    if (res.code === 200) {
+      ElMessage.success('更新已开始，服务即将重启，请稍后刷新页面')
+    } else {
+      ElMessage.error(res.message)
+      updateLoading.value = false
+    }
+  } catch {
+    ElMessage.error('更新请求失败')
+    updateLoading.value = false
+  }
+}
+
+async function onOfflineFileChange(e) {
+  const file = e.target.files[0]
+  if (!file) return
+  if (!file.name.toLowerCase().endsWith('.zip')) {
+    ElMessage.error('仅支持 .zip 文件')
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      '将使用上传的 ZIP 包覆盖本地文件，数据库和上传文件不会被影响。更新完成后服务会自动重启，确认继续？',
+      '离线升级',
+      { confirmButtonText: '确认升级', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch { return }
+
+  updateOfflineLoading.value = true
+  try {
+    const res = await updateSystemOffline(file)
+    if (res.code === 200) {
+      ElMessage.success('离线升级完成，服务即将重启，请稍后刷新页面')
+    } else {
+      ElMessage.error(res.message)
+      updateOfflineLoading.value = false
+    }
+  } catch {
+    ElMessage.error('离线升级请求失败')
+    updateOfflineLoading.value = false
+  }
 }
 
 async function doCreateBackup() {
@@ -571,6 +660,7 @@ onMounted(() => {
 .card-accent-sess  { border-left-color: #d97706; }
 .card-accent-sys   { border-left-color: #2e7d32; }
 .card-accent-backup { border-left-color: #e65100; }
+.card-accent-update { border-left-color: #06b6d4; }
 .card-accent-logs   { border-left-color: #6366f1; }
 
 .section-hd {

@@ -14,9 +14,9 @@ echo   URL: http://localhost:18621
 echo ================================
 echo.
 
-:: Start backend
-echo [start] backend :18621
-start /B cmd /c "cd /d %~dp0backend && node server.js > %~dp0backend\server.log 2>&1"
+:: Start backend (auto-restart on exit)
+echo [start] backend :18621 (auto-restart)
+start "MClaw" /min cmd /c "cd /d %~dp0backend && :loop && node server.js >> server.log 2>&1 & timeout /t 2 /nobreak >nul & goto loop"
 
 :: Start auto publisher
 echo [start] publisher :8001

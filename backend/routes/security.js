@@ -6,6 +6,7 @@ const fs = require('fs');
 const os = require('os');
 const archiver = require('archiver');
 const AdmZip = require('adm-zip');
+const multer = require('multer');
 const db = require('../db');
 const auth = require('./auth');
 const { addLog } = require('./logs');
@@ -13,6 +14,19 @@ const { addLog } = require('./logs');
 const PROJECT_ROOT = path.join(__dirname, '..');
 const BACKUPS_DIR = path.join(PROJECT_ROOT, 'backups');
 if (!fs.existsSync(BACKUPS_DIR)) fs.mkdirSync(BACKUPS_DIR, { recursive: true });
+
+const updateStorage = multer.diskStorage({
+  destination: BACKUPS_DIR,
+  filename: (req, file, cb) => cb(null, 'update_upload_' + Date.now() + '.zip')
+});
+const updateUpload = multer({
+  storage: updateStorage,
+  limits: { fileSize: 500 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (path.extname(file.originalname).toLowerCase() === '.zip') return cb(null, true);
+    cb(new Error('仅支持 .zip 文件'));
+  }
+});
 
 function dirSize(dirPath) {
   if (!fs.existsSync(dirPath)) return 0;
@@ -356,6 +370,202 @@ router.post('/backups/:name/restore', authRequired, (req, res) => {
       // db 已无法恢复，提示用户手动处理
     } catch {}
     res.json({ code: 500, message: '恢复失败: ' + err.message });
+  }
+});
+
+// 离线更新（上传 ZIP）
+router.post('/update-offline', authRequired, updateUpload.single('file'), async (req, res) => {
+  if (req.session.role !== 'superadmin') {
+    try { if (req.file) fs.unlinkSync(req.file.path); } catch {}
+    return res.json({ code: 403, message: '仅超级管理员可执行更新' });
+  }
+  if (!req.file) {
+    return res.json({ code: 400, message: '请上传 ZIP 文件' });
+  }
+
+  const zipPath = req.file.path;
+  let tmpDir = '';
+
+  try {
+    // 1. 创建安全备份
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const backupName = 'pre_update_' + ts + '.zip';
+    const backupPath = path.join(BACKUPS_DIR, backupName);
+
+    await new Promise((resolve, reject) => {
+      const output = fs.createWriteStream(backupPath);
+      const archive = archiver('zip', { zlib: { level: 9 } });
+      archive.on('error', reject);
+      output.on('close', resolve);
+      archive.pipe(output);
+
+      const backendDir = path.join(PROJECT_ROOT, 'backend');
+      const frontendDir = path.join(PROJECT_ROOT, 'frontend');
+      if (fs.existsSync(backendDir)) archive.directory(backendDir, 'backend');
+      if (fs.existsSync(frontendDir)) archive.directory(frontendDir, 'frontend');
+
+      // 根目录脚本
+      for (const f of fs.readdirSync(PROJECT_ROOT)) {
+        const full = path.join(PROJECT_ROOT, f);
+        try { if (fs.statSync(full).isFile()) archive.file(full, { name: f }); } catch {}
+      }
+
+      archive.finalize();
+    });
+    console.log('[update-offline] safety backup:', backupName);
+
+    // 2. 解压 ZIP 到临时目录，处理 GitHub 顶层目录
+    tmpDir = path.join(os.tmpdir(), 'mclaw_update_' + Date.now());
+    fs.mkdirSync(tmpDir, { recursive: true });
+
+    const zip = new AdmZip(zipPath);
+    zip.extractAllTo(tmpDir, true);
+
+    // 检测并剥离顶层目录（GitHub ZIP 格式：repo-main/...）
+    let srcDir = tmpDir;
+    const tmpTop = fs.readdirSync(tmpDir).filter(f => !f.startsWith('.'));
+    const dirs = tmpTop.filter(f => fs.statSync(path.join(tmpDir, f)).isDirectory());
+    if (dirs.length === 1 && tmpTop.length === 1) {
+      srcDir = path.join(tmpDir, dirs[0]);
+    }
+
+    // 3. 覆盖文件（排除敏感内容）
+    const excludePrefixes = [
+      'backend/.env', 'backend/data/', 'backend/uploads/', 'backend/videos/',
+      'backend/backups/', 'backend/node_modules/', 'backend/server.log',
+      'frontend/node_modules/', 'frontend/dist/',
+    ];
+
+    function shouldSkip(rel) {
+      const n = rel.replace(/\\/g, '/');
+      if (n.startsWith('.git/') || n === '.git') return true;
+      return excludePrefixes.some(p => n.startsWith(p));
+    }
+
+    function copyRecursive(src, dest, baseLen) {
+      for (const name of fs.readdirSync(src)) {
+        const srcFull = path.join(src, name);
+        const st = fs.statSync(srcFull);
+        const rel = srcFull.substring(baseLen);
+
+        if (shouldSkip(rel)) {
+          console.log('[update-offline] skip:', rel);
+          continue;
+        }
+
+        const destFull = path.join(dest, rel);
+        if (st.isDirectory()) {
+          fs.mkdirSync(destFull, { recursive: true });
+          copyRecursive(srcFull, dest, baseLen);
+        } else {
+          fs.mkdirSync(path.dirname(destFull), { recursive: true });
+          fs.copyFileSync(srcFull, destFull);
+        }
+      }
+    }
+
+    copyRecursive(srcDir, PROJECT_ROOT, srcDir.length + 1);
+    console.log('[update-offline] files copied');
+
+    // 4. 清理
+    fs.unlinkSync(zipPath);
+    if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
+
+    // 5. 安装依赖 + 构建
+    const { execSync } = require('child_process');
+    console.log('[update-offline] installing backend deps...');
+    execSync('npm install --production', { cwd: path.join(PROJECT_ROOT, 'backend'), stdio: 'pipe' });
+    console.log('[update-offline] installing frontend deps...');
+    execSync('npm install', { cwd: path.join(PROJECT_ROOT, 'frontend'), stdio: 'pipe' });
+    console.log('[update-offline] building frontend...');
+    execSync('npx vite build', { cwd: path.join(PROJECT_ROOT, 'frontend'), stdio: 'pipe' });
+
+    addLog('success', 'update', '离线升级完成，即将重启', req.session.username, req.ip);
+    res.json({ code: 200, message: '离线升级完成，服务即将重启，请稍后刷新页面' });
+
+    setTimeout(() => {
+      const { spawn } = require('child_process');
+      const serverPath = path.join(PROJECT_ROOT, 'backend', 'server.js');
+      const child = spawn('node', [serverPath], {
+        cwd: path.join(PROJECT_ROOT, 'backend'),
+        detached: true,
+        stdio: 'ignore'
+      });
+      child.unref();
+      process.exit(0);
+    }, 1000);
+
+  } catch (err) {
+    console.error('[update-offline] error:', err.message);
+    try { if (zipPath && fs.existsSync(zipPath)) fs.unlinkSync(zipPath); } catch {}
+    try { if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+    res.json({ code: 500, message: '离线升级失败: ' + err.message });
+  }
+});
+
+// 在线更新
+const https = require('https');
+const { execSync } = require('child_process');
+
+router.post('/update', authRequired, (req, res) => {
+  // 仅 superadmin 可执行
+  if (req.session.role !== 'superadmin') {
+    return res.json({ code: 403, message: '仅超级管理员可执行更新' });
+  }
+
+  try {
+    // 1. 更新前记录当前 commit
+    let oldCommit = '';
+    try { oldCommit = execSync('git rev-parse HEAD', { cwd: PROJECT_ROOT, encoding: 'utf8' }).trim(); } catch {}
+
+    // 2. git pull
+    console.log('[update] git pull...');
+    const pullResult = execSync('git pull origin main', { cwd: PROJECT_ROOT, encoding: 'utf8', timeout: 60000 });
+    console.log('[update] git pull:', pullResult.trim());
+
+    // 3. 检查是否有更新
+    const newCommit = execSync('git rev-parse HEAD', { cwd: PROJECT_ROOT, encoding: 'utf8' }).trim();
+    if (oldCommit === newCommit) {
+      return res.json({ code: 200, message: '已是最新版本，无需更新' });
+    }
+
+    addLog('info', 'update', `更新 ${oldCommit.slice(0, 7)} → ${newCommit.slice(0, 7)}`, req.session.username, req.ip);
+
+    // 4. 安装依赖 + 构建前端
+    console.log('[update] 安装后端依赖...');
+    execSync('npm install --production', { cwd: path.join(PROJECT_ROOT, 'backend'), stdio: 'pipe' });
+    console.log('[update] 构建前端...');
+    execSync('npm install', { cwd: path.join(PROJECT_ROOT, 'frontend'), stdio: 'pipe' });
+    execSync('npx vite build', { cwd: path.join(PROJECT_ROOT, 'frontend'), stdio: 'pipe' });
+    console.log('[update] 构建完成');
+
+    res.json({ code: 200, message: '更新完成，服务即将重启，请稍后刷新页面' });
+
+    addLog('success', 'update', `更新完成 ${newCommit.slice(0, 7)}，即将重启`, req.session.username, req.ip);
+
+    // 5. 重启
+    setTimeout(() => {
+      const { spawn } = require('child_process');
+      const serverPath = path.join(PROJECT_ROOT, 'backend', 'server.js');
+      const child = spawn('node', [serverPath], {
+        cwd: path.join(PROJECT_ROOT, 'backend'),
+        detached: true,
+        stdio: 'ignore'
+      });
+      child.unref();
+      process.exit(0);
+    }, 1000);
+
+  } catch (err) {
+    console.error('[update] 更新失败:', err.message);
+    addLog('danger', 'update', '更新失败: ' + err.message, req.session.username, req.ip);
+    let msg = err.message || '未知错误';
+    if (msg.includes('Permission denied') || msg.includes('could not read')) {
+      msg = 'Git 认证失败，请确认已配置仓库访问权限';
+    } else if (msg.includes('not a git repository')) {
+      msg = '项目目录不是 Git 仓库，无法在线更新';
+    }
+    res.json({ code: 500, message: '更新失败: ' + msg });
   }
 });
 
