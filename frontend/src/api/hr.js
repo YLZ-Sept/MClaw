@@ -45,7 +45,10 @@ export const attendanceApi = {
   updateReport: (id, data) => PUT(`/attendance/reports/${id}`, data),
   deleteReport: (id) => DEL(`/attendance/reports/${id}`),
   monthlyReport: (params) => GET('/attendance/report/monthly', { params }),
-  exportUrl: (month) => `/api/attendance/export?month=${month}`
+  exportUrl: (month) => {
+    const token = localStorage.getItem('token')
+    return `/api/attendance/export?month=${month}&token=${encodeURIComponent(token)}`
+  }
 }
 
 export const performanceApi = {
@@ -57,7 +60,10 @@ export const performanceApi = {
   aggregate: (month) => POST('/performance/aggregate', { month }),
   updateReport: (id, d) => PUT(`/performance/reports/${id}`, d),
   deleteReport: (id) => DEL(`/performance/reports/${id}`),
-  exportUrl: (month, category) => `/api/performance/export?month=${month}&category=${category || 'monthly'}`
+  exportUrl: (month, category) => {
+    const token = localStorage.getItem('token')
+    return `/api/performance/export?month=${month}&category=${category || 'monthly'}&token=${encodeURIComponent(token)}`
+  }
 }
 
 export const recruitmentApi = {

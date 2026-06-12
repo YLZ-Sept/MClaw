@@ -223,7 +223,10 @@ const applyingGlobal = ref(false)
 const importVisible = ref(false)
 const importKey = ref('')
 function handleImport(key) { importKey.value = key; importVisible.value = true }
-function handleExport(key) { window.open(`/api/${key.replace(/_/g,'-')}/export`) }
+function handleExport(key) {
+  const token = localStorage.getItem('token')
+  window.open(`/api/${key.replace(/_/g,'-')}/export?token=${encodeURIComponent(token)}`)
+}
 function onImportDone() { ld() }
 
 const kpis = computed(() => {
