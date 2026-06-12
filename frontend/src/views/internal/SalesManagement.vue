@@ -313,6 +313,7 @@ import request from '../../api/index.js'
 import { customerApi, contactApi, opportunityApi, contractApi } from '../../api/crm'
 import ImportDialog from '../../components/ImportDialog.vue'
 import BidStatsTable from './BidStatsTable.vue'
+import { downloadFile } from '../../utils/download'
 const router = useRouter()
 
 const tab = ref('crm')
@@ -422,11 +423,8 @@ function fmtMoney(r,c,v) { if (v==null||v===0) return ''; return '¥'+Number(v).
 const importVisible = ref(false), importKey = ref('')
 function handleImport(key) { importKey.value = key; importVisible.value = true }
 function handleExport(key) {
-  const a = document.createElement('a')
-  a.href = `/api/io/${key}/export`
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
+  const token = localStorage.getItem('token')
+  downloadFile(`/api/io/${key}/export?token=${encodeURIComponent(token)}`, '导出失败')
 }
 function onImportDone() { loadCrm(); loadBidData() }
 

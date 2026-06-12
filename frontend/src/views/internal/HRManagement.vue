@@ -321,6 +321,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { employeeApi, departmentApi, attendanceApi, performanceApi, orgChartApi, recruitmentStatsApi } from '../../api/hr'
 import ImportDialog from '../../components/ImportDialog.vue'
+import { downloadFile } from '../../utils/download'
 const router = useRouter()
 
 const tab = ref('departments')
@@ -328,11 +329,7 @@ const importVisible = ref(false)
 const importKey = ref('')
 function handleImport(key) { importKey.value = key; importVisible.value = true }
 function handleExport(key, params) {
-  const a = document.createElement('a')
-  a.href = `/api/io/${key}/export` + (params ? '?' + new URLSearchParams(params).toString() : '')
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
+  downloadFile(`/api/io/${key}/export` + (params ? '?' + new URLSearchParams(params).toString() : ''), '导出失败')
 }
 function onImportDone() { reload() }
 const employees = ref([]), departments = ref([]), orgCharts = ref([])
@@ -422,19 +419,11 @@ async function loadReports() {
 }
 
 function doExportAttendance() {
-  const a = document.createElement('a')
-  a.href = attendanceApi.exportUrl(rptMonth.value)
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
+  downloadFile(attendanceApi.exportUrl(rptMonth.value), '考勤导出失败')
 }
 
 function doExportPerformance() {
-  const a = document.createElement('a')
-  a.href = performanceApi.exportUrl(perfMonth.value, perfTab.value)
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
+  downloadFile(performanceApi.exportUrl(perfMonth.value, perfTab.value), '绩效导出失败')
 }
 
 async function onAttReportFile(file) {
@@ -605,11 +594,7 @@ function exportStats() {
   const params = new URLSearchParams()
   if (statsWeek.value) params.set('week_start', statsWeek.value)
   params.set('token', token)
-  const a = document.createElement('a')
-  a.href = `/api/recruitment-stats/export?${params.toString()}`
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
+  downloadFile(`/api/recruitment-stats/export?${params.toString()}`, '导出失败')
 }
 // Excel 导入：解析 → 预览 → 批量写入
 async function handleStatsImport(opt) {

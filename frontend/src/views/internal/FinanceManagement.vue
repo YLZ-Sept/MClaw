@@ -111,6 +111,7 @@ import { useRouter } from 'vue-router'
 import { ArrowLeft } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '../../api/index.js'
+import { downloadFile } from '../../utils/download'
 const router = useRouter()
 
 const tab = ref('receivable')
@@ -210,11 +211,7 @@ async function doBatchImport() {
 function exportExcel() {
   if (!data.value.length) { ElMessage.warning('暂无数据'); return }
   const token = localStorage.getItem('token')
-  const a = document.createElement('a')
-  a.href = `/api/finance/export?type=${tab.value}&token=${encodeURIComponent(token)}`
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
+  downloadFile(`/api/finance/export?type=${tab.value}&token=${encodeURIComponent(token)}`, '导出失败')
 }
 
 onMounted(loadData)

@@ -203,6 +203,7 @@ import { ArrowLeft } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { purchaseOrderApi, salesOrderApi, assetLedgerApi, returnApi } from '../../api/inventory'
 import ImportDialog from '../../components/ImportDialog.vue'
+import { downloadFile } from '../../utils/download'
 
 const router = useRouter()
 const tab = ref('purchase')
@@ -225,11 +226,7 @@ const importKey = ref('')
 function handleImport(key) { importKey.value = key; importVisible.value = true }
 function handleExport(key) {
   const token = localStorage.getItem('token')
-  const a = document.createElement('a')
-  a.href = `/api/${key.replace(/_/g,'-')}/export?token=${encodeURIComponent(token)}`
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
+  downloadFile(`/api/${key.replace(/_/g,'-')}/export?token=${encodeURIComponent(token)}`, '导出失败')
 }
 function onImportDone() { ld() }
 

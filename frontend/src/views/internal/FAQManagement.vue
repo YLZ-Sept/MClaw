@@ -98,6 +98,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '../../api/index.js'
+import { downloadFile } from '../../utils/download'
 const router = useRouter()
 
 const tab = ref('list')
@@ -125,11 +126,7 @@ async function searchFaq() {
 }
 function exportExcel() {
   if (faqs.value.length === 0) { ElMessage.warning('无数据'); return }
-  const a = document.createElement('a')
-  a.href = '/api/faq/export?token=' + encodeURIComponent(localStorage.getItem('token'))
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
+  downloadFile('/api/faq/export?token=' + encodeURIComponent(localStorage.getItem('token')), '导出失败')
 }
 
 // 新导入流程：上传 → 后端解析 → 预览 → 批量写入

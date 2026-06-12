@@ -98,6 +98,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft } from '@element-plus/icons-vue'
 import request from '../../api/index.js'
 import ImportDialog from '../../components/ImportDialog.vue'
+import { downloadFile } from '../../utils/download'
 const router = useRouter()
 
 const props = defineProps({ embedded: { type: Boolean, default: false } })
@@ -116,11 +117,8 @@ const monthNew = computed(() => {
 const crawlCount = computed(() => rows.value.filter(r => r.source === 'crawl4ai').length)
 
 function handleExport() {
-  const a = document.createElement('a')
-  a.href = '/api/io/bid_statistics/export'
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
+  const token = localStorage.getItem('token')
+  downloadFile(`/api/io/bid_statistics/export?token=${encodeURIComponent(token)}`, '导出失败')
 }
 function handleImport() { importVisible.value = true }
 

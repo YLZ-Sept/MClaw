@@ -242,6 +242,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Plus, Edit, Close, UploadFilled, Loading, Document, Collection, FolderOpened } from '@element-plus/icons-vue'
 import { marked } from 'marked'
 import request from '../api/index.js'
+import { downloadFile } from '../utils/download'
 
 const categories = ref([])
 const articles = ref([])
@@ -368,11 +369,7 @@ async function onBatchFileChange(file) {
 function onBatchFileRemove() { batchUrls.value = [] }
 
 function downloadTemplate() {
-  const a = document.createElement('a')
-  a.href = '/api/doc-import/template'
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
+  downloadFile('/api/doc-import/template', '模板下载失败')
 }
 
 async function batchImport() {
