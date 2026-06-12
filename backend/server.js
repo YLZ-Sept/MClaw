@@ -114,7 +114,9 @@ const { requireAuth, requirePermission } = require('./routes/auth');
 
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/users', requireAuth, require('./routes/users'));
+app.use('/api/roles', requireAuth, require('./routes/roles'));
 app.use('/api/security', requirePermission('security'), require('./routes/security'));
+app.use('/api/logs', requireAuth, require('./routes/logs'));
 app.use('/api/io', require('./routes/io'));
 app.use('/api/bids', require('./routes/bids'));
 app.use('/api/bid-statistics', require('./routes/bid-statistics'));

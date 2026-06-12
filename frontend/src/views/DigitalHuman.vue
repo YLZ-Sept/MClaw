@@ -44,7 +44,7 @@
           <div class="ec-nobind" v-else>未绑定 Agent</div>
         </div>
         <div class="ec-actions">
-          <el-button size="small" round @click="chatWith(e)" :disabled="!getAgentIds(e).length">聊天</el-button>
+          <el-button size="small" round @click="chatWith(e)" :disabled="!getAgentIds(e).length || e.status !== 'active'">聊天</el-button>
           <el-button size="small" round @click="openEdit(e)">编辑</el-button>
           <el-button size="small" round type="danger" @click="delEmployee(e.id)">删除</el-button>
         </div>
@@ -127,7 +127,7 @@ function agentName(id) {
   return a ? a.name : id
 }
 function getAgentIds(e) {
-  const ids = e.agent_ids || e.agent_id || ''
+  const ids = e.agent_ids || ''
   return ids ? ids.split(',').filter(Boolean) : []
 }
 function selectPreset(av) {

@@ -19,9 +19,6 @@
           </el-button>
         </el-form-item>
       </el-form>
-      <div class="login-footer">
-        <span>v2026.5.7 · DeepSeek AI 驱动</span>
-      </div>
     </div>
   </div>
 </template>
@@ -131,10 +128,4 @@ async function handleLogin() {
   letter-spacing: 4px;
 }
 
-.login-footer {
-  text-align: center;
-  margin-top: 20px;
-  font-size: 12px;
-  color: #c0c8d4;
-}
 </style>

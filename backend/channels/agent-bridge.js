@@ -28,9 +28,8 @@ function loadAgentConfig(agent) {
     const de = db.prepare('SELECT * FROM digital_employees WHERE id=? AND status=?').get(agent, 'active');
     if (de) {
       persona = { name: de.name, role: de.role, emoji: de.avatar_emoji, avatar: de.avatar_url };
-      // 收集所有绑定的 agent ID
+      // 收集所有绑定的 agent ID（仅从 agent_ids 字段读取）
       const ids = [];
-      if (de.agent_id && de.agent_id.trim()) ids.push(de.agent_id.trim());
       if (de.agent_ids && de.agent_ids.trim()) {
         const raw = de.agent_ids.trim();
         try {
@@ -41,7 +40,11 @@ function loadAgentConfig(agent) {
           ids.push(...raw.split(',').map(s => s.trim()).filter(Boolean));
         }
       }
-      if (ids.length > 0) agentIds = [...new Set(ids)]; // 去重
+      if (ids.length > 0) {
+        agentIds = [...new Set(ids)];
+      } else {
+        console.warn('[agent-bridge] 数字员工 %s（%s）的 agent_ids 为空，将回退到默认 Agent', de.name, agent);
+      }
     }
   } catch {}
 
@@ -65,8 +68,15 @@ function loadAgentConfig(agent) {
             const b = agentConfigs[dbRow.base_agent];
             base = { systemPrompt: dbRow.system_prompt || b.systemPrompt, tools: [...b.tools], agentId };
           } else {
+            if (!dbRow.base_agent) {
+              console.warn('[agent-bridge] agent_app %s 未指定 base_agent，tools 将为空', agentId);
+            } else {
+              console.warn('[agent-bridge] agent_app %s 的 base_agent=%s 未匹配任何内置 Agent', agentId, dbRow.base_agent);
+            }
             base = { systemPrompt: dbRow.system_prompt || '你是 MClaw 智能助手，请用中文简洁回复。', tools: [], agentId };
           }
+        } else {
+          console.warn('[agent-bridge] Agent ID %s 未匹配内置 Agent 或 agent_apps（可能已删除或非 active）', agentId);
         }
       } catch {}
     }
@@ -74,7 +84,10 @@ function loadAgentConfig(agent) {
     if (base) bases.push(base);
   }
 
-  if (bases.length === 0) bases.push({ ...agentConfigs['default'], agentId: 'default' });
+  if (bases.length === 0) {
+    console.warn('[agent-bridge] 所有 Agent 解析失败，回退到默认 Agent。原始 agent 参数: %s', agent);
+    bases.push({ ...agentConfigs['default'], agentId: 'default' });
+  }
 
   // 合并 tools：去重
   const mergedTools = [];
@@ -225,11 +238,8 @@ const AGENT_KEYWORDS = {
 function resolveBaseAgent(agentId) {
   try {
     const de = db.prepare('SELECT * FROM digital_employees WHERE id=? AND status=?').get(agentId, 'active');
-    if (de) {
-      if (de.agent_id && de.agent_id.trim()) return de.agent_id.trim();
-      if (de.agent_ids && de.agent_ids.trim()) {
-        try { const ids = JSON.parse(de.agent_ids); return Array.isArray(ids) ? ids[0] : de.agent_ids; } catch { return de.agent_ids.split(',')[0].trim(); }
-      }
+    if (de && de.agent_ids && de.agent_ids.trim()) {
+      try { const ids = JSON.parse(de.agent_ids); return Array.isArray(ids) ? ids[0] : de.agent_ids; } catch { return de.agent_ids.split(',')[0].trim(); }
     }
     const app = db.prepare('SELECT * FROM agent_apps WHERE id=? AND status=?').get(agentId, 'active');
     if (app && app.base_agent) return app.base_agent;

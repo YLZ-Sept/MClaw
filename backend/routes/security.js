@@ -8,6 +8,7 @@ const archiver = require('archiver');
 const AdmZip = require('adm-zip');
 const db = require('../db');
 const auth = require('./auth');
+const { addLog } = require('./logs');
 
 const PROJECT_ROOT = path.join(__dirname, '..');
 const BACKUPS_DIR = path.join(PROJECT_ROOT, 'backups');
@@ -83,7 +84,7 @@ router.post('/change-password', authRequired, (req, res) => {
 
 // 查看活跃会话
 router.get('/sessions', authRequired, (req, res) => {
-  const list = Object.entries(auth.tokens).map(([tk, s]) => ({
+  let list = Object.entries(auth.tokens).map(([tk, s]) => ({
     token: tk === req.token ? '***current***' : tk.slice(0, 8) + '...',
     tokenFull: tk,
     username: s.username,
@@ -92,6 +93,15 @@ router.get('/sessions', authRequired, (req, res) => {
     loginTime: new Date(s.createdAt).toLocaleString('zh-CN'),
     isCurrent: tk === req.token,
   }));
+
+  // 会话可见性：superadmin 看全部，admin 排除 superadmin，普通用户只看自己
+  if (req.user.role !== 'superadmin') {
+    list = list.filter(s => s.role !== 'superadmin');
+    if (req.user.role !== 'admin') {
+      list = list.filter(s => s.isCurrent);
+    }
+  }
+
   res.json({ code: 200, data: list });
 });
 
@@ -101,10 +111,20 @@ router.delete('/sessions/:token', authRequired, (req, res) => {
   if (!target || target === req.token) {
     return res.json({ code: 400, message: '不能下线当前会话' });
   }
-  if (!auth.tokens[target]) {
+  const session = auth.tokens[target];
+  if (!session) {
     return res.json({ code: 404, message: '会话不存在' });
   }
+  // 非 superadmin 不能踢 superadmin
+  if (req.user.role !== 'superadmin' && session.role === 'superadmin') {
+    return res.json({ code: 403, message: '无权限下线该会话' });
+  }
+  // 普通用户不能踢任何人
+  if (req.user.role !== 'superadmin' && req.user.role !== 'admin') {
+    return res.json({ code: 403, message: '无权限下线会话' });
+  }
   delete auth.tokens[target];
+  addLog('warning', 'kick_session', `${req.user.username} 强制下线了 ${session.username} 的会话`, req.user.username, req.ip);
   res.json({ code: 200, message: '已强制下线' });
 });
 

@@ -543,22 +543,64 @@ db.exec(`
 
 // 迁移：补 permissions 字段
 try { db.exec('ALTER TABLE users ADD COLUMN permissions TEXT DEFAULT \'["chat","digital","trending","knowledge","skills","crm","inventory","hr","docs","channels","publish","model","security"]\''); } catch {}
+// 迁移：角色表
+try { db.exec(`CREATE TABLE IF NOT EXISTS roles (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL UNIQUE,
+  description TEXT DEFAULT '',
+  permissions TEXT NOT NULL DEFAULT '[]',
+  created_at  TEXT DEFAULT (datetime('now','localtime'))
+)`); } catch {}
+// 迁移：用户关联角色
+try { db.exec('ALTER TABLE users ADD COLUMN role_id TEXT REFERENCES roles(id)'); } catch {}
+
+// 迁移：操作日志表
+try { db.exec(`CREATE TABLE IF NOT EXISTS logs (
+  id         TEXT PRIMARY KEY,
+  type       TEXT NOT NULL DEFAULT 'info',
+  action     TEXT NOT NULL,
+  detail     TEXT DEFAULT '',
+  username   TEXT DEFAULT '',
+  ip         TEXT DEFAULT '',
+  created_at TEXT DEFAULT (datetime('now','localtime'))
+)`); } catch {}
+
+const ALL_PERMS = ["chat","digital","trending","knowledge","skills","crm","inventory","hr","docs","channels","publish","model","security"];
+const ALL_SUB_PERMS = ["security_config","security_users","security_sessions","security_maintain","security_roles","security_permissions"];
+
+// 种子角色
+function seedRole(name, desc, perms) {
+  const existing = db.prepare('SELECT id FROM roles WHERE name=?').get(name);
+  if (existing) return;
+  const { randomUUID } = require('crypto');
+  db.prepare('INSERT INTO roles (id, name, description, permissions) VALUES (?,?,?,?)')
+    .run(randomUUID(), name, desc, JSON.stringify(perms));
+  console.log(`[seed] 角色已创建: ${name}`);
+}
+seedRole('超级管理员', '系统内置超级管理员，拥有全部权限', [...ALL_PERMS, ...ALL_SUB_PERMS]);
+seedRole('管理员', '系统内置管理员，拥有全部模块权限（不含模型配置）', [...ALL_PERMS.filter(k => k !== 'model'), ...ALL_SUB_PERMS]);
+seedRole('普通用户', '默认注册角色，无任何模块权限', []);
 
 // 种子管理员账号
-function seedUser(username, password, name, role, permissions) {
+function seedUser(username, password, name, role, permissions, roleName) {
   const existing = db.prepare('SELECT id FROM users WHERE username=?').get(username);
   if (existing) return;
   const { randomUUID } = require('crypto');
   const salt = randomUUID().replace(/-/g, '');
   const hash = require('crypto').scryptSync(password, salt, 64).toString('hex');
-  db.prepare('INSERT INTO users (id, username, password_hash, name, role, permissions) VALUES (?,?,?,?,?,?)')
-    .run(randomUUID(), username, salt + ':' + hash, name, role, JSON.stringify(permissions));
+  const roleId = roleName ? db.prepare('SELECT id FROM roles WHERE name=?').get(roleName)?.id : null;
+  db.prepare('INSERT INTO users (id, username, password_hash, name, role, permissions, role_id) VALUES (?,?,?,?,?,?,?)')
+    .run(randomUUID(), username, salt + ':' + hash, name, role, JSON.stringify(permissions), roleId || null);
   console.log(`[seed] ${role} 账号已创建 (${username}/${password})`);
 }
+seedUser('superadmin', '1qaz@WSX', '超级管理员', 'superadmin', ALL_PERMS, '超级管理员');
+seedUser('admin', 'admin123', '管理员', 'admin', ALL_PERMS, '管理员');
 
-const ALL_PERMS = ["chat","digital","trending","knowledge","skills","crm","inventory","hr","docs","channels","publish","model","security"];
-seedUser('superadmin', '1qaz@WSX', '超级管理员', 'superadmin', ALL_PERMS);
-seedUser('admin', 'admin123', '管理员', 'admin', ALL_PERMS);
+// 为已存在的用户补充 role_id
+try {
+  db.prepare("UPDATE users SET role_id=(SELECT id FROM roles WHERE name='管理员') WHERE username='admin' AND role_id IS NULL").run();
+  db.prepare("UPDATE users SET role_id=(SELECT id FROM roles WHERE name='超级管理员') WHERE username='superadmin' AND role_id IS NULL").run();
+} catch {}
 
 // 种子安全设置默认值
 const ssc = db.prepare('SELECT COUNT(*) AS c FROM security_settings').get();

@@ -94,6 +94,30 @@ export function deleteUser(id) {
 export function getPermissions() {
   return request.get('/users/permissions').then(res => res.data)
 }
+export function getUserRoles() {
+  return request.get('/users/roles').then(res => res.data)
+}
+
+// 角色管理
+export function getRoles() {
+  return request.get('/roles').then(res => res.data)
+}
+export function createRole(data) {
+  return request.post('/roles', data).then(res => res.data)
+}
+export function updateRole(id, data) {
+  return request.put('/roles/' + id, data).then(res => res.data)
+}
+export function deleteRole(id) {
+  return request.delete('/roles/' + id).then(res => res.data)
+}
+export function getPermissionGroups() {
+  return request.get('/roles/permissions/list').then(res => res.data)
+}
+
+export function getLogs(params) {
+  return request.get('/logs', { params }).then(res => res.data)
+}
 
 // 系统维护
 export function getSystemInfo() {

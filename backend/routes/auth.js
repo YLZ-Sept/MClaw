@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
 const db = require('../db');
+const { addLog } = require('./logs');
 
 // ============================================================
 // 权限定义
@@ -20,12 +21,25 @@ const ALL_PERMISSIONS = [
   { key: 'channels', label: '消息渠道' },
   { key: 'model', label: '模型配置' },
   { key: 'security', label: '安全设置' },
+  { key: 'security_config', label: '安全设置-安全配置' },
+  { key: 'security_users', label: '安全设置-用户管理' },
+  { key: 'security_sessions', label: '安全设置-会话管理' },
+  { key: 'security_maintain', label: '安全设置-系统维护' },
+  { key: 'security_roles', label: '安全设置-角色管理' },
+  { key: 'security_permissions', label: '安全设置-权限管理' },
 ];
 
 function getUserPermissions(user) {
-  if (user.role === 'superadmin' || user.role === 'admin') {
-    return ALL_PERMISSIONS.map(p => p.key);
+  if (user.role === 'superadmin') return ALL_PERMISSIONS.map(p => p.key);
+  if (user.role === 'admin') return ALL_PERMISSIONS.map(p => p.key).filter(k => k !== 'model');
+  // RBAC：优先从角色表读取
+  if (user.role_id) {
+    const role = db.prepare('SELECT permissions FROM roles WHERE id=?').get(user.role_id);
+    if (role) {
+      try { return JSON.parse(role.permissions); } catch { return []; }
+    }
   }
+  // 兼容旧数据
   try { return JSON.parse(user.permissions || '[]'); } catch { return []; }
 }
 
@@ -79,9 +93,11 @@ router.post('/login', (req, res) => {
         count,
         lockUntil: Date.now() + settings.lockoutMinutes * 60000,
       });
+      addLog('danger', 'account_locked', `账号 ${username} 已锁定${settings.lockoutMinutes}分钟`, username, req.ip);
       return res.json({ code: 429, message: `密码错误${settings.maxAttempts}次，账号已锁定${settings.lockoutMinutes}分钟` });
     }
     loginAttempts.set(username, { count, lockUntil: null });
+    addLog('warning', 'login_failed', `登录失败（${count}/${settings.maxAttempts}）`, username, req.ip);
     return res.json({ code: 401, message: `用户名或密码错误（剩余${settings.maxAttempts - count}次尝试）` });
   }
 
@@ -89,17 +105,25 @@ router.post('/login', (req, res) => {
 
   const token = crypto.randomUUID();
   const permissions = getUserPermissions(user);
+  const roleId = user.role_id || null;
+  let roleName = null;
+  if (roleId) {
+    const r = db.prepare('SELECT name FROM roles WHERE id=?').get(roleId);
+    if (r) roleName = r.name;
+  }
   tokens[token] = {
     id: user.id,
     username: user.username,
     name: user.name,
     role: user.role,
     permissions,
+    roleId,
     createdAt: Date.now(),
   };
+  addLog('success', 'login', `${user.username} 登录成功`, user.username, req.ip);
   res.json({
     code: 200,
-    data: { token, name: user.name, role: user.role, permissions },
+    data: { token, name: user.name, role: user.role, permissions, role_id: roleId, role_name: roleName },
   });
 });
 

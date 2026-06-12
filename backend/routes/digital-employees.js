@@ -43,22 +43,22 @@ router.get('/', (req, res) => {
 
 // 新增
 router.post('/', upload.single('avatar'), (req, res) => {
-  const { name, role, agent_id, agent_ids, avatar_bg, avatar_emoji } = req.body;
+  const { name, role, agent_ids, avatar_bg, avatar_emoji } = req.body;
   if (!name) return res.status(400).json({ code: 400, message: '名称必填' });
   const id = randomUUID();
   const avatar_url = req.file ? '/api/digital-employees/avatars/' + req.file.filename : null;
-  const ids = agent_ids || agent_id || '';
-  db.prepare('INSERT INTO digital_employees (id,name,role,agent_id,agent_ids,avatar_url,avatar_bg,avatar_emoji) VALUES (?,?,?,?,?,?,?,?)')
-    .run(id, name, role || '销售', ids.split(',')[0] || '', ids, avatar_url, avatar_bg || '', avatar_emoji || '');
+  const ids = agent_ids || '';
+  db.prepare('INSERT INTO digital_employees (id,name,role,agent_ids,avatar_url,avatar_bg,avatar_emoji) VALUES (?,?,?,?,?,?,?)')
+    .run(id, name, role || '销售', ids, avatar_url, avatar_bg || '', avatar_emoji || '');
   res.json({ code: 200, data: { id } });
 });
 
 // 更新
 router.put('/:id', upload.single('avatar'), (req, res) => {
-  const { name, role, agent_id, agent_ids, avatar_bg, avatar_emoji, avatar_url } = req.body;
-  const ids = agent_ids || agent_id || '';
-  db.prepare('UPDATE digital_employees SET name=COALESCE(?,name), role=COALESCE(?,role), agent_id=COALESCE(?,agent_id), agent_ids=COALESCE(?,agent_ids), avatar_bg=COALESCE(?,avatar_bg), avatar_emoji=COALESCE(?,avatar_emoji) WHERE id=?')
-    .run(name, role, ids.split(',')[0] || '', ids, avatar_bg, avatar_emoji, req.params.id);
+  const { name, role, agent_ids, avatar_bg, avatar_emoji, avatar_url } = req.body;
+  const ids = agent_ids || '';
+  db.prepare('UPDATE digital_employees SET name=COALESCE(?,name), role=COALESCE(?,role), agent_ids=COALESCE(?,agent_ids), avatar_bg=COALESCE(?,avatar_bg), avatar_emoji=COALESCE(?,avatar_emoji) WHERE id=?')
+    .run(name, role, ids, avatar_bg, avatar_emoji, req.params.id);
   if (req.file) {
     db.prepare('UPDATE digital_employees SET avatar_url=? WHERE id=?')
       .run('/api/digital-employees/avatars/' + req.file.filename, req.params.id);

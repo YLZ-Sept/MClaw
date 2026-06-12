@@ -29,10 +29,9 @@ const routes = [
       { path: 'support', name: 'FAQMgmt', component: () => import('../views/internal/FAQManagement.vue'), meta: { perm: 'knowledge' } },
       { path: 'tasks', name: 'Tasks', component: () => import('../views/Task.vue'), meta: { perm: 'chat' } },
       { path: 'services', name: 'ServiceManagement', component: () => import('../views/ServiceManagement.vue'), meta: { perm: 'security' } },
-      { path: 'logs', name: 'LogViewer', component: () => import('../views/LogViewer.vue'), meta: { perm: 'security' } },
       { path: 'model-config', name: 'ModelConfig', component: () => import('../views/ModelConfig.vue'), meta: { perm: 'model' } },
       { path: 'channels', name: 'MessageChannels', component: () => import('../views/MessageChannels.vue'), meta: { perm: 'channels' } },
-      { path: 'automation', name: 'CommunicationAutomation', component: () => import('../views/CommunicationAutomation.vue'), meta: { perm: 'channels' } },
+      { path: 'users', name: 'UserManagement', component: () => import('../views/UserManagement.vue'), meta: { perm: 'security_users' } },
       { path: 'security', name: 'SecuritySettings', component: () => import('../views/SecuritySettings.vue'), meta: { perm: 'security' } }
     ]
   }
@@ -43,16 +42,29 @@ const router = createRouter({
   routes
 })
 
-// 全局导航守卫：仅检查登录状态，不做前端权限拦截（权限由后端 API 守卫 + 侧边栏过滤保证）
+// 全局导航守卫：检查登录状态 + 路由权限
 router.beforeEach((to, from, next) => {
   const token = localStorage.getItem('token')
   if (to.meta.public) {
-    next()
-  } else if (!token) {
-    next({ path: '/login', query: { redirect: to.fullPath } })
-  } else {
-    next()
+    return next()
   }
+  if (!token) {
+    return next({ path: '/login', query: { redirect: to.fullPath } })
+  }
+  // 权限检查
+  if (to.meta.perm) {
+    try {
+      const user = JSON.parse(localStorage.getItem('user') || '{}')
+      const role = user.role || ''
+      const perms = user.permissions || []
+      if (role !== 'superadmin' && !perms.includes(to.meta.perm)) {
+        return next({ path: '/chat' })
+      }
+    } catch {
+      return next({ path: '/chat' })
+    }
+  }
+  next()
 })
 
 export default router

@@ -75,9 +75,6 @@
           <router-link v-if="hasPerm('chat')" to="/tasks" class="nav-item" active-class="active">
             <el-icon><List /></el-icon><span>任务</span>
           </router-link>
-          <router-link v-if="hasPerm('security')" to="/logs" class="nav-item" active-class="active">
-            <el-icon><Document /></el-icon><span>日志查看</span>
-          </router-link>
         </div>
         <div class="nav-group">
           <div class="nav-group-title">配置</div>
@@ -87,10 +84,10 @@
           <router-link v-if="hasPerm('security')" to="/services" class="nav-item" active-class="active">
             <el-icon><Setting /></el-icon><span>服务管理</span>
           </router-link>
-          <router-link v-if="hasPerm('channels')" to="/automation" class="nav-item" active-class="active">
-            <el-icon><Promotion /></el-icon><span>通信与自动化</span>
-          </router-link>
 
+          <router-link v-if="hasAnyPerm('security_users','security_roles','security_permissions')" to="/users" class="nav-item" active-class="active">
+            <el-icon><Avatar /></el-icon><span>用户管理</span>
+          </router-link>
           <router-link v-if="hasPerm('security')" to="/security" class="nav-item" active-class="active">
             <el-icon><Lock /></el-icon><span>安全设置</span>
           </router-link>
@@ -102,7 +99,6 @@
           <span>{{ userName }}</span>
         </div>
         <div class="user-actions">
-          <span class="version">v2026.5.7</span>
           <el-button text size="small" @click="handleLogout">退出</el-button>
         </div>
       </div>
@@ -183,8 +179,8 @@ import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import {
-  ChatDotSquare, DataAnalysis, List, Document,
-  Cpu, Setting, ChatLineSquare, Promotion, Lock, UserFilled,
+  ChatDotSquare, DataAnalysis, List,
+  Cpu, Setting, ChatLineSquare, Lock, UserFilled, Avatar,
   ArrowDown, ArrowUp, Close, Plus, MoreFilled, TrendCharts, Collection, MagicStick, Phone, Service
 } from '@element-plus/icons-vue'
 import request, { logout } from '../api/index.js'
@@ -271,8 +267,12 @@ onMounted(() => {
   } catch { userName.value = '管理员' }
 })
 function hasPerm(p) {
-  if (userRole.value === 'superadmin' || userRole.value === 'admin') return true
+  if (userRole.value === 'superadmin') return true
   return userPerms.value.includes(p)
+}
+function hasAnyPerm(...perms) {
+  if (userRole.value === 'superadmin') return true
+  return perms.some(p => userPerms.value.includes(p))
 }
 
 async function handleLogout() {
