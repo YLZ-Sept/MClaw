@@ -114,8 +114,8 @@
         <div v-else-if="tab==='performance'">
           <div class="tb" style="margin-bottom:2px">
             <el-radio-group v-model="perfTab" size="small" @change="loadPerfData">
-              <el-radio-button value="finance">财务</el-radio-button>
-              <el-radio-button value="tech">商务/技术中心</el-radio-button>
+              <el-radio-button value="finance">财务商务</el-radio-button>
+              <el-radio-button value="tech">技术中心</el-radio-button>
               <el-radio-button value="monthly">月度考核</el-radio-button>
             </el-radio-group>
           </div>
@@ -435,7 +435,7 @@ async function saveAtt() {
   ElMessage.success('已更新')
 }
 
-// 绩效考核 — 三子模块：财务 / 商务技术中心 / 月度考核
+// 绩效考核 — 三子模块：财务商务 / 技术中心 / 月度考核
 const perfTab = ref('finance')
 const perfMonth = ref(new Date().getFullYear() + '-' + String(new Date().getMonth()+1).padStart(2,'0'))
 const perfData = ref([])
