@@ -156,6 +156,7 @@ router.post('/aggregate', (req, res) => {
 
 // ── 导出 Excel ──
 router.get('/export', (req, res) => {
+  try {
   const { month, category } = req.query;
   const m = month || new Date().toISOString().slice(0, 7);
   const cat = category || 'monthly';
@@ -204,9 +205,15 @@ router.get('/export', (req, res) => {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, catLabel);
   const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
-  res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  res.set('Content-Disposition', `attachment; filename="${catLabel}_${m}.xlsx"`);
+  res.set({
+    'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(`${catLabel}_${m}.xlsx`)}`,
+  });
   res.send(buf);
+  } catch (e) {
+    console.error('[performance] export error:', e.message || e);
+    res.status(500).json({ code: 500, message: '导出失败: ' + (e.message || '未知错误') });
+  }
 });
 
 // ─── Excel 解析（按类别） ───

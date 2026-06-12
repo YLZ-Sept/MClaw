@@ -87,6 +87,7 @@ router.delete('/reports/:id', (req, res) => {
 
 // ── Excel 导出 ──
 router.get('/export', (req, res) => {
+  try {
   const { month } = req.query;
   const list = db.prepare('SELECT * FROM attendance_reports WHERE month=? ORDER BY employee_name').all(month);
   const XLSX = require('xlsx');
@@ -122,9 +123,15 @@ router.get('/export', (req, res) => {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, month);
   const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
-  res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  res.set('Content-Disposition', `attachment; filename="考勤月报_${month}.xlsx"`);
+  res.set({
+    'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(`考勤月报_${month}.xlsx`)}`,
+  });
   res.send(buf);
+  } catch (e) {
+    console.error('[attendance] export error:', e.message || e);
+    res.status(500).json({ code: 500, message: '导出失败: ' + (e.message || '未知错误') });
+  }
 });
 
 // ── 兼容旧月报接口 ──
