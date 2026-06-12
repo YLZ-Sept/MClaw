@@ -111,26 +111,31 @@
           </el-table>
         </div>
         <!-- 绩效管理 -->
-        <div v-else-if="tab==='performance'">
-          <div class="tb" style="margin-bottom:2px">
-            <el-radio-group v-model="perfTab" size="small" @change="loadPerfData">
-              <el-radio-button value="finance">财务商务</el-radio-button>
-              <el-radio-button value="tech">技术中心</el-radio-button>
-              <el-radio-button value="monthly">月度考核</el-radio-button>
-            </el-radio-group>
+        <div v-else-if="tab==='performance'" class="perf-section">
+          <div class="perf-stats">
+            <div class="perf-stat-card"><div class="perf-stat-val">{{ perfStats.records }}</div><div class="perf-stat-lbl">考核记录</div></div>
+            <div class="perf-stat-card"><div class="perf-stat-val" :style="{color: perfStats.avgScore >= 80 ? '#7c3aed' : '#f56c6c'}">{{ perfStats.avgScore }}</div><div class="perf-stat-lbl">平均分</div></div>
+            <div class="perf-stat-card"><div class="perf-stat-val">{{ perfStats.maxScore }}</div><div class="perf-stat-lbl">最高分</div></div>
+            <div class="perf-stat-card"><div class="perf-stat-val">{{ perfStats.minScore }}</div><div class="perf-stat-lbl">最低分</div></div>
           </div>
-          <div class="tb">
-            <el-select v-model="perfMonth" style="width:130px" @change="loadPerfData"><el-option v-for="m in monthOptions" :key="m" :label="m" :value="m"/></el-select>
-            <el-button @click="loadPerfData" style="margin-left:8px">查询</el-button>
-            <el-upload v-if="perfTab!=='monthly'" :auto-upload="false" :limit="1" accept=".xlsx,.xls" :on-change="onPerfFile" :show-file-list="false" style="margin-left:8px">
-              <el-button type="primary">导入</el-button>
-            </el-upload>
-            <el-button v-if="perfTab==='monthly'" type="success" @click="aggregateMonthly" :loading="aggregating" style="margin-left:8px">汇总</el-button>
-            <el-button @click="window.open(performanceApi.exportUrl(perfMonth, perfTab))" style="margin-left:4px" :disabled="!perfData.length">导出</el-button>
-            <span v-if="perfMsg" style="font-size:12px;color:#7c3aed;margin-left:8px">{{ perfMsg }}</span>
+          <div class="perf-toolbar">
+            <div class="perf-segmented">
+              <button v-for="pt in [{k:'finance',l:'财务商务'},{k:'tech',l:'技术中心'},{k:'monthly',l:'月度考核'}]"
+                :key="pt.k" :class="{active:perfTab===pt.k}" @click="perfTab=pt.k;loadPerfData()">{{ pt.l }}</button>
+            </div>
+            <div class="perf-actions">
+              <el-select v-model="perfMonth" size="small" style="width:130px" @change="loadPerfData"><el-option v-for="m in monthOptions" :key="m" :label="m" :value="m"/></el-select>
+              <el-button size="small" @click="loadPerfData">查询</el-button>
+              <el-upload v-if="perfTab!=='monthly'" :auto-upload="false" :limit="1" accept=".xlsx,.xls" :on-change="onPerfFile" :show-file-list="false" style="display:inline-block">
+                <el-button size="small" type="primary">导入</el-button>
+              </el-upload>
+              <el-button v-if="perfTab==='monthly'" size="small" type="success" @click="aggregateMonthly" :loading="aggregating">汇总</el-button>
+              <el-button size="small" @click="window.open(performanceApi.exportUrl(perfMonth, perfTab))" :disabled="!perfData.length">导出</el-button>
+              <span v-if="perfMsg" class="perf-msg">{{ perfMsg }}</span>
+            </div>
           </div>
           <el-table v-loading="loading" :data="perfData" stripe border row-key="id" style="width:100%">
-            <el-table-column type="index" label="序号" width="50" fixed="left"/>
+            <el-table-column type="index" label="#" width="44" fixed="left"/>
             <el-table-column prop="employee_name" label="姓名" width="75" fixed="left"/>
             <el-table-column prop="department" label="部门" width="100"/>
             <el-table-column prop="position" label="职位" width="100"/>
@@ -140,7 +145,7 @@
               </template>
             </el-table-column>
             <el-table-column prop="total_score" label="总分" width="70">
-              <template #default="{row}"><b :style="{color:row.total_score>=80?'#7c3aed':'#f56c6c'}">{{ row.total_score }}</b></template>
+              <template #default="{row}"><el-tag size="small" :type="row.total_score>=80?'success':row.total_score>=60?'warning':'danger'">{{ row.total_score }}</el-tag></template>
             </el-table-column>
             <el-table-column label="操作" width="100" fixed="right">
               <template #default="{row}"><el-button size="small" type="primary" link @click="openPerfEdit(row)">编辑</el-button><el-button size="small" type="danger" link @click="delPerfReport(row.id)">删</el-button></template>
@@ -441,6 +446,18 @@ const perfMonth = ref(new Date().getFullYear() + '-' + String(new Date().getMont
 const perfData = ref([])
 const perfMsg = ref('')
 const aggregating = ref(false)
+const perfStats = computed(() => {
+  const arr = perfData.value
+  if (!arr.length) return { records: 0, avgScore: '-', maxScore: '-', minScore: '-' }
+  const scores = arr.map(r => r.total_score).filter(s => s != null)
+  if (!scores.length) return { records: arr.length, avgScore: '-', maxScore: '-', minScore: '-' }
+  return {
+    records: arr.length,
+    avgScore: (scores.reduce((a,b)=>a+b,0)/scores.length).toFixed(1),
+    maxScore: Math.max(...scores),
+    minScore: Math.min(...scores),
+  }
+})
 
 const perfDynDims = computed(() => {
   const set = new Map()
@@ -632,6 +649,37 @@ onMounted(async () => {
 .tab-content { flex: 1; padding: 16px 24px; overflow-y: auto; }
 .tb { margin-bottom: 12px; display: flex; align-items: center; }
 .upload-hint { font-size: 11px; color: #b8aad0; }
+
+/* 绩效管理 */
+.perf-section { padding: 4px 0; }
+.perf-stats { display: flex; gap: 12px; margin-bottom: 20px; }
+.perf-stat-card {
+  flex: 1; min-width: 100px; padding: 16px 20px;
+  background: #fff; border-radius: 12px; border: 1px solid #f0ecf8;
+  text-align: center; transition: box-shadow .2s;
+}
+.perf-stat-card:hover { box-shadow: 0 4px 16px rgba(124,58,237,.08); }
+.perf-stat-val { font-size: 28px; font-weight: 700; color: #4a3f5e; }
+.perf-stat-lbl { font-size: 12px; color: #b8aad0; margin-top: 4px; }
+
+.perf-toolbar {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 16px; gap: 16px; flex-wrap: wrap;
+}
+.perf-segmented {
+  display: inline-flex; background: #f5f3ff; border-radius: 10px; padding: 4px;
+}
+.perf-segmented button {
+  padding: 8px 20px; border: none; background: transparent; border-radius: 8px;
+  font-size: 13px; font-weight: 500; color: #7c3aed; cursor: pointer; transition: all .2s;
+}
+.perf-segmented button:hover { color: #6d28d9; }
+.perf-segmented button.active {
+  background: #fff; color: #7c3aed; box-shadow: 0 1px 4px rgba(124,58,237,.15);
+  font-weight: 600;
+}
+.perf-actions { display: flex; align-items: center; gap: 8px; }
+.perf-msg { font-size: 12px; color: #7c3aed; }
 
 /* 组织架构图卡片 */
 .oc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
