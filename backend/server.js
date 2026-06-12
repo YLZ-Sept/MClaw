@@ -434,7 +434,7 @@ app.get('/api/status', async (req, res) => {
     data: {
       services: [
         { name: '后端 API 服务', status: 'running', port: 18621, uptime: `${h}h ${m}m` },
-        { name: '多平台发布服务', status: publishHealth.status === 'healthy' ? 'running' : 'stopped', port: 8000, uptime: publishHealth.status === 'healthy' ? '-' : '-' },
+        { name: '多平台发布服务', status: publishHealth.status === 'healthy' ? 'running' : 'stopped', port: 8001, uptime: publishHealth.status === 'healthy' ? '-' : '-' },
         { name: '前端 Web 服务', status: 'running', port: 18621, uptime: `${h}h ${m}m` },
       ],
       system: {

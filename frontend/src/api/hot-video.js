@@ -22,7 +22,10 @@ export const hotContentApi = {
   review: (id, d) => POST(`/hot-contents/${id}/review`, d),
   publish: (id, d) => POST(`/hot-contents/${id}/publish`, d),
   generateVideo: (id, params) => POST(`/hot-contents/${id}/generate-video`, null, { params }),
-  videoUrl: (id, orientation = 'portrait') => `/api/hot-contents/${id}/video?orientation=${orientation}`,
+  videoUrl: (id, orientation = 'portrait') => {
+    const token = localStorage.getItem('token')
+    return `/api/hot-contents/${id}/video?orientation=${orientation}&token=${encodeURIComponent(token)}`
+  },
   deleteVideo: (id, orientation) => DEL(`/hot-contents/${id}/video?orientation=${orientation}`),
 }
 

@@ -3,7 +3,7 @@ const { execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
-const SERVICE_API = process.env.DOUYIN_API || 'http://localhost:8000/api/v1';
+const SERVICE_API = process.env.DOUYIN_API || 'http://localhost:8001/api/v1';
 
 async function _fetch(urlPath, opts = {}) {
   const url = `${SERVICE_API}${urlPath}`;

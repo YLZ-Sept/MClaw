@@ -182,7 +182,7 @@
       </el-card>
 
       <el-card style="margin-top:16px" header="视频历史">
-        <HistoryTable :data="videoHistory" :step="3" @go-step="goStep" @go-video="goToVideo" @publish="publishContent" @approve="approveContent" @reject="rejectContent" @delete="deleteContent" @view-video="viewHistoryVideo" @download-video="downloadHistoryVideo"/>
+        <HistoryTable :data="videoHistory" :step="3" @go-step="goStep" @go-video="goToVideo" @publish="publishContent" @approve="approveContent" @reject="rejectContent" @delete="deleteContent" @viewVideo="viewHistoryVideo" @downloadVideo="downloadHistoryVideo" @retryVideo="retryVideo"/>
       </el-card>
     </div>
 
@@ -708,17 +708,24 @@ async function retryVideo(row) {
   doGenerateVideo()
 }
 
+function resolveOrientation(row) {
+  if (row.video_url && row.video_url_landscape) return videoForm.orientation // 两边都有，用当前选择
+  if (row.video_url_landscape) return 'landscape'
+  return 'portrait'
+}
+
 function viewHistoryVideo(row) {
   videoForm.contentId = row.id
   videoForm.title = row.title
-  videoUrl.value = hotContentApi.videoUrl(row.id, videoForm.orientation)
+  const orientation = resolveOrientation(row)
+  videoUrl.value = hotContentApi.videoUrl(row.id, orientation)
   videoStatus.value = 'done'
-  // scroll to video card
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
 function downloadHistoryVideo(row) {
-  const url = hotContentApi.videoUrl(row.id, videoForm.orientation) + '&download=true'
+  const orientation = resolveOrientation(row)
+  const url = hotContentApi.videoUrl(row.id, orientation) + '&download=true'
   const a = document.createElement('a')
   a.href = url
   a.download = ''
@@ -754,12 +761,13 @@ async function generateCover() {
   if (!videoForm.contentId) return ElMessage.warning('请先从视频步骤选择内容')
   coverLoading.value = true
   try {
+    const token = localStorage.getItem('token')
     const base = `/api/hot-contents/${videoForm.contentId}/cover-frame`
-    const main = `${base}?orientation=${coverOrientation.value}&t=1&_=${Date.now()}`
+    const main = `${base}?orientation=${coverOrientation.value}&t=1&token=${encodeURIComponent(token)}&_=${Date.now()}`
     coverUrl.value = main
     const samples = []
     for (const t of coverTimes) {
-      samples.push(`${base}?orientation=${coverOrientation.value}&t=${t}&_=${Date.now()}`)
+      samples.push(`${base}?orientation=${coverOrientation.value}&t=${t}&token=${encodeURIComponent(token)}&_=${Date.now()}`)
     }
     coverSamples.value = samples
   } catch { ElMessage.error('封面提取失败') }

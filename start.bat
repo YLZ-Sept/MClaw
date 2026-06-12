@@ -19,7 +19,7 @@ echo [start] backend :18621
 start /B cmd /c "cd /d %~dp0backend && node server.js > %~dp0backend\server.log 2>&1"
 
 :: Start auto publisher
-echo [start] publisher :8000
+echo [start] publisher :8001
 start /B cmd /c "cd /d %~dp0backend\auto_douyin && python main.py > %~dp0backend\auto_douyin\server.log 2>&1"
 
 echo.

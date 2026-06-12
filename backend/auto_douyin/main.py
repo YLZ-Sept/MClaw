@@ -130,20 +130,43 @@ async def run_cli_command(args: argparse.Namespace) -> None:
         await platform_manager.close_all_uploaders()
 
 
+import errno
+import time
+
+MAX_PORT_RETRIES = 10
+
+
+def _run_server(host: str, port: int, reload: bool = False) -> None:
+    """启动服务器，端口冲突时自动递增重试"""
+    app = create_app()
+    tried_ports = []
+    for attempt in range(MAX_PORT_RETRIES):
+        current_port = port + attempt
+        tried_ports.append(str(current_port))
+        try:
+            logger.info(f"尝试启动服务器: {host}:{current_port} (第{attempt + 1}次)")
+            uvicorn.run(app, host=host, port=current_port, reload=reload, log_level="info")
+            return
+        except OSError as e:
+            if e.errno in (errno.EADDRINUSE, 10048):  # Unix + Windows
+                logger.warning(f"端口 {current_port} 被占用，尝试下一个...")
+                time.sleep(0.5)
+                continue
+            raise
+    logger.error(f"所有端口 [{', '.join(tried_ports)}] 均被占用，服务启动失败")
+
+
 def main() -> None:
     """主函数 - 统一入口"""
     parser = argparse.ArgumentParser(description="多平台视频自动上传服务")
-    
-    # 添加运行模式选择
+
     subparsers = parser.add_subparsers(dest="mode", help="运行模式")
-    
-    # 服务器模式
+
     server_parser = subparsers.add_parser("server", help="启动FastAPI服务器")
     server_parser.add_argument("--host", default="0.0.0.0", help="服务器监听地址")
-    server_parser.add_argument("--port", type=int, default=8000, help="服务器端口")
+    server_parser.add_argument("--port", type=int, default=8001, help="服务器端口")
     server_parser.add_argument("--reload", action="store_true", help="开启热重载(开发模式)")
-    
-    # CLI模式
+
     cli_parser = subparsers.add_parser("cli", help="运行CLI命令")
     cli_parser.add_argument("action", choices=["login", "upload", "batch_upload", "list", "stats"], help="操作类型")
     cli_parser.add_argument("--platform", choices=["douyin", "wechat_channel", "xiaohongshu"], help="目标平台")
@@ -155,29 +178,18 @@ def main() -> None:
     cli_parser.add_argument("--schedule", help="定时发布时间 (格式: YYYY-MM-DD HH:MM)")
     cli_parser.add_argument("--location", default="北京市", help="地理位置")
     cli_parser.add_argument("--batch-config", help="批量上传配置文件路径")
-    
+
     args = parser.parse_args()
-    
+
     if args.mode == "server":
-        # 启动FastAPI服务器
-        app = create_app()
-        uvicorn.run(
-            app,
-            host=args.host,
-            port=args.port,
-            reload=args.reload,
-            log_level="info"
-        )
-        
+        _run_server(args.host, args.port, args.reload)
+
     elif args.mode == "cli":
-        # 运行CLI命令
         asyncio.run(run_cli_command(args))
-        
+
     else:
-        # 默认启动服务器
         logger.info("未指定运行模式，默认启动FastAPI服务器")
-        app = create_app()
-        uvicorn.run(app, host="0.0.0.0", port=8000)
+        _run_server("0.0.0.0", 8001)
 
 
 if __name__ == "__main__":
