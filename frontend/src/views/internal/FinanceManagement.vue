@@ -15,9 +15,9 @@
         <div class="tb">
           <el-button type="primary" @click="openDlg()">新增记录</el-button>
           <el-upload :http-request="handleImport" :show-file-list="false" accept=".xlsx,.xls" style="display:inline-block;margin-left:8px">
-            <el-button>导入 Excel</el-button>
+            <el-button>导入</el-button>
           </el-upload>
-          <el-button @click="exportExcel" style="margin-left:4px">导出 Excel</el-button>
+          <el-button @click="exportExcel" style="margin-left:4px">导出</el-button>
           <el-button v-if="selectedIds.length" type="danger" plain @click="batchDelete" style="margin-left:8px">删除选中 ({{ selectedIds.length }})</el-button>
         </div>
         <el-table v-loading="loading" :data="data" stripe border row-key="id" @selection-change="onSelectionChange" max-height="calc(100vh - 280px)">

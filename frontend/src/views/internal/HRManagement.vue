@@ -69,7 +69,7 @@
             <el-select v-model="rptMonth" style="width:130px" @change="loadReports"><el-option v-for="m in monthOptions" :key="m" :label="m" :value="m"/></el-select>
             <el-button @click="loadReports" style="margin-left:8px">查询</el-button>
             <el-upload :auto-upload="false" :limit="1" accept=".xlsx,.xls" :on-change="onAttReportFile" :show-file-list="false" style="margin-left:8px">
-              <el-button>导入Excel</el-button>
+              <el-button>导入</el-button>
             </el-upload>
             <el-button @click="window.open(attendanceApi.exportUrl(rptMonth))" style="margin-left:4px" :disabled="!reportData.length">导出</el-button>
             <span v-if="attImportMsg" style="font-size:12px;color:#7c3aed;margin-left:8px">{{ attImportMsg }}</span>
@@ -155,9 +155,9 @@
             </el-select>
             <el-button type="primary" @click="openStatsDlg()" style="margin-left:8px">新增记录</el-button>
             <el-upload :http-request="handleStatsImport" :show-file-list="false" accept=".xlsx,.xls" style="display:inline-block;margin-left:8px">
-              <el-button>导入 Excel</el-button>
+              <el-button>导入</el-button>
             </el-upload>
-            <el-button @click="exportStats" style="margin-left:4px">导出 Excel</el-button>
+            <el-button @click="exportStats" style="margin-left:4px">导出</el-button>
             <el-button v-if="statsWeek" type="danger" plain @click="delStatsWeek" style="margin-left:4px">删除本周</el-button>
           </div>
           <el-table v-loading="statsLoading" :data="statsData" stripe border row-key="id">

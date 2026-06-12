@@ -18,7 +18,7 @@
             <el-upload :http-request="handleImport" :show-file-list="false" accept=".csv,.xlsx,.xls,.pdf,.docx,.doc,.md,.txt" style="display:inline-block;margin-left:8px">
               <el-button>导入文件</el-button>
             </el-upload>
-            <el-button @click="exportExcel" style="margin-left:4px">导出 Excel</el-button>
+            <el-button @click="exportExcel" style="margin-left:4px">导出</el-button>
           </div>
           <el-table v-loading="loading" :data="faqs" stripe border row-key="id">
             <el-table-column prop="category" label="分类" width="110"/>
