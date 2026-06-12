@@ -210,7 +210,11 @@ async function doBatchImport() {
 function exportExcel() {
   if (!data.value.length) { ElMessage.warning('暂无数据'); return }
   const token = localStorage.getItem('token')
-  window.open(`/api/finance/export?type=${tab.value}&token=${encodeURIComponent(token)}`)
+  const a = document.createElement('a')
+  a.href = `/api/finance/export?type=${tab.value}&token=${encodeURIComponent(token)}`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
 }
 
 onMounted(loadData)

@@ -368,7 +368,11 @@ async function onBatchFileChange(file) {
 function onBatchFileRemove() { batchUrls.value = [] }
 
 function downloadTemplate() {
-  window.open('/api/doc-import/template', '_blank')
+  const a = document.createElement('a')
+  a.href = '/api/doc-import/template'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
 }
 
 async function batchImport() {

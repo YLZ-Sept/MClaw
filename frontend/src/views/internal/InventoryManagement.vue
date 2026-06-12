@@ -225,7 +225,11 @@ const importKey = ref('')
 function handleImport(key) { importKey.value = key; importVisible.value = true }
 function handleExport(key) {
   const token = localStorage.getItem('token')
-  window.open(`/api/${key.replace(/_/g,'-')}/export?token=${encodeURIComponent(token)}`)
+  const a = document.createElement('a')
+  a.href = `/api/${key.replace(/_/g,'-')}/export?token=${encodeURIComponent(token)}`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
 }
 function onImportDone() { ld() }
 

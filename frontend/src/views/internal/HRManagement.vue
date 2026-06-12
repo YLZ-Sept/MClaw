@@ -71,7 +71,7 @@
             <el-upload :auto-upload="false" :limit="1" accept=".xlsx,.xls" :on-change="onAttReportFile" :show-file-list="false" style="margin-left:8px">
               <el-button>导入</el-button>
             </el-upload>
-            <el-button @click="window.open(attendanceApi.exportUrl(rptMonth))" style="margin-left:4px" :disabled="!reportData.length">导出</el-button>
+            <el-button @click="doExportAttendance" style="margin-left:4px" :disabled="!reportData.length">导出</el-button>
             <span v-if="attImportMsg" style="font-size:12px;color:#7c3aed;margin-left:8px">{{ attImportMsg }}</span>
           </div>
           <el-table v-loading="loading" :data="reportData" stripe border row-key="id" style="width:100%">
@@ -130,7 +130,7 @@
                 <el-button size="small" type="primary">导入</el-button>
               </el-upload>
               <el-button v-if="perfTab==='monthly'" size="small" type="success" @click="aggregateMonthly" :loading="aggregating">汇总</el-button>
-              <el-button size="small" @click="window.open(performanceApi.exportUrl(perfMonth, perfTab))" :disabled="!perfData.length">导出</el-button>
+              <el-button size="small" @click="doExportPerformance" :disabled="!perfData.length">导出</el-button>
               <span v-if="perfMsg" class="perf-msg">{{ perfMsg }}</span>
             </div>
           </div>
@@ -327,7 +327,13 @@ const tab = ref('departments')
 const importVisible = ref(false)
 const importKey = ref('')
 function handleImport(key) { importKey.value = key; importVisible.value = true }
-function handleExport(key, params) { window.open(`/api/io/${key}/export` + (params ? '?' + new URLSearchParams(params).toString() : '')) }
+function handleExport(key, params) {
+  const a = document.createElement('a')
+  a.href = `/api/io/${key}/export` + (params ? '?' + new URLSearchParams(params).toString() : '')
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+}
 function onImportDone() { reload() }
 const employees = ref([]), departments = ref([]), orgCharts = ref([])
 const kpis = computed(() => [
@@ -413,6 +419,22 @@ const monthOptions = computed(() => {
 
 async function loadReports() {
   try { reportData.value = (await attendanceApi.reports({ month: rptMonth.value })).data.data } catch {}
+}
+
+function doExportAttendance() {
+  const a = document.createElement('a')
+  a.href = attendanceApi.exportUrl(rptMonth.value)
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+}
+
+function doExportPerformance() {
+  const a = document.createElement('a')
+  a.href = performanceApi.exportUrl(perfMonth.value, perfTab.value)
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
 }
 
 async function onAttReportFile(file) {
@@ -583,7 +605,11 @@ function exportStats() {
   const params = new URLSearchParams()
   if (statsWeek.value) params.set('week_start', statsWeek.value)
   params.set('token', token)
-  window.open(`/api/recruitment-stats/export?${params.toString()}`)
+  const a = document.createElement('a')
+  a.href = `/api/recruitment-stats/export?${params.toString()}`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
 }
 // Excel 导入：解析 → 预览 → 批量写入
 async function handleStatsImport(opt) {

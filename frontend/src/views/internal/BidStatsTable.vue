@@ -115,7 +115,13 @@ const monthNew = computed(() => {
 })
 const crawlCount = computed(() => rows.value.filter(r => r.source === 'crawl4ai').length)
 
-function handleExport() { window.open('/api/io/bid_statistics/export') }
+function handleExport() {
+  const a = document.createElement('a')
+  a.href = '/api/io/bid_statistics/export'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+}
 function handleImport() { importVisible.value = true }
 
 async function loadData() {

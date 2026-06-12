@@ -421,7 +421,13 @@ function fmtMoney(r,c,v) { if (v==null||v===0) return ''; return '¥'+Number(v).
 // ─── CRM 导入导出 ───
 const importVisible = ref(false), importKey = ref('')
 function handleImport(key) { importKey.value = key; importVisible.value = true }
-function handleExport(key) { window.open(`/api/io/${key}/export`) }
+function handleExport(key) {
+  const a = document.createElement('a')
+  a.href = `/api/io/${key}/export`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+}
 function onImportDone() { loadCrm(); loadBidData() }
 
 // ─── 招投标 ───

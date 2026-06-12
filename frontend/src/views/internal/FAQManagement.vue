@@ -125,7 +125,11 @@ async function searchFaq() {
 }
 function exportExcel() {
   if (faqs.value.length === 0) { ElMessage.warning('无数据'); return }
-  window.open('/api/faq/export?token=' + encodeURIComponent(localStorage.getItem('token')))
+  const a = document.createElement('a')
+  a.href = '/api/faq/export?token=' + encodeURIComponent(localStorage.getItem('token'))
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
 }
 
 // 新导入流程：上传 → 后端解析 → 预览 → 批量写入
