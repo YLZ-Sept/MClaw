@@ -38,7 +38,7 @@
             <el-table-column label="角色" width="120">
               <template #default="{ row }">
                 <el-tag :type="row.role === 'superadmin' ? 'danger' : row.role === 'admin' ? 'warning' : row.role_id ? 'success' : 'info'" size="small" effect="dark" round>
-                  {{ row.role === 'superadmin' ? '超级管理员' : row.role_name || (row.role === 'admin' ? '管理员' : '自定义') }}
+                  {{ row.role === 'superadmin' ? '超级管理员' : row.role_name || (row.role === 'admin' ? '管理员' : '未分配') }}
                 </el-tag>
               </template>
             </el-table-column>
@@ -106,23 +106,21 @@
 
       <!-- 权限管理 -->
       <div v-show="activeTab === 'permissions'">
-        <div class="section-card card-accent-perm">
-          <div class="section-hd">
-            <div class="section-title">权限清单</div>
-            <span class="count-badge">{{ permTotal }} 项权限</span>
-          </div>
-          <div v-for="group in permGroups" :key="group.key" class="perm-group">
-            <div class="perm-group-title">{{ group.label }}</div>
-            <div class="perm-items">
-              <div v-for="item in group.items" :key="item.key" class="perm-item">
-                <span class="perm-item-dot" />
-                <div class="perm-item-info">
-                  <span class="perm-item-label">{{ item.label }}</span>
-                  <span class="perm-item-desc">{{ item.desc }}</span>
-                </div>
-                <code class="perm-item-key">{{ item.key }}</code>
-              </div>
+        <div class="perm-page-hd">
+          <h3 class="perm-page-title">权限清单</h3>
+          <span class="count-badge">{{ permTotal }} 项权限</span>
+        </div>
+        <div class="perm-grid">
+          <div v-for="mod in permModules" :key="mod.key" class="perm-card" :class="{ 'perm-card-has-children': mod.children }">
+            <div class="perm-card-header">
+              <span class="perm-card-dot" :style="{ background: mod.children ? '#7c3aed' : '#a78bfa' }" />
+              <span class="perm-card-title">{{ mod.label }}</span>
+              <span class="perm-card-count" v-if="mod.children">{{ mod.children.length }} 项</span>
             </div>
+            <div class="perm-card-tags" v-if="mod.children">
+              <el-tag v-for="c in mod.children" :key="c.key" size="small" effect="plain" round>{{ c.label }}</el-tag>
+            </div>
+            <code class="perm-key-badge" v-else>{{ mod.key }}</code>
           </div>
         </div>
       </div>
@@ -141,16 +139,10 @@
           <el-input v-model="createDlg.form.password" type="password" show-password placeholder="至少6位" />
         </el-form-item>
         <el-form-item label="角色">
-          <el-select v-model="createDlg.form.role_id" style="width:100%" @change="onCreateRoleChange">
+          <el-select v-model="createDlg.form.role_id" style="width:100%">
             <el-option label="管理员（全部权限）" value="admin" />
             <el-option v-for="r in roleOptions" :key="r.id" :label="r.name" :value="r.id" />
-            <el-option label="自定义权限" value="custom" />
           </el-select>
-        </el-form-item>
-        <el-form-item v-if="createDlg.form.role_id === 'custom'" label="模块权限">
-          <el-checkbox-group v-model="createDlg.form.permissions" class="perm-checkbox-group">
-            <el-checkbox v-for="p in allPerms" :key="p.key" :value="p.key" :label="p.label" />
-          </el-checkbox-group>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -169,16 +161,10 @@
           <el-input v-model="editDlg.form.name" placeholder="显示名称" />
         </el-form-item>
         <el-form-item label="角色">
-          <el-select v-model="editDlg.form.role_id" style="width:100%" @change="onEditRoleChange">
+          <el-select v-model="editDlg.form.role_id" style="width:100%">
             <el-option label="管理员（全部权限）" value="admin" />
             <el-option v-for="r in roleOptions" :key="r.id" :label="r.name" :value="r.id" />
-            <el-option label="自定义权限" value="custom" />
           </el-select>
-        </el-form-item>
-        <el-form-item v-if="editDlg.form.role_id === 'custom'" label="模块权限">
-          <el-checkbox-group v-model="editDlg.form.permissions" class="perm-checkbox-group">
-            <el-checkbox v-for="p in allPerms" :key="p.key" :value="p.key" :label="p.label" />
-          </el-checkbox-group>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -197,11 +183,22 @@
           <el-input v-model="roleDlg.form.description" placeholder="角色职责说明" />
         </el-form-item>
         <el-form-item label="权限">
-          <div v-for="group in permGroups" :key="group.key" class="role-perm-group">
-            <div class="role-perm-group-label">{{ group.label }}</div>
-            <el-checkbox-group v-model="roleDlg.form.permissions">
-              <el-checkbox v-for="item in group.items" :key="item.key" :value="item.key" :label="item.label" />
-            </el-checkbox-group>
+          <div v-for="mod in permModules" :key="mod.key" class="role-perm-module">
+            <template v-if="mod.children">
+              <el-checkbox
+                :model-value="allChildrenChecked(mod)"
+                :indeterminate="isIndeterminate(mod)"
+                @change="toggleParent(mod)"
+              >{{ mod.label }}</el-checkbox>
+              <div class="role-perm-children">
+                <el-checkbox
+                  v-for="c in mod.children" :key="c.key"
+                  :model-value="roleDlg.form.permissions.includes(c.key)"
+                  @change="toggleChild(c.key)"
+                >{{ c.label }}</el-checkbox>
+              </div>
+            </template>
+            <el-checkbox v-else v-model="roleDlg.form.permissions" :label="mod.key">{{ mod.label }}</el-checkbox>
           </div>
         </el-form-item>
       </el-form>
@@ -282,7 +279,7 @@ const allPerms = ref([])
 const createFormRef = ref(null)
 const createDlg = reactive({
   visible: false, loading: false,
-  form: { username: '', name: '', password: '', role_id: 'custom', permissions: [] },
+  form: { username: '', name: '', password: '', role_id: 'admin' },
   rules: {
     username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
     name: [{ required: true, message: '请输入姓名', trigger: 'blur' }],
@@ -294,19 +291,8 @@ const createDlg = reactive({
 })
 
 function openCreateUser() {
-  createDlg.form = { username: '', name: '', password: '', role_id: 'custom', permissions: [] }
+  createDlg.form = { username: '', name: '', password: '', role_id: 'admin' }
   createDlg.visible = true
-}
-
-function onCreateRoleChange(val) {
-  if (val === 'admin') {
-    createDlg.form.permissions = allPerms.value.map(p => p.key)
-  } else if (val && val !== 'custom') {
-    const role = roles.value.find(r => r.id === val)
-    createDlg.form.permissions = role?.permissions ? [...role.permissions] : []
-  } else {
-    createDlg.form.permissions = []
-  }
 }
 
 async function doCreateUser() {
@@ -314,12 +300,10 @@ async function doCreateUser() {
   if (!valid) return
   createDlg.loading = true
   try {
-    const { username, name, password, role_id, permissions } = createDlg.form
-    const body = { username, name, password, permissions }
+    const { username, name, password, role_id } = createDlg.form
+    const body = { username, name, password }
     if (role_id === 'admin') {
       body.role = 'admin'
-    } else if (role_id === 'custom') {
-      body.role = 'user'
     } else {
       body.role_id = role_id
     }
@@ -341,44 +325,26 @@ async function doCreateUser() {
 const editFormRef = ref(null)
 const editDlg = reactive({
   visible: false, loading: false,
-  form: { id: '', username: '', name: '', role_id: 'custom', permissions: [] },
+  form: { id: '', username: '', name: '', role_id: '' },
 })
 
 function openEditUser(row) {
-  let roleId = row.role_id || ''
-  if (!roleId) {
-    roleId = row.role === 'admin' ? 'admin' : 'custom'
-  }
   editDlg.form = {
     id: row.id,
     username: row.username,
     name: row.name,
-    role_id: roleId,
-    permissions: row.permissions || [],
+    role_id: row.role_id || (row.role === 'admin' ? 'admin' : ''),
   }
   editDlg.visible = true
-}
-
-function onEditRoleChange(val) {
-  if (val === 'admin') {
-    editDlg.form.permissions = allPerms.value.map(p => p.key)
-  } else if (val && val !== 'custom') {
-    const role = roles.value.find(r => r.id === val)
-    editDlg.form.permissions = role?.permissions ? [...role.permissions] : []
-  } else {
-    editDlg.form.permissions = []
-  }
 }
 
 async function doEditUser() {
   editDlg.loading = true
   try {
-    const { id, name, role_id, permissions } = editDlg.form
-    const body = { name, permissions }
+    const { id, name, role_id } = editDlg.form
+    const body = { name }
     if (role_id === 'admin') {
       body.role = 'admin'
-    } else if (role_id === 'custom') {
-      body.role = 'user'
     } else {
       body.role_id = role_id
     }
@@ -452,10 +418,12 @@ async function doResetPwd() {
 const roles = ref([])
 const roleOptions = ref([])
 const roleLoading = ref(false)
-const permGroups = ref([])
+const permModules = ref([])
 const permTotal = computed(() => {
   let n = 0
-  for (const g of permGroups.value) n += (g.items || []).length
+  for (const m of permModules.value) {
+    n += m.children ? m.children.length : 1
+  }
   return n
 })
 const permLabelMap = computed(() => {
@@ -463,6 +431,33 @@ const permLabelMap = computed(() => {
   for (const p of allPerms.value) m[p.key] = p.label
   return m
 })
+
+// 层级 checkbox 逻辑
+function allChildrenChecked(mod) {
+  return mod.children.every(c => roleDlg.form.permissions.includes(c.key))
+}
+function isIndeterminate(mod) {
+  const some = mod.children.some(c => roleDlg.form.permissions.includes(c.key))
+  return some && !allChildrenChecked(mod)
+}
+function toggleParent(mod) {
+  const keys = mod.children.map(c => c.key)
+  if (allChildrenChecked(mod)) {
+    roleDlg.form.permissions = roleDlg.form.permissions.filter(p => !keys.includes(p))
+  } else {
+    for (const k of keys) {
+      if (!roleDlg.form.permissions.includes(k)) roleDlg.form.permissions.push(k)
+    }
+  }
+}
+function toggleChild(key) {
+  const idx = roleDlg.form.permissions.indexOf(key)
+  if (idx >= 0) {
+    roleDlg.form.permissions.splice(idx, 1)
+  } else {
+    roleDlg.form.permissions.push(key)
+  }
+}
 
 async function loadRoles() {
   roleLoading.value = true
@@ -483,8 +478,8 @@ async function loadRoleOptions() {
 async function loadPermGroups() {
   try {
     const res = await getPermissionGroups()
-    if (res.code === 200 && res.data?.groups) permGroups.value = res.data.groups
-  } catch { permGroups.value = [] }
+    if (res.code === 200 && res.data?.modules) permModules.value = res.data.modules
+  } catch { permModules.value = [] }
 }
 
 const roleFormRef = ref(null)
@@ -698,74 +693,99 @@ onMounted(() => {
   margin-right: 0;
 }
 
-/* 权限清单（只读） */
-.perm-group {
-  margin-bottom: 20px;
-}
-.perm-group:last-child {
-  margin-bottom: 0;
-}
-.perm-group-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: #6d5b98;
-  margin-bottom: 8px;
-  padding-bottom: 6px;
-  border-bottom: 1px solid #f0ecf8;
-}
-.perm-items {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.perm-item {
+.perm-page-hd {
   display: flex;
   align-items: center;
-  gap: 10px;
-  flex: 1 1 260px;
-  min-width: 240px;
-  padding: 8px 12px;
-  background: #faf9fe;
-  border-radius: 8px;
-  border: 1px solid #f0ecf8;
+  gap: 12px;
+  margin-bottom: 20px;
 }
-.perm-item-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #a78bfa;
-  flex-shrink: 0;
-}
-.perm-item-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-  flex: 1;
-}
-.perm-item-label {
-  font-size: 13px;
-  font-weight: 500;
+.perm-page-title {
+  font-size: 16px;
+  font-weight: 600;
   color: #4a3f5e;
-}
-.perm-item-desc {
-  font-size: 12px;
-  color: #909399;
-}
-.perm-item-key {
-  font-size: 11px;
-  color: #b8aad0;
-  flex-shrink: 0;
+  margin: 0;
 }
 
-/* 角色对话框权限分组 */
-.role-perm-group {
-  margin-bottom: 8px;
+/* 权限清单网格 */
+.perm-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
 }
-.role-perm-group-label {
-  font-size: 12px;
+.perm-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 18px 20px;
+  border: 1px solid #f0ecf8;
+  box-shadow: 0 1px 3px rgba(0,0,0,.04);
+  transition: box-shadow .2s, border-color .2s;
+}
+.perm-card:hover {
+  box-shadow: 0 4px 12px rgba(124,58,237,.06);
+  border-color: #e8e0f5;
+}
+.perm-card-has-children {
+  border-left: 3px solid #7c3aed;
+}
+.perm-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.perm-card-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.perm-card-title {
+  font-size: 14px;
   font-weight: 600;
-  color: #0284c7;
-  margin-bottom: 4px;
+  color: #4a3f5e;
+}
+.perm-card-count {
+  margin-left: auto;
+  font-size: 11px;
+  color: #b8aad0;
+  background: #f5f3ff;
+  padding: 1px 8px;
+  border-radius: 10px;
+}
+.perm-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-left: 16px;
+}
+.perm-key-badge {
+  font-size: 11px;
+  color: #b8aad0;
+  background: #faf9fe;
+  padding: 2px 8px;
+  border-radius: 4px;
+  margin-left: 16px;
+}
+
+/* 角色对话框权限（层级） */
+.role-perm-module {
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #f5f3ff;
+}
+.role-perm-module:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+.role-perm-module > .el-checkbox {
+  font-weight: 600;
+  color: #4a3f5e;
+}
+.role-perm-children {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-top: 6px;
+  margin-left: 24px;
 }
 </style>

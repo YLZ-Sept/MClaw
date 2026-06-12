@@ -72,7 +72,7 @@
           <router-link v-if="hasPerm('skills')" to="/skill-library" class="nav-item" active-class="active">
             <el-icon><MagicStick /></el-icon><span>技能库</span>
           </router-link>
-          <router-link v-if="hasPerm('chat')" to="/tasks" class="nav-item" active-class="active">
+          <router-link v-if="hasPerm('tasks')" to="/tasks" class="nav-item" active-class="active">
             <el-icon><List /></el-icon><span>任务</span>
           </router-link>
         </div>
@@ -81,14 +81,14 @@
           <router-link v-if="hasPerm('model')" to="/model-config" class="nav-item" active-class="active">
             <el-icon><Cpu /></el-icon><span>模型配置</span>
           </router-link>
-          <router-link v-if="hasPerm('security')" to="/services" class="nav-item" active-class="active">
+          <router-link v-if="hasAnyPerm('security','security_config','security_sessions','security_maintain','security_logs')" to="/services" class="nav-item" active-class="active">
             <el-icon><Setting /></el-icon><span>服务管理</span>
           </router-link>
 
           <router-link v-if="hasAnyPerm('security_users','security_roles','security_permissions')" to="/users" class="nav-item" active-class="active">
             <el-icon><Avatar /></el-icon><span>用户管理</span>
           </router-link>
-          <router-link v-if="hasPerm('security')" to="/security" class="nav-item" active-class="active">
+          <router-link v-if="hasAnyPerm('security','security_config','security_sessions','security_maintain','security_logs')" to="/security" class="nav-item" active-class="active">
             <el-icon><Lock /></el-icon><span>安全设置</span>
           </router-link>
         </div>

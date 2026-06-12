@@ -5,28 +5,58 @@ const db = require('../db');
 const { addLog } = require('./logs');
 
 // ============================================================
-// 权限定义
+// 权限定义 — 10 模块层级结构
 // ============================================================
 const ALL_PERMISSIONS = [
   { key: 'chat', label: '实时聊天' },
+  { key: 'tasks', label: '任务' },
   { key: 'digital', label: '数字员工' },
-  { key: 'trending', label: '爆款追踪' },
+  { key: 'trending', label: '一键追爆款' },
+  { key: 'channels', label: '消息渠道' },
   { key: 'knowledge', label: '知识库' },
   { key: 'skills', label: '技能库' },
+  { key: 'model', label: '模型配置' },
+  // 安全设置（父项 + 子项）
+  { key: 'security', label: '安全设置' },
+  { key: 'security_config', label: '安全配置' },
+  { key: 'security_sessions', label: '会话管理' },
+  { key: 'security_maintain', label: '系统维护' },
+  { key: 'security_logs', label: '日志查看' },
+  // 用户管理（父项 + 子项）
+  { key: 'security_users', label: '用户管理' },
+  { key: 'security_roles', label: '角色管理' },
+  { key: 'security_permissions', label: '权限管理' },
+  // 内部管理（不在侧边栏，路由/工具使用）
   { key: 'crm', label: 'CRM管理' },
   { key: 'inventory', label: '进销存' },
   { key: 'hr', label: '人事管理' },
   { key: 'docs', label: '文档管理' },
+  { key: 'finance', label: '财务管理' },
   { key: 'publish', label: '内容发布' },
+];
+
+// 10 模块层级 — 前端权限编辑器使用
+const PERMISSION_MODULES = [
+  { key: 'chat', label: '实时聊天' },
+  { key: 'tasks', label: '任务' },
+  { key: 'digital', label: '数字员工' },
+  { key: 'trending', label: '一键追爆款' },
   { key: 'channels', label: '消息渠道' },
-  { key: 'model', label: '模型配置' },
-  { key: 'security', label: '安全设置' },
-  { key: 'security_config', label: '安全设置-安全配置' },
-  { key: 'security_users', label: '安全设置-用户管理' },
-  { key: 'security_sessions', label: '安全设置-会话管理' },
-  { key: 'security_maintain', label: '安全设置-系统维护' },
-  { key: 'security_roles', label: '安全设置-角色管理' },
-  { key: 'security_permissions', label: '安全设置-权限管理' },
+  { key: 'knowledge', label: '知识库' },
+  { key: 'skills', label: '技能库' },
+  { key: 'model', label: '模型配置', superadminOnly: true },
+  { key: 'security', label: '安全设置', children: [
+    { key: 'security', label: '服务管理' },
+    { key: 'security_config', label: '安全配置' },
+    { key: 'security_sessions', label: '会话管理' },
+    { key: 'security_maintain', label: '系统维护' },
+    { key: 'security_logs', label: '日志查看' },
+  ]},
+  { key: 'security_users', label: '用户管理', children: [
+    { key: 'security_users', label: '用户管理' },
+    { key: 'security_roles', label: '角色管理' },
+    { key: 'security_permissions', label: '权限管理' },
+  ]},
 ];
 
 function getUserPermissions(user) {
@@ -178,5 +208,6 @@ router.verifyPassword = verifyPassword;
 router.requireAuth = requireAuth;
 router.requirePermission = requirePermission;
 router.ALL_PERMISSIONS = ALL_PERMISSIONS;
+router.PERMISSION_MODULES = PERMISSION_MODULES;
 
 module.exports = router;

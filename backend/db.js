@@ -565,8 +565,8 @@ try { db.exec(`CREATE TABLE IF NOT EXISTS logs (
   created_at TEXT DEFAULT (datetime('now','localtime'))
 )`); } catch {}
 
-const ALL_PERMS = ["chat","digital","trending","knowledge","skills","crm","inventory","hr","docs","channels","publish","model","security"];
-const ALL_SUB_PERMS = ["security_config","security_users","security_sessions","security_maintain","security_roles","security_permissions"];
+const ALL_PERMS = ["chat","tasks","digital","trending","knowledge","skills","channels","model","security","security_config","security_sessions","security_maintain","security_logs","security_users","security_roles","security_permissions","crm","inventory","hr","docs","finance","publish"];
+const ALL_SUB_PERMS = ["security_config","security_sessions","security_maintain","security_logs","security_roles","security_permissions"];
 
 // 种子角色
 function seedRole(name, desc, perms) {

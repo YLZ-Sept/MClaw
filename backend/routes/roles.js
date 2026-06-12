@@ -1,7 +1,7 @@
 const { Router } = require('express');
 const crypto = require('crypto');
 const db = require('../db');
-const { requireAuth, ALL_PERMISSIONS } = require('./auth');
+const { requireAuth, ALL_PERMISSIONS, PERMISSION_MODULES } = require('./auth');
 const { addLog } = require('./logs');
 
 const router = Router();
@@ -97,57 +97,14 @@ router.delete('/:id', canManageRoles, (req, res) => {
   res.json({ code: 200, message: '删除成功' });
 });
 
-// 权限列表（公开，登录即可）
+// 权限列表（登录即可，前端权限编辑器使用）
 router.get('/permissions/list', (req, res) => {
-  const groups = [
-    {
-      key: 'system', label: '系统管理',
-      items: [
-        { key: 'model', label: '模型配置', desc: 'AI 模型提供商和密钥管理' },
-        { key: 'security', label: '安全设置', desc: '访问安全设置页面' },
-        { key: 'security_config', label: '安全配置', desc: '密码策略和登录安全' },
-        { key: 'security_users', label: '用户管理', desc: '创建/编辑/删除用户' },
-        { key: 'security_roles', label: '角色管理', desc: '创建/编辑/删除角色' },
-        { key: 'security_permissions', label: '权限管理', desc: '查看权限定义和分配' },
-        { key: 'security_sessions', label: '会话管理', desc: '查看和强制下线活跃会话' },
-        { key: 'security_maintain', label: '系统维护', desc: '系统概览和备份恢复' },
-      ],
-    },
-    {
-      key: 'comm', label: '沟通协作',
-      items: [
-        { key: 'chat', label: '实时聊天', desc: 'AI 对话和智能体交互' },
-        { key: 'channels', label: '消息渠道', desc: '微信/企微/飞书等多渠道接入' },
-      ],
-    },
-    {
-      key: 'biz', label: '业务管理',
-      items: [
-        { key: 'crm', label: 'CRM管理', desc: '客户/联系人/合同/机会/资产管理' },
-        { key: 'inventory', label: '进销存', desc: '采购/销售/库存/退换货管理' },
-        { key: 'hr', label: '人事管理', desc: '员工/部门/招聘/考勤/绩效管理' },
-        { key: 'docs', label: '文档管理', desc: '文档上传/搜索/分类管理' },
-        { key: 'finance', label: '财务管理', desc: '应收/应付账款管理' },
-      ],
-    },
-    {
-      key: 'content', label: '内容运营',
-      items: [
-        { key: 'trending', label: '爆款追踪', desc: '热点内容提取/AI改写/视频生成' },
-        { key: 'knowledge', label: '知识库', desc: 'FAQ 管理和知识检索' },
-        { key: 'skills', label: '技能库', desc: '自定义智能体技能管理' },
-        { key: 'publish', label: '内容发布', desc: '多平台视频发布和招标采集' },
-        { key: 'digital', label: '数字员工', desc: '智能体和数字人管理' },
-      ],
-    },
-  ];
-  // 非 superadmin 不展示模型配置权限
+  let modules = PERMISSION_MODULES;
+  // 非 superadmin 剔除模型配置
   if (req.user.role !== 'superadmin') {
-    for (const g of groups) {
-      g.items = g.items.filter(item => item.key !== 'model');
-    }
+    modules = modules.filter(m => m.key !== 'model');
   }
-  res.json({ code: 200, data: { groups } });
+  res.json({ code: 200, data: { modules } });
 });
 
 module.exports = router;

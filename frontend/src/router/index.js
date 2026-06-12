@@ -27,12 +27,12 @@ const routes = [
       { path: 'internal/docs', name: 'DocMgmt', component: () => import('../views/internal/DocumentManagement.vue'), meta: { perm: 'docs' } },
       { path: 'internal/finance', name: 'FinanceMgmt', component: () => import('../views/internal/FinanceManagement.vue'), meta: { perm: 'crm' } },
       { path: 'support', name: 'FAQMgmt', component: () => import('../views/internal/FAQManagement.vue'), meta: { perm: 'knowledge' } },
-      { path: 'tasks', name: 'Tasks', component: () => import('../views/Task.vue'), meta: { perm: 'chat' } },
-      { path: 'services', name: 'ServiceManagement', component: () => import('../views/ServiceManagement.vue'), meta: { perm: 'security' } },
+      { path: 'tasks', name: 'Tasks', component: () => import('../views/Task.vue'), meta: { perm: 'tasks' } },
+      { path: 'services', name: 'ServiceManagement', component: () => import('../views/ServiceManagement.vue'), meta: { perm: ['security','security_config','security_sessions','security_maintain','security_logs'] } },
       { path: 'model-config', name: 'ModelConfig', component: () => import('../views/ModelConfig.vue'), meta: { perm: 'model' } },
       { path: 'channels', name: 'MessageChannels', component: () => import('../views/MessageChannels.vue'), meta: { perm: 'channels' } },
-      { path: 'users', name: 'UserManagement', component: () => import('../views/UserManagement.vue'), meta: { perm: 'security_users' } },
-      { path: 'security', name: 'SecuritySettings', component: () => import('../views/SecuritySettings.vue'), meta: { perm: 'security' } }
+      { path: 'users', name: 'UserManagement', component: () => import('../views/UserManagement.vue'), meta: { perm: ['security_users','security_roles','security_permissions'] } },
+      { path: 'security', name: 'SecuritySettings', component: () => import('../views/SecuritySettings.vue'), meta: { perm: ['security','security_config','security_sessions','security_maintain','security_logs'] } }
     ]
   }
 ]
@@ -41,6 +41,23 @@ const router = createRouter({
   history: createWebHistory(),
   routes
 })
+
+// 找用户有权限访问的第一个路由
+function hasRoutePerm(perms, permMeta) {
+  if (!permMeta) return true
+  if (Array.isArray(permMeta)) return permMeta.some(p => perms.includes(p))
+  return perms.includes(permMeta)
+}
+
+function findFirstPermitted(perms) {
+  const children = routes.find(r => r.path === '/')?.children || []
+  for (const r of children) {
+    if (hasRoutePerm(perms, r.meta?.perm)) {
+      return r.path
+    }
+  }
+  return null
+}
 
 // 全局导航守卫：检查登录状态 + 路由权限
 router.beforeEach((to, from, next) => {
@@ -57,11 +74,12 @@ router.beforeEach((to, from, next) => {
       const user = JSON.parse(localStorage.getItem('user') || '{}')
       const role = user.role || ''
       const perms = user.permissions || []
-      if (role !== 'superadmin' && !perms.includes(to.meta.perm)) {
-        return next({ path: '/chat' })
+      if (role !== 'superadmin' && !hasRoutePerm(perms, to.meta.perm)) {
+        const fallback = findFirstPermitted(perms)
+        return next(fallback ? { path: '/' + fallback } : { path: '/login' })
       }
     } catch {
-      return next({ path: '/chat' })
+      return next({ path: '/login' })
     }
   }
   next()
