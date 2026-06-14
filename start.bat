@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 >nul
 title MClaw
 cd /d "%~dp0"
 
@@ -14,13 +15,27 @@ echo   URL: http://localhost:18621
 echo ================================
 echo.
 
-:: Start backend (auto-restart on exit)
-echo [start] backend :18621 (auto-restart)
-start "MClaw" /min cmd /c "cd /d %~dp0backend && :loop && node server.js >> server.log 2>&1 & timeout /t 2 /nobreak >nul & goto loop"
+:: Start backend
+echo [start] backend :18621
+start /B cmd /c "cd /d %~dp0backend && node server.js >> server.log 2>&1"
+
+:: Wait for backend to be ready
+echo [wait] waiting for backend...
+set /a RETRY=0
+:healthcheck
+timeout /t 1 /nobreak >nul
+set /a RETRY+=1
+curl -s -o nul http://localhost:18621/api/status 2>nul && goto ready
+if %RETRY% LSS 15 goto healthcheck
+echo [warn] backend startup timeout, checking log...
+type "%~dp0backend\server.log" | findstr /i "error fail"
+goto :ready
+
+:ready
 
 :: Start auto publisher
-echo [start] publisher :8001
-start /B cmd /c "cd /d %~dp0backend\auto_douyin && python main.py > %~dp0backend\auto_douyin\server.log 2>&1"
+echo [start] publisher :18623
+start /B cmd /c "cd /d %~dp0backend\auto_douyin && python main.py >> server.log 2>&1"
 
 echo.
 start http://localhost:18621

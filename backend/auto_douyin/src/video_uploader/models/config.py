@@ -44,7 +44,7 @@ class ServerConfig(BaseModel):
     """服务器配置模型"""
     
     host: str = Field(default="0.0.0.0", description="服务器监听地址")
-    port: int = Field(default=8001, description="服务器端口")
+    port: int = Field(default=18623, description="服务器端口")
     debug: bool = Field(default=False, description="调试模式")
     log_level: str = Field(default="INFO", description="日志级别")
     

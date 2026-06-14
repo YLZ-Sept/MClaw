@@ -148,8 +148,8 @@ def _run_server(host: str, port: int, reload: bool = False) -> None:
             uvicorn.run(app, host=host, port=current_port, reload=reload, log_level="info")
             return
         except OSError as e:
-            if e.errno in (errno.EADDRINUSE, 10048):  # Unix + Windows
-                logger.warning(f"端口 {current_port} 被占用，尝试下一个...")
+            if e.errno in (errno.EADDRINUSE, 10048, 10013):  # Unix + Windows (+ 系统保留端口)
+                logger.warning(f"端口 {current_port} 不可用 (errno={e.errno})，尝试下一个...")
                 time.sleep(0.5)
                 continue
             raise
@@ -164,7 +164,7 @@ def main() -> None:
 
     server_parser = subparsers.add_parser("server", help="启动FastAPI服务器")
     server_parser.add_argument("--host", default="0.0.0.0", help="服务器监听地址")
-    server_parser.add_argument("--port", type=int, default=8001, help="服务器端口")
+    server_parser.add_argument("--port", type=int, default=18623, help="服务器端口")
     server_parser.add_argument("--reload", action="store_true", help="开启热重载(开发模式)")
 
     cli_parser = subparsers.add_parser("cli", help="运行CLI命令")
@@ -189,7 +189,7 @@ def main() -> None:
 
     else:
         logger.info("未指定运行模式，默认启动FastAPI服务器")
-        _run_server("0.0.0.0", 8001)
+        _run_server("0.0.0.0", 18623)
 
 
 if __name__ == "__main__":
