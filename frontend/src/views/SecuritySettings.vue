@@ -132,19 +132,7 @@
           </div>
         </div>
 
-        <div class="section-card card-accent-update">
-          <div class="section-hd">
-            <div class="section-title">在线更新</div>
-            <div class="section-hd-right">
-              <span style="font-size:12px;color:#909399;margin-right:8px">从 GitHub 拉取最新版本，自动构建并重启</span>
-              <el-button type="primary" size="small" @click="doUpdate" :loading="updateLoading" :icon="Upload">
-                检查更新
-              </el-button>
-            </div>
-          </div>
-        </div>
-
-        <div class="section-card card-accent-update">
+        <div class="section-card card-accent-update">>
           <div class="section-hd">
             <div class="section-title">离线升级</div>
             <div class="section-hd-right">
@@ -251,7 +239,7 @@ import {
   changePassword, getSessions, kickSession as kickSessionApi,
   getSecuritySettings, updateSecuritySettings,
   getSystemInfo, createBackup, getBackups, deleteBackup, restoreBackup,
-  getLogs, updateSystem, updateSystemOffline,
+  getLogs, updateSystemOffline,
 } from '../api/index.js'
 
 const userPerms = (() => {
@@ -384,7 +372,6 @@ async function kickSession(token) {
 const sysInfo = ref({})
 const backups = ref([])
 const backupLoading = ref(false)
-const updateLoading = ref(false)
 const updateOfflineLoading = ref(false)
 const offlineFileInput = ref(null)
 
@@ -400,30 +387,6 @@ async function loadBackups() {
     const res = await getBackups()
     if (res.code === 200) backups.value = res.data || []
   } catch { backups.value = [] }
-}
-
-async function doUpdate() {
-  try {
-    await ElMessageBox.confirm(
-      '将从 GitHub 下载最新代码并覆盖本地文件，数据库和上传文件不会被影响。更新完成后服务会自动重启，确认继续？',
-      '在线更新',
-      { confirmButtonText: '确认更新', cancelButtonText: '取消', type: 'warning' }
-    )
-  } catch { return }
-
-  updateLoading.value = true
-  try {
-    const res = await updateSystem()
-    if (res.code === 200) {
-      ElMessage.success('更新已开始，服务即将重启，请稍后刷新页面')
-    } else {
-      ElMessage.error(res.message)
-      updateLoading.value = false
-    }
-  } catch {
-    ElMessage.error('更新请求失败')
-    updateLoading.value = false
-  }
 }
 
 async function onOfflineFileChange(e) {

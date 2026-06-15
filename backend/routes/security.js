@@ -14,29 +14,6 @@ const { addLog } = require('./logs');
 const PROJECT_ROOT = path.join(__dirname, '..', '..');
 const BACKUPS_DIR = path.join(PROJECT_ROOT, 'backups');
 
-// 解析可执行文件路径（Windows 下 spawnSync 可能找不到 PATH 中的命令）
-function resolveExe(name) {
-  if (process.platform !== 'win32') return name;
-  const known = {
-    git: [
-      'C:\\Program Files\\Git\\cmd\\git.exe',
-      'C:\\Program Files\\Git\\bin\\git.exe',
-      'C:\\Program Files (x86)\\Git\\cmd\\git.exe',
-      'C:\\Program Files (x86)\\Git\\bin\\git.exe',
-    ],
-  };
-  const candidates = known[name] || [];
-  for (const p of candidates) {
-    if (fs.existsSync(p)) return p;
-  }
-  // 兜底：用 where 命令在 PATH 中查找
-  try {
-    const where = require('child_process').execSync(`where ${name}`, { encoding: 'utf8', timeout: 5000 }).trim();
-    const lines = where.split(/\r?\n/).filter(l => l.endsWith('.exe') || l.endsWith('.cmd'));
-    if (lines.length > 0 && fs.existsSync(lines[0])) return lines[0].trim();
-  } catch {}
-  return null; // 未找到
-}
 if (!fs.existsSync(BACKUPS_DIR)) fs.mkdirSync(BACKUPS_DIR, { recursive: true });
 
 const updateStorage = multer.diskStorage({
@@ -531,108 +508,12 @@ router.post('/update-offline', authRequired, updateUpload.single('file'), async 
   }
 });
 
-// 在线更新
-const https = require('https');
-const { execSync, spawnSync } = require('child_process');
-
-// git 命令走 spawnSync，避免 Windows cmd 引号嵌套问题
-function gitRun(args, opts) {
-  const gitExe = resolveExe('git');
-  if (!gitExe) throw new Error('未找到 Git，请先安装 Git for Windows');
-  const r = spawnSync(gitExe, args, { cwd: PROJECT_ROOT, encoding: 'utf8', timeout: 60000, ...opts });
-  if (r.error) {
-    if (r.error.code === 'ENOENT') throw new Error('未找到 Git，请先安装 Git for Windows');
-    throw r.error;
-  }
-  if (r.status !== 0) throw new Error(r.stderr?.trim() || `git ${args[0]} 返回 ${r.status}`);
-  return r.stdout.trim();
-}
-
 // npm/npx 走 execSync（需要 shell 执行 .cmd），继承 Node 目录的 PATH
+const { execSync } = require('child_process');
 function npmRun(cmd, opts) {
   const nodeDir = path.dirname(process.execPath);
   const env = { ...process.env, PATH: `${nodeDir};${process.env.PATH || ''}` };
   return execSync(cmd, { stdio: 'pipe', env, ...opts });
 }
-
-router.post('/update', authRequired, (req, res) => {
-  if (req.session.role !== 'superadmin') {
-    return res.json({ code: 403, message: '仅超级管理员可执行更新' });
-  }
-
-  try {
-    // 0. 前置检查：必须是 git 仓库
-    if (!fs.existsSync(path.join(PROJECT_ROOT, '.git'))) {
-      return res.json({ code: 500, message: '更新失败: 项目目录不是 Git 仓库。请用 git clone 部署项目，而非复制文件。' });
-    }
-
-    // 1. 记录当前 commit
-    let oldCommit = '';
-    try { oldCommit = gitRun(['rev-parse', 'HEAD']); } catch {}
-
-    // 2. 解析远程 URL，SSH → HTTPS（公开仓库无需认证）
-    let remoteUrl = '';
-    try {
-      remoteUrl = gitRun(['remote', 'get-url', 'origin']);
-    } catch (e) {
-      console.error('[update] 获取远程地址失败:', e.message);
-      return res.json({ code: 500, message: '更新失败: 未找到远程仓库 origin，请确认是通过 git clone 部署的' });
-    }
-    remoteUrl = remoteUrl.replace(/^git@github\.com:/, 'https://github.com/');
-    console.log('[update] remote:', remoteUrl);
-
-    // 3. git fetch + merge（绕过 kkgithub 镜像重定向）
-    console.log('[update] git fetch...');
-    gitRun(['-c', 'url.https://kkgithub.com/.insteadOf=', 'fetch', '--depth=1', remoteUrl, 'main']);
-    console.log('[update] git merge...');
-    const mergeMsg = gitRun(['merge', 'FETCH_HEAD', '--ff-only']);
-    console.log('[update] merge:', mergeMsg);
-
-    // 4. 检查是否有更新
-    const newCommit = gitRun(['rev-parse', 'HEAD']);
-    if (oldCommit === newCommit) {
-      return res.json({ code: 200, message: '已是最新版本，无需更新' });
-    }
-
-    addLog('info', 'update', `更新 ${oldCommit.slice(0, 7)} → ${newCommit.slice(0, 7)}`, req.session.username, req.ip);
-
-    // 5. 安装依赖 + 构建前端
-    console.log('[update] 安装后端依赖...');
-    npmRun('npm install --production', { cwd: path.join(PROJECT_ROOT, 'backend') });
-    console.log('[update] 构建前端...');
-    npmRun('npm install', { cwd: path.join(PROJECT_ROOT, 'frontend') });
-    npmRun('npx vite build', { cwd: path.join(PROJECT_ROOT, 'frontend') });
-    console.log('[update] 构建完成');
-
-    res.json({ code: 200, message: '更新完成，服务即将重启，请稍后刷新页面' });
-
-    addLog('success', 'update', `更新完成 ${newCommit.slice(0, 7)}，即将重启`, req.session.username, req.ip);
-
-    // 6. 重启（先关闭数据库，避免 WAL 文件残留）
-    setTimeout(() => {
-      try { require('../db').close(); } catch {}
-      const { spawn } = require('child_process');
-      const serverPath = path.join(PROJECT_ROOT, 'backend', 'server.js');
-      const child = spawn(process.execPath, [serverPath], {
-        cwd: path.join(PROJECT_ROOT, 'backend'),
-        detached: true,
-        stdio: 'ignore'
-      });
-      child.unref();
-      process.exit(0);
-    }, 1000);
-
-  } catch (err) {
-    console.error('[update] 更新失败:', err.message);
-    addLog('danger', 'update', '更新失败: ' + err.message, req.session.username, req.ip);
-    let msg = err.message || '未知错误';
-    if (msg.includes('Permission denied') || msg.includes('could not read')) {
-      msg = 'Git 认证失败，请确认已配置仓库访问权限';
-    } else if (msg.includes('not a git repository')) {
-      msg = '项目目录不是 Git 仓库，无法在线更新';
-    }
-    res.json({ code: 500, message: '更新失败: ' + msg });
-  }
-});
 
 module.exports = router;
