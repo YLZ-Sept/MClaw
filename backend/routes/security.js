@@ -14,7 +14,7 @@ const { addLog } = require('./logs');
 const PROJECT_ROOT = path.join(__dirname, '..');
 const BACKUPS_DIR = path.join(PROJECT_ROOT, 'backups');
 
-// 解析可执行文件路径（Windows 下 execSync 可能找不到 PATH 中的命令）
+// 解析可执行文件路径（Windows 下 spawnSync 可能找不到 PATH 中的命令）
 function resolveExe(name) {
   if (process.platform !== 'win32') return name;
   const known = {
@@ -26,15 +26,16 @@ function resolveExe(name) {
     ],
   };
   const candidates = known[name] || [];
-  if (candidates.length === 0) {
-    // npm/npx/node: 用 node 进程路径反推
-    const nodeDir = path.dirname(process.execPath);
-    candidates.push(path.join(nodeDir, name + '.cmd'), path.join(nodeDir, name + '.exe'));
-  }
   for (const p of candidates) {
     if (fs.existsSync(p)) return p;
   }
-  return name; // fallback, let it fail with original error
+  // 兜底：用 where 命令在 PATH 中查找
+  try {
+    const where = require('child_process').execSync(`where ${name}`, { encoding: 'utf8', timeout: 5000 }).trim();
+    const lines = where.split(/\r?\n/).filter(l => l.endsWith('.exe') || l.endsWith('.cmd'));
+    if (lines.length > 0 && fs.existsSync(lines[0])) return lines[0].trim();
+  } catch {}
+  return null; // 未找到
 }
 if (!fs.existsSync(BACKUPS_DIR)) fs.mkdirSync(BACKUPS_DIR, { recursive: true });
 
@@ -531,8 +532,13 @@ const { execSync, spawnSync } = require('child_process');
 
 // git 命令走 spawnSync，避免 Windows cmd 引号嵌套问题
 function gitRun(args, opts) {
-  const r = spawnSync(resolveExe('git'), args, { cwd: PROJECT_ROOT, encoding: 'utf8', timeout: 60000, ...opts });
-  if (r.error) throw r.error;
+  const gitExe = resolveExe('git');
+  if (!gitExe) throw new Error('未找到 Git，请先安装 Git for Windows');
+  const r = spawnSync(gitExe, args, { cwd: PROJECT_ROOT, encoding: 'utf8', timeout: 60000, ...opts });
+  if (r.error) {
+    if (r.error.code === 'ENOENT') throw new Error('未找到 Git，请先安装 Git for Windows');
+    throw r.error;
+  }
   if (r.status !== 0) throw new Error(r.stderr?.trim() || `git ${args[0]} 返回 ${r.status}`);
   return r.stdout.trim();
 }
@@ -550,6 +556,11 @@ router.post('/update', authRequired, (req, res) => {
   }
 
   try {
+    // 0. 前置检查：必须是 git 仓库
+    if (!fs.existsSync(path.join(PROJECT_ROOT, '.git'))) {
+      return res.json({ code: 500, message: '更新失败: 项目目录不是 Git 仓库。请用 git clone 部署项目，而非复制文件。' });
+    }
+
     // 1. 记录当前 commit
     let oldCommit = '';
     try { oldCommit = gitRun(['rev-parse', 'HEAD']); } catch {}
@@ -560,7 +571,7 @@ router.post('/update', authRequired, (req, res) => {
       remoteUrl = gitRun(['remote', 'get-url', 'origin']);
     } catch (e) {
       console.error('[update] 获取远程地址失败:', e.message);
-      return res.json({ code: 500, message: '更新失败: 无法获取远程仓库地址' });
+      return res.json({ code: 500, message: '更新失败: 未找到远程仓库 origin，请确认是通过 git clone 部署的' });
     }
     remoteUrl = remoteUrl.replace(/^git@github\.com:/, 'https://github.com/');
     console.log('[update] remote:', remoteUrl);
