@@ -13,6 +13,29 @@ const { addLog } = require('./logs');
 
 const PROJECT_ROOT = path.join(__dirname, '..');
 const BACKUPS_DIR = path.join(PROJECT_ROOT, 'backups');
+
+// 解析可执行文件路径（Windows 下 execSync 可能找不到 PATH 中的命令）
+function resolveExe(name) {
+  if (process.platform !== 'win32') return name;
+  const known = {
+    git: [
+      'C:\\Program Files\\Git\\cmd\\git.exe',
+      'C:\\Program Files\\Git\\bin\\git.exe',
+      'C:\\Program Files (x86)\\Git\\cmd\\git.exe',
+      'C:\\Program Files (x86)\\Git\\bin\\git.exe',
+    ],
+  };
+  const candidates = known[name] || [];
+  if (candidates.length === 0) {
+    // npm/npx/node: 用 node 进程路径反推
+    const nodeDir = path.dirname(process.execPath);
+    candidates.push(path.join(nodeDir, name + '.cmd'), path.join(nodeDir, name + '.exe'));
+  }
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  return name; // fallback, let it fail with original error
+}
 if (!fs.existsSync(BACKUPS_DIR)) fs.mkdirSync(BACKUPS_DIR, { recursive: true });
 
 const updateStorage = multer.diskStorage({
@@ -473,12 +496,14 @@ router.post('/update-offline', authRequired, updateUpload.single('file'), async 
 
     // 5. 安装依赖 + 构建
     const { execSync } = require('child_process');
+    const npmExe = resolveExe('npm');
+    const npxExe = resolveExe('npx');
     console.log('[update-offline] installing backend deps...');
-    execSync('npm install --production', { cwd: path.join(PROJECT_ROOT, 'backend'), stdio: 'pipe' });
+    execSync(`"${npmExe}" install --production`, { cwd: path.join(PROJECT_ROOT, 'backend'), stdio: 'pipe' });
     console.log('[update-offline] installing frontend deps...');
-    execSync('npm install', { cwd: path.join(PROJECT_ROOT, 'frontend'), stdio: 'pipe' });
+    execSync(`"${npmExe}" install`, { cwd: path.join(PROJECT_ROOT, 'frontend'), stdio: 'pipe' });
     console.log('[update-offline] building frontend...');
-    execSync('npx vite build', { cwd: path.join(PROJECT_ROOT, 'frontend'), stdio: 'pipe' });
+    execSync(`"${npxExe}" vite build`, { cwd: path.join(PROJECT_ROOT, 'frontend'), stdio: 'pipe' });
 
     addLog('success', 'update', '离线升级完成，即将重启', req.session.username, req.ip);
     res.json({ code: 200, message: '离线升级完成，服务即将重启，请稍后刷新页面' });
@@ -514,17 +539,21 @@ router.post('/update', authRequired, (req, res) => {
   }
 
   try {
+    const gitExe = resolveExe('git');
+    const npmExe = resolveExe('npm');
+    const npxExe = resolveExe('npx');
+
     // 1. 更新前记录当前 commit
     let oldCommit = '';
-    try { oldCommit = execSync('git rev-parse HEAD', { cwd: PROJECT_ROOT, encoding: 'utf8' }).trim(); } catch {}
+    try { oldCommit = execSync(`"${gitExe}" rev-parse HEAD`, { cwd: PROJECT_ROOT, encoding: 'utf8' }).trim(); } catch {}
 
     // 2. git pull
     console.log('[update] git pull...');
-    const pullResult = execSync('git pull origin main', { cwd: PROJECT_ROOT, encoding: 'utf8', timeout: 60000 });
+    const pullResult = execSync(`"${gitExe}" pull origin main`, { cwd: PROJECT_ROOT, encoding: 'utf8', timeout: 60000 });
     console.log('[update] git pull:', pullResult.trim());
 
     // 3. 检查是否有更新
-    const newCommit = execSync('git rev-parse HEAD', { cwd: PROJECT_ROOT, encoding: 'utf8' }).trim();
+    const newCommit = execSync(`"${gitExe}" rev-parse HEAD`, { cwd: PROJECT_ROOT, encoding: 'utf8' }).trim();
     if (oldCommit === newCommit) {
       return res.json({ code: 200, message: '已是最新版本，无需更新' });
     }
@@ -533,10 +562,10 @@ router.post('/update', authRequired, (req, res) => {
 
     // 4. 安装依赖 + 构建前端
     console.log('[update] 安装后端依赖...');
-    execSync('npm install --production', { cwd: path.join(PROJECT_ROOT, 'backend'), stdio: 'pipe' });
+    execSync(`"${npmExe}" install --production`, { cwd: path.join(PROJECT_ROOT, 'backend'), stdio: 'pipe' });
     console.log('[update] 构建前端...');
-    execSync('npm install', { cwd: path.join(PROJECT_ROOT, 'frontend'), stdio: 'pipe' });
-    execSync('npx vite build', { cwd: path.join(PROJECT_ROOT, 'frontend'), stdio: 'pipe' });
+    execSync(`"${npmExe}" install`, { cwd: path.join(PROJECT_ROOT, 'frontend'), stdio: 'pipe' });
+    execSync(`"${npxExe}" vite build`, { cwd: path.join(PROJECT_ROOT, 'frontend'), stdio: 'pipe' });
     console.log('[update] 构建完成');
 
     res.json({ code: 200, message: '更新完成，服务即将重启，请稍后刷新页面' });
