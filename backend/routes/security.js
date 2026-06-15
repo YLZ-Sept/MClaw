@@ -514,7 +514,7 @@ router.post('/update-offline', authRequired, updateUpload.single('file'), async 
       try { require('../db').close(); } catch {}
       const { spawn } = require('child_process');
       const serverPath = path.join(PROJECT_ROOT, 'backend', 'server.js');
-      const child = spawn('node', [serverPath], {
+      const child = spawn(process.execPath, [serverPath], {
         cwd: path.join(PROJECT_ROOT, 'backend'),
         detached: true,
         stdio: 'ignore'
@@ -613,7 +613,7 @@ router.post('/update', authRequired, (req, res) => {
       try { require('../db').close(); } catch {}
       const { spawn } = require('child_process');
       const serverPath = path.join(PROJECT_ROOT, 'backend', 'server.js');
-      const child = spawn('node', [serverPath], {
+      const child = spawn(process.execPath, [serverPath], {
         cwd: path.join(PROJECT_ROOT, 'backend'),
         detached: true,
         stdio: 'ignore'
