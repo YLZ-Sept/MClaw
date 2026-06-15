@@ -3,6 +3,14 @@ const { randomUUID } = require('crypto');
 const db = require('../db');
 const router = Router();
 
+function syncModelToOpenClaw() {
+  try {
+    const row = db.prepare('SELECT * FROM model_configs WHERE is_default=1 AND is_active=1').get()
+      || db.prepare('SELECT * FROM model_configs WHERE is_active=1 LIMIT 1').get();
+    if (row) require('../openclaw/model-sync').syncModelConfig(row);
+  } catch {}
+}
+
 // 提供商预设
 const PROVIDER_PRESETS = {
   deepseek:  { label:'DeepSeek',  baseUrl:'https://api.deepseek.com/v1',      models:['deepseek-chat','deepseek-reasoner'] },
@@ -265,6 +273,7 @@ router.put('/:id', (req, res) => {
     cat,
     secret_key !== undefined ? secret_key : undefined,
     req.params.id);
+  syncModelToOpenClaw();
   res.json({ code: 200 });
 });
 
@@ -272,6 +281,7 @@ router.put('/:id', (req, res) => {
 router.post('/:id/set-default', (req, res) => {
   db.prepare('UPDATE model_configs SET is_default=0').run();
   db.prepare('UPDATE model_configs SET is_default=1, is_active=1 WHERE id=?').run(req.params.id);
+  syncModelToOpenClaw();
   res.json({ code: 200 });
 });
 

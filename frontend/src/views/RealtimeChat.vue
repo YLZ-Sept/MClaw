@@ -114,30 +114,6 @@ async function handleSend() {
   await streamResponse(body, aiIdx)
 }
 
-function toolLabel(name) {
-  const map = {
-    list_customers: '查询客户列表', get_customer: '获取客户详情', create_customer: '创建客户',
-    list_products: '查询产品', query_stock: '查询库存', stock_in: '入库', stock_out: '出库',
-    list_employees: '查询员工', search_employee: '搜索员工',
-    list_leaves: '查询请假', apply_leave: '提交请假', clock_in: '打卡',
-    list_tickets: '查询工单', create_ticket: '创建工单',
-    search_faq: '搜索知识库', list_documents: '查询文档',
-    get_dashboard_stats: '获取数据概览', search_customer: '搜索客户',
-    list_opportunities: '查询机会', list_contracts: '查询合同',
-    list_suppliers: '查询供应商', list_purchase_orders: '查询采购单',
-    list_sales_orders: '查询销售单', list_warehouses: '查询仓库',
-    list_recruitment: '查询招聘', list_performance_schemes: '查询绩效',
-    attendance_records: '查询考勤', attendance_monthly_report: '查询月报',
-    list_feedback: '查询反馈', create_feedback: '记录反馈',
-    generate_pptx: '生成 PPT', generate_excel: '生成 Excel',
-    generate_pdf: '生成 PDF', generate_docx: '生成 Word',
-    generate_diagram: '生成图表',
-  }
-  return map[name] || ('执行' + name)
-}
-
-const genLabels = { generate_pptx: 'PPT', generate_excel: 'Excel 报表', generate_pdf: 'PDF', generate_docx: 'Word 文档', generate_diagram: '图表' }
-
 // ── 文件上传 & 解析 ──
 async function handleUpload(options) {
   uploading.value = true
@@ -188,8 +164,6 @@ async function handleUpload(options) {
 
 // ── SSE 流式响应抽取 ──
 async function streamResponse(body, aiIdx) {
-  const toolMsgs = []
-  let pptDownloadUrl = null
   try {
     const dsRes = await fetch('/api/chat/send', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -209,35 +183,10 @@ async function streamResponse(body, aiIdx) {
         if (line.startsWith('event: ')) { eventType = line.slice(7).trim(); continue }
         if (!line.startsWith('data: ')) { if (line === '') eventType = 'message'; continue }
         let data; try { data = JSON.parse(line.slice(6)) } catch { continue }
-        switch (eventType) {
-          case 'tool':
-            if (data.status === 'calling') {
-              const tm = { role: 'tool', content: '🔍 正在' + toolLabel(data.name) + '...' }
-              messages.value.push(tm); toolMsgs.push(messages.value.length - 1); scrollToBottom()
-            } else if (data.status === 'done' && genLabels[data.name] && data.download_url) {
-              pptDownloadUrl = data.download_url
-              const label = genLabels[data.name]
-              const isImg = data.name === 'generate_diagram'
-              const tm = { role: 'ai', content: isImg
-                ? `✅ ${label}已生成\n\n![${label}](${data.download_url})\n\n[📥 点击下载](${data.download_url})`
-                : `✅ ${label}已生成\n\n[📥 点击下载 ${label}](${data.download_url})` }
-              messages.value.push(tm); scrollToBottom()
-            }
-            break
-          case 'text':
-            rawText += data.content; messages.value[aiIdx].content = rawText; scrollToBottom(); break
-          case 'polished':
-            messages.value[aiIdx].content = data.content
-            if (pptDownloadUrl) {
-              messages.value[aiIdx].content = data.content
-                .replace(/\[([^\]]*)\]\((?:sandbox:\/)?\/mnt\/data\/[^)\s]+\.pptx\)/g, `[$1](${pptDownloadUrl})`)
-                .replace(/(?:sandbox:\/)?\/mnt\/data\/[\w.-]+\.pptx/g, pptDownloadUrl)
-            }
-            for (let i = toolMsgs.length - 1; i >= 0; i--) messages.value.splice(toolMsgs[i], 1)
-            scrollToBottom(); break
-          case 'error':
-            messages.value[aiIdx].content = '抱歉，服务出现错误：' + (data.message || '未知错误'); break
-          case 'done': break
+        if (eventType === 'text') {
+          rawText += data.content; messages.value[aiIdx].content = rawText; scrollToBottom()
+        } else if (eventType === 'error') {
+          messages.value[aiIdx].content = '抱歉，服务出现错误：' + (data.message || '未知错误')
         }
         eventType = 'message'
       }

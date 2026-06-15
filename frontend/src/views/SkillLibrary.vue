@@ -5,18 +5,49 @@
       <span class="pg-sub">AI 能力工具箱</span>
     </div>
     <div class="pg-body">
-      <div class="skill-grid">
-        <div v-for="s in skills" :key="s.id" class="skill-card" @click="openSkill(s)">
-          <div class="sc-icon">{{ s.emoji || '⚡' }}</div>
-          <div class="sc-body">
-            <div class="sc-name">{{ s.name }}</div>
-            <div class="sc-desc">{{ s.desc || '暂无描述' }}</div>
+      <el-tabs v-model="activeTab">
+        <el-tab-pane label="本地技能" name="local">
+          <div class="skill-grid">
+            <div v-for="s in skills" :key="s.id" class="skill-card" @click="openSkill(s)">
+              <div class="sc-icon">{{ s.emoji || '⚡' }}</div>
+              <div class="sc-body">
+                <div class="sc-name">{{ s.name }}</div>
+                <div class="sc-desc">{{ s.desc || '暂无描述' }}</div>
+              </div>
+            </div>
+            <div v-if="!skills.length" class="skill-empty">
+              <el-empty description="暂无可用技能" />
+            </div>
           </div>
-        </div>
-        <div v-if="!skills.length" class="skill-empty">
-          <el-empty description="暂无可用技能" />
-        </div>
-      </div>
+        </el-tab-pane>
+        <el-tab-pane label="ClawHub 市场" name="clawhub">
+          <div class="clawhub-search">
+            <el-input v-model="clawhubQuery" placeholder="搜索 ClawHub 技能..." clearable
+              @keyup.enter="searchClawHub" style="width: 360px" />
+            <el-button type="primary" @click="searchClawHub" :loading="clawhubLoading">搜索</el-button>
+          </div>
+          <div class="skill-grid" style="margin-top:16px">
+            <div v-for="s in clawhubResults" :key="s.slug" class="skill-card">
+              <div class="sc-icon">📦</div>
+              <div class="sc-body">
+                <div class="sc-name">{{ s.name }}</div>
+                <div class="sc-desc">{{ s.description || '暂无描述' }}</div>
+                <div class="sc-meta" v-if="s.version">v{{ s.version }} · {{ s.owner || '' }}</div>
+              </div>
+              <div class="sc-action">
+                <el-button v-if="isInstalled(s.slug)" size="small" disabled>已安装</el-button>
+                <el-button v-else size="small" type="primary" @click.stop="installSkill(s)" :loading="s._installing">安装</el-button>
+              </div>
+            </div>
+            <div v-if="!clawhubLoading && clawhubSearched && !clawhubResults.length" class="skill-empty">
+              <el-empty description="未找到匹配技能" />
+            </div>
+            <div v-if="!clawhubSearched" class="skill-empty">
+              <el-empty description="搜索 ClawHub 发现更多 AI 技能" />
+            </div>
+          </div>
+        </el-tab-pane>
+      </el-tabs>
     </div>
 
     <!-- 技能详情弹窗 -->
@@ -72,10 +103,18 @@ import { ElMessage } from 'element-plus'
 import { marked } from 'marked'
 import request from '../api/index.js'
 
+const activeTab = ref('local')
 const skills = ref([])
 const detailDlg = ref({ visible: false, skill: null })
 const pptDlg = ref({ visible: false, prompt: '', loading: false, result: null })
 const pptExamples = ['Q3 营收复盘，分析增长引擎与风险', '新产品发布会，面向投资人', '季度技术分享：AI 在企业中的应用', '年度工作总结与明年规划']
+
+// ClawHub state
+const clawhubQuery = ref('')
+const clawhubResults = ref([])
+const clawhubLoading = ref(false)
+const clawhubSearched = ref(false)
+const installedSlugs = ref(new Set())
 
 function skillEmoji(name) {
   if (name.includes('PPT')) return '📊'
@@ -88,11 +127,49 @@ function renderMd(text) {
   return marked(text || '')
 }
 
+function isInstalled(slug) {
+  return installedSlugs.value.has(slug)
+}
+
 async function loadSkills() {
   try {
     const { data } = await request.get('/agent-skills')
     skills.value = (data.data || []).map(s => ({ ...s, emoji: skillEmoji(s.name) }))
   } catch {}
+}
+
+async function loadInstalledSlugs() {
+  try {
+    const { data } = await request.get('/clawhub/status')
+    if (data.code === 200 && data.data?.skills) {
+      installedSlugs.value = new Set(data.data.skills.map(s => s.name).filter(Boolean))
+    }
+  } catch {}
+}
+
+async function searchClawHub() {
+  clawhubLoading.value = true
+  clawhubSearched.value = true
+  try {
+    const { data } = await request.get('/clawhub/search', { params: { q: clawhubQuery.value, limit: 20 } })
+    clawhubResults.value = (data.data || []).map(s => ({ ...s, _installing: false }))
+  } catch (e) {
+    ElMessage.error('搜索失败: ' + (e.response?.data?.message || e.message))
+  }
+  clawhubLoading.value = false
+}
+
+async function installSkill(s) {
+  s._installing = true
+  try {
+    await request.post('/clawhub/install', { slug: s.slug })
+    ElMessage.success(`已安装技能: ${s.name}`)
+    installedSlugs.value.add(s.slug)
+    loadSkills()
+  } catch (e) {
+    ElMessage.error('安装失败: ' + (e.response?.data?.message || e.message))
+  }
+  s._installing = false
 }
 
 function openSkill(s) {
@@ -119,7 +196,7 @@ function downloadPpt(url) {
   window.open(url, '_blank')
 }
 
-onMounted(() => { loadSkills() })
+onMounted(() => { loadSkills(); loadInstalledSlugs() })
 </script>
 
 <style scoped>
@@ -141,7 +218,11 @@ onMounted(() => { loadSkills() })
 .sc-body { flex: 1; min-width: 0; }
 .sc-name { font-size: 15px; font-weight: 600; color: #4a3f5e; }
 .sc-desc { font-size: 12px; color: #909399; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sc-meta { font-size: 11px; color: #b8aad0; margin-top: 4px; }
+.sc-action { flex-shrink: 0; }
 .skill-empty { padding: 60px 0; text-align: center; width: 100%; }
+
+.clawhub-search { display: flex; gap: 10px; align-items: center; }
 
 /* 详情弹窗 */
 .detail-body { max-height: 55vh; overflow-y: auto; }
