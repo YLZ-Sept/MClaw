@@ -495,15 +495,12 @@ router.post('/update-offline', authRequired, updateUpload.single('file'), async 
     if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
 
     // 5. 安装依赖 + 构建
-    const { execSync } = require('child_process');
-    const npmExe = resolveExe('npm');
-    const npxExe = resolveExe('npx');
     console.log('[update-offline] installing backend deps...');
-    execSync(`"${npmExe}" install --production`, { cwd: path.join(PROJECT_ROOT, 'backend'), stdio: 'pipe' });
+    npmRun('npm install --production', { cwd: path.join(PROJECT_ROOT, 'backend') });
     console.log('[update-offline] installing frontend deps...');
-    execSync(`"${npmExe}" install`, { cwd: path.join(PROJECT_ROOT, 'frontend'), stdio: 'pipe' });
+    npmRun('npm install', { cwd: path.join(PROJECT_ROOT, 'frontend') });
     console.log('[update-offline] building frontend...');
-    execSync(`"${npxExe}" vite build`, { cwd: path.join(PROJECT_ROOT, 'frontend'), stdio: 'pipe' });
+    npmRun('npx vite build', { cwd: path.join(PROJECT_ROOT, 'frontend') });
 
     addLog('success', 'update', '离线升级完成，即将重启', req.session.username, req.ip);
     res.json({ code: 200, message: '离线升级完成，服务即将重启，请稍后刷新页面' });
@@ -530,43 +527,53 @@ router.post('/update-offline', authRequired, updateUpload.single('file'), async 
 
 // 在线更新
 const https = require('https');
-const { execSync } = require('child_process');
+const { execSync, spawnSync } = require('child_process');
+
+// git 命令走 spawnSync，避免 Windows cmd 引号嵌套问题
+function gitRun(args, opts) {
+  const r = spawnSync(resolveExe('git'), args, { cwd: PROJECT_ROOT, encoding: 'utf8', timeout: 60000, ...opts });
+  if (r.error) throw r.error;
+  if (r.status !== 0) throw new Error(r.stderr?.trim() || `git ${args[0]} 返回 ${r.status}`);
+  return r.stdout.trim();
+}
+
+// npm/npx 走 execSync（需要 shell 执行 .cmd），继承 Node 目录的 PATH
+function npmRun(cmd, opts) {
+  const nodeDir = path.dirname(process.execPath);
+  const env = { ...process.env, PATH: `${nodeDir};${process.env.PATH || ''}` };
+  return execSync(cmd, { stdio: 'pipe', env, ...opts });
+}
 
 router.post('/update', authRequired, (req, res) => {
-  // 仅 superadmin 可执行
   if (req.session.role !== 'superadmin') {
     return res.json({ code: 403, message: '仅超级管理员可执行更新' });
   }
 
   try {
-    const gitExe = resolveExe('git');
-    const npmExe = resolveExe('npm');
-    const npxExe = resolveExe('npx');
-
-    // 1. 更新前记录当前 commit
+    // 1. 记录当前 commit
     let oldCommit = '';
-    try { oldCommit = execSync(`"${gitExe}" rev-parse HEAD`, { cwd: PROJECT_ROOT, encoding: 'utf8' }).trim(); } catch {}
+    try { oldCommit = gitRun(['rev-parse', 'HEAD']); } catch {}
 
-    // 2. 解析远程 URL：SSH 转 HTTPS，公开仓库无需认证
+    // 2. 解析远程 URL，SSH → HTTPS（公开仓库无需认证）
     let remoteUrl = '';
     try {
-      remoteUrl = execSync(`"${gitExe}" remote get-url origin`, { cwd: PROJECT_ROOT, encoding: 'utf8' }).trim();
-    } catch {
+      remoteUrl = gitRun(['remote', 'get-url', 'origin']);
+    } catch (e) {
+      console.error('[update] 获取远程地址失败:', e.message);
       return res.json({ code: 500, message: '更新失败: 无法获取远程仓库地址' });
     }
-    // git@github.com:USER/REPO.git → https://github.com/USER/REPO.git
     remoteUrl = remoteUrl.replace(/^git@github\.com:/, 'https://github.com/');
     console.log('[update] remote:', remoteUrl);
 
-    // 3. git fetch + merge（用 HTTPS URL 避免 SSH 认证问题）
+    // 3. git fetch + merge
     console.log('[update] git fetch...');
-    execSync(`"${gitExe}" fetch --depth=1 "${remoteUrl}" main`, { cwd: PROJECT_ROOT, encoding: 'utf8', timeout: 60000 });
+    gitRun(['fetch', '--depth=1', remoteUrl, 'main']);
     console.log('[update] git merge...');
-    const pullResult = execSync(`"${gitExe}" merge FETCH_HEAD --ff-only`, { cwd: PROJECT_ROOT, encoding: 'utf8', timeout: 30000 });
-    console.log('[update] merge:', pullResult.trim());
+    const mergeMsg = gitRun(['merge', 'FETCH_HEAD', '--ff-only']);
+    console.log('[update] merge:', mergeMsg);
 
     // 4. 检查是否有更新
-    const newCommit = execSync(`"${gitExe}" rev-parse HEAD`, { cwd: PROJECT_ROOT, encoding: 'utf8' }).trim();
+    const newCommit = gitRun(['rev-parse', 'HEAD']);
     if (oldCommit === newCommit) {
       return res.json({ code: 200, message: '已是最新版本，无需更新' });
     }
@@ -575,10 +582,10 @@ router.post('/update', authRequired, (req, res) => {
 
     // 5. 安装依赖 + 构建前端
     console.log('[update] 安装后端依赖...');
-    execSync(`"${npmExe}" install --production`, { cwd: path.join(PROJECT_ROOT, 'backend'), stdio: 'pipe' });
+    npmRun('npm install --production', { cwd: path.join(PROJECT_ROOT, 'backend') });
     console.log('[update] 构建前端...');
-    execSync(`"${npmExe}" install`, { cwd: path.join(PROJECT_ROOT, 'frontend'), stdio: 'pipe' });
-    execSync(`"${npxExe}" vite build`, { cwd: path.join(PROJECT_ROOT, 'frontend'), stdio: 'pipe' });
+    npmRun('npm install', { cwd: path.join(PROJECT_ROOT, 'frontend') });
+    npmRun('npx vite build', { cwd: path.join(PROJECT_ROOT, 'frontend') });
     console.log('[update] 构建完成');
 
     res.json({ code: 200, message: '更新完成，服务即将重启，请稍后刷新页面' });
