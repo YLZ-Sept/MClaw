@@ -455,15 +455,18 @@ router.post('/update-offline', authRequired, updateUpload.single('file'), async 
 
     // 3. 覆盖文件（排除敏感内容）
     const excludePrefixes = [
-      'backend/.env', 'backend/data/', 'backend/uploads/', 'backend/videos/',
-      'backend/backups/', 'backend/node_modules/', 'backend/server.log',
-      'frontend/node_modules/', 'frontend/dist/',
+      'backend/.env', 'backend/data/', 'backend/data', 'backend/uploads/', 'backend/uploads',
+      'backend/videos/', 'backend/videos', 'backend/backups/', 'backend/backups',
+      'backend/node_modules/', 'backend/node_modules', 'backend/server.log',
+      'frontend/node_modules/', 'frontend/node_modules', 'frontend/dist/', 'frontend/dist',
     ];
 
     function shouldSkip(rel) {
-      const n = rel.replace(/\\/g, '/');
-      if (n.startsWith('.git/') || n === '.git') return true;
-      return excludePrefixes.some(p => n.startsWith(p));
+      let n = rel.replace(/\\/g, '/');
+      // Windows 路径大小写不敏感，统一转小写比较
+      if (process.platform === 'win32') n = n.toLowerCase();
+      if (n === '.git' || n.startsWith('.git/')) return true;
+      return excludePrefixes.some(p => n === p || n.startsWith(p));
     }
 
     function copyRecursive(src, dest, baseLen) {
@@ -506,7 +509,9 @@ router.post('/update-offline', authRequired, updateUpload.single('file'), async 
     addLog('success', 'update', '离线升级完成，即将重启', req.session.username, req.ip);
     res.json({ code: 200, message: '离线升级完成，服务即将重启，请稍后刷新页面' });
 
+    // 6. 重启（先关闭数据库，避免 WAL 文件残留）
     setTimeout(() => {
+      try { require('../db').close(); } catch {}
       const { spawn } = require('child_process');
       const serverPath = path.join(PROJECT_ROOT, 'backend', 'server.js');
       const child = spawn('node', [serverPath], {
@@ -603,8 +608,9 @@ router.post('/update', authRequired, (req, res) => {
 
     addLog('success', 'update', `更新完成 ${newCommit.slice(0, 7)}，即将重启`, req.session.username, req.ip);
 
-    // 6. 重启
+    // 6. 重启（先关闭数据库，避免 WAL 文件残留）
     setTimeout(() => {
+      try { require('../db').close(); } catch {}
       const { spawn } = require('child_process');
       const serverPath = path.join(PROJECT_ROOT, 'backend', 'server.js');
       const child = spawn('node', [serverPath], {
