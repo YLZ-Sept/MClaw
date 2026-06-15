@@ -547,12 +547,25 @@ router.post('/update', authRequired, (req, res) => {
     let oldCommit = '';
     try { oldCommit = execSync(`"${gitExe}" rev-parse HEAD`, { cwd: PROJECT_ROOT, encoding: 'utf8' }).trim(); } catch {}
 
-    // 2. git pull
-    console.log('[update] git pull...');
-    const pullResult = execSync(`"${gitExe}" pull origin main`, { cwd: PROJECT_ROOT, encoding: 'utf8', timeout: 60000 });
-    console.log('[update] git pull:', pullResult.trim());
+    // 2. 解析远程 URL：SSH 转 HTTPS，公开仓库无需认证
+    let remoteUrl = '';
+    try {
+      remoteUrl = execSync(`"${gitExe}" remote get-url origin`, { cwd: PROJECT_ROOT, encoding: 'utf8' }).trim();
+    } catch {
+      return res.json({ code: 500, message: '更新失败: 无法获取远程仓库地址' });
+    }
+    // git@github.com:USER/REPO.git → https://github.com/USER/REPO.git
+    remoteUrl = remoteUrl.replace(/^git@github\.com:/, 'https://github.com/');
+    console.log('[update] remote:', remoteUrl);
 
-    // 3. 检查是否有更新
+    // 3. git fetch + merge（用 HTTPS URL 避免 SSH 认证问题）
+    console.log('[update] git fetch...');
+    execSync(`"${gitExe}" fetch --depth=1 "${remoteUrl}" main`, { cwd: PROJECT_ROOT, encoding: 'utf8', timeout: 60000 });
+    console.log('[update] git merge...');
+    const pullResult = execSync(`"${gitExe}" merge FETCH_HEAD --ff-only`, { cwd: PROJECT_ROOT, encoding: 'utf8', timeout: 30000 });
+    console.log('[update] merge:', pullResult.trim());
+
+    // 4. 检查是否有更新
     const newCommit = execSync(`"${gitExe}" rev-parse HEAD`, { cwd: PROJECT_ROOT, encoding: 'utf8' }).trim();
     if (oldCommit === newCommit) {
       return res.json({ code: 200, message: '已是最新版本，无需更新' });
@@ -560,7 +573,7 @@ router.post('/update', authRequired, (req, res) => {
 
     addLog('info', 'update', `更新 ${oldCommit.slice(0, 7)} → ${newCommit.slice(0, 7)}`, req.session.username, req.ip);
 
-    // 4. 安装依赖 + 构建前端
+    // 5. 安装依赖 + 构建前端
     console.log('[update] 安装后端依赖...');
     execSync(`"${npmExe}" install --production`, { cwd: path.join(PROJECT_ROOT, 'backend'), stdio: 'pipe' });
     console.log('[update] 构建前端...');
@@ -572,7 +585,7 @@ router.post('/update', authRequired, (req, res) => {
 
     addLog('success', 'update', `更新完成 ${newCommit.slice(0, 7)}，即将重启`, req.session.username, req.ip);
 
-    // 5. 重启
+    // 6. 重启
     setTimeout(() => {
       const { spawn } = require('child_process');
       const serverPath = path.join(PROJECT_ROOT, 'backend', 'server.js');
