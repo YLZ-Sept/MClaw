@@ -11,7 +11,7 @@ const db = require('../db');
 const auth = require('./auth');
 const { addLog } = require('./logs');
 
-const PROJECT_ROOT = path.join(__dirname, '..');
+const PROJECT_ROOT = path.join(__dirname, '..', '..');
 const BACKUPS_DIR = path.join(PROJECT_ROOT, 'backups');
 
 // 解析可执行文件路径（Windows 下 spawnSync 可能找不到 PATH 中的命令）
