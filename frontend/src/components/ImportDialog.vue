@@ -46,14 +46,14 @@
           </el-table-column>
           <el-table-column
             v-for="col in previewColumns"
-            :key="col"
-            :label="col"
-            :min-width="Math.max(col.length * 16, 80)"
+            :key="col.field"
+            :label="col.header"
+            :min-width="Math.max(col.header.length * 16, 80)"
             show-overflow-tooltip
           >
             <template #default="{ row }">
-              <span v-if="row._valid" style="font-size:13px">{{ row._data[col] ?? '' }}</span>
-              <span v-else style="font-size:13px;color:#f56c6c">{{ row._data[col] ?? '' }}</span>
+              <span v-if="row._valid" style="font-size:13px">{{ row._data[col.field] ?? '' }}</span>
+              <span v-else style="font-size:13px;color:#f56c6c">{{ row._data[col.field] ?? '' }}</span>
             </template>
           </el-table-column>
         </el-table>

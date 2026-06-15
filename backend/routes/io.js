@@ -191,7 +191,7 @@ router.post('/:key/import', upload.single('file'), (req, res) => {
   }
 
   if (rawRows.length === 0) {
-    return res.json({ code: 200, data: { columns: cols.map(c => c.header), rows: [], validCount: 0 } });
+    return res.json({ code: 200, data: { columns: cols.map(c => ({ field: c.field, header: c.header })), rows: [], validCount: 0 } });
   }
 
   // 建立列映射：Excel 表头 → config 字段
@@ -237,7 +237,7 @@ router.post('/:key/import', upload.single('file'), (req, res) => {
   res.json({
     code: 200,
     data: {
-      columns: cols.map(c => c.header),
+      columns: cols.map(c => ({ field: c.field, header: c.header })),
       rows: previewRows,
       validCount,
       total: previewRows.length,
