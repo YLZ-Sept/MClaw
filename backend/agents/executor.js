@@ -1,8 +1,11 @@
 // 工具执行器 — 接收 tool name + arguments，直接操作 SQLite
 const { randomUUID } = require('crypto');
 const db = require('../db');
+const { getExecutionContext } = require('../shared/execution-context');
 
-async function exec(toolName, args) {
+let _cachedNodeId = null;
+
+async function exec(toolName, args, context) {
   try {
     switch (toolName) {
 
@@ -545,6 +548,74 @@ async function exec(toolName, args) {
           format: args.format || 'png'
         });
         return { filename: result.filename, download_url: `/api/download/diagram/${result.filename}`, message: `图表生成成功！\n\n![图表](/api/download/diagram/${result.filename})` };
+      }
+
+      // ─── 定时任务创建 ───
+      case 'create_scheduled_task': {
+        const wsClient = require('../openclaw/ws-client');
+        const { parseSchedule } = require('../shared/schedule');
+        const ctx = context || getExecutionContext();
+        const params = {
+          name: args.name,
+          description: args.description || '',
+          enabled: args.enabled !== false,
+          schedule: parseSchedule(args.schedule),
+          sessionTarget: 'isolated',
+          wakeMode: 'now',
+          payload: { kind: 'agentTurn', message: args.message }
+        };
+        // 优先用 LLM 指定的 agent_id，其次用当前对话的 Agent
+        if (args.agent_id) params.agentId = args.agent_id;
+        else if (ctx?.agentId) params.agentId = ctx.agentId;
+        const result = await wsClient.request('cron.add', params);
+        return { success: true, message: `定时任务「${args.name}」创建成功`, task_id: result.id, schedule: args.schedule };
+      }
+
+      // ─── OpenClaw 命令执行 ───
+      case 'execute_command': {
+        const wsClient = require('../openclaw/ws-client');
+        const command = args.command;
+        if (!command || typeof command !== 'string') return { error: '缺少 command 参数' };
+
+        // 获取本地节点 ID（缓存）
+        if (!_cachedNodeId) {
+          try {
+            const nodes = await wsClient.request('node.list');
+            const local = (nodes?.nodes || nodes || []).find(n =>
+              n.connected && (n.commands || []).includes('system.run')
+            );
+            if (local) _cachedNodeId = local.nodeId || local.id;
+          } catch {}
+        }
+        if (!_cachedNodeId) return { error: '无法找到可用的 OpenClaw 节点，请确认 OpenClaw 已启动并连接' };
+
+        const argv = process.platform === 'win32'
+          ? ['cmd.exe', '/d', '/s', '/c', command]
+          : ['/bin/sh', '-lc', command];
+
+        const result = await wsClient.request('node.invoke', {
+          nodeId: _cachedNodeId,
+          command: 'system.run',
+          params: { command: argv, rawCommand: command, timeoutMs: 60000 },
+          idempotencyKey: randomUUID()
+        }, 120000);
+
+        const payload = result?.payload;
+        if (payload && typeof payload === 'object') {
+          const stdout = typeof payload.stdout === 'string' ? payload.stdout : '';
+          const stderr = typeof payload.stderr === 'string' ? payload.stderr : '';
+          const exitCode = typeof payload.exitCode === 'number' ? payload.exitCode : null;
+          const success = payload.success === true;
+
+          let output = '';
+          if (stdout) output += stdout;
+          if (stderr) output += (output ? '\n\n[stderr]\n' : '[stderr]\n') + stderr;
+          if (!output) output = success ? '命令执行成功（无输出）' : `命令执行失败，退出码: ${exitCode ?? '未知'}`;
+
+          return { success, exitCode, output };
+        }
+
+        return { error: '命令执行返回异常: ' + JSON.stringify(result).slice(0, 500) };
       }
 
       default:

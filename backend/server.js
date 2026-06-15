@@ -58,6 +58,7 @@ const routePermMap = [
   { prefix: '/api/chat-sessions', perm: 'chat' },
   { prefix: '/api/agent-apps', perm: 'digital' },
   { prefix: '/api/agent-skills', perm: 'digital' },
+  { prefix: '/api/agent-openclaw-skills', perm: 'digital' },
   { prefix: '/api/digital-employees', perm: 'digital' },
   { prefix: '/api/digital-human', perm: 'digital' },
   { prefix: '/api/trending', perm: 'trending' },
@@ -122,7 +123,6 @@ app.get('/api/agents', (req, res) => {
   const builtin = [
     { id: 'internal-agent', name: '内部管理 Agent', icon: 'Avatar', emoji: '📋', bg: 'linear-gradient(135deg,#0d47a1 0%,#42a5f5 100%)', desc: '处理内部审批、日程安排、文档管理和协作任务', builtin: true },
     { id: 'sales-agent', name: '销售管理 Agent', icon: 'Coin', emoji: '🤝', bg: 'linear-gradient(135deg,#667eea 0%,#764ba2 100%)', desc: '管理销售流程、客户跟进、合同签署和业绩统计', builtin: true },
-    { id: 'support-agent', name: '售后管理 Agent', icon: 'Headset', emoji: '🛡️', bg: 'linear-gradient(135deg,#e91e63 0%,#ce93d8 100%)', desc: 'FAQ/工单/反馈 + 售后工具集', builtin: true },
   ];
   try {
     const custom = require('./db').prepare('SELECT id,name,desc,icon,color AS bg,emoji,base_agent,system_prompt,status FROM agent_apps ORDER BY created_at DESC').all();
@@ -141,6 +141,7 @@ app.use('/api/bid-statistics', require('./routes/bid-statistics'));
 app.use('/api/chat-sessions', require('./routes/chat-sessions'));
 app.use('/api/agent-apps', require('./routes/agent-apps'));
 app.use('/api/agent-skills', require('./routes/agent-skills'));
+app.use('/api/agent-openclaw-skills', require('./routes/agent-openclaw-skills'));
 app.use('/api/digital-employees', require('./routes/digital-employees'));
 app.use('/api/digital-human', require('./routes/digital-human'));
 app.use('/api/faq', require('./routes/faq'));
@@ -184,6 +185,7 @@ app.use('/api/clawhub', require('./routes/clawhub'));
 // 动态读取当前激活的模型配置
 const { getActiveConfig } = require('./routes/model-configs');
 const { loadAgentConfig, callLLM, execTool, polishReply } = require('./channels/agent-bridge');
+const { setExecutionContext } = require('./shared/execution-context');
 
 // OpenClaw 模型同步 + 通用聊天透传
 const { syncModelConfig } = require('./openclaw/model-sync');
@@ -227,13 +229,7 @@ async function streamReply(ocRes, res) {
 }
 
 // ── MClaw 聊天辅助 ──
-let chatHistories = {};
-
-function getHistory(agent) {
-  const key = agent || 'default';
-  if (!chatHistories[key]) chatHistories[key] = [];
-  return chatHistories[key];
-}
+const { getHistory, addToHistory, clearHistory } = require('./shared/chat-history');
 
 function loadSessionHistory(sessionId) {
   const rows = db.prepare('SELECT id, role, content FROM chat_messages WHERE session_id=? ORDER BY created_at ASC LIMIT 50').all(sessionId);
@@ -274,7 +270,7 @@ app.get('/api/chat/history', (req, res) => {
 
 app.post('/api/chat/clear', (req, res) => {
   const key = req.body.agent || 'default';
-  delete chatHistories[key];
+  clearHistory(key);
   res.json({ code: 200 });
 });
 
@@ -305,6 +301,7 @@ app.post('/api/chat/send', async (req, res) => {
       let dsData = await dsRes.json();
       let msg = dsData.choices?.[0]?.message;
       let loop = 0;
+      setExecutionContext(agent);
       while (msg?.tool_calls && msg.tool_calls.length > 0 && loop < 2) {
         loop++;
         messages.push({ role: 'assistant', content: null, tool_calls: msg.tool_calls });

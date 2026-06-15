@@ -12,8 +12,9 @@ function openclaw(method, params) {
 router.get('/search', async (req, res) => {
   try {
     const { q, limit } = req.query;
+    if (!q || !q.trim()) return res.json({ code: 200, data: [] });
     const result = await openclaw('skills.search', {
-      query: q || '',
+      query: q.trim(),
       limit: parseInt(limit) || 20
     });
     const skills = (result.results || []).map(r => ({

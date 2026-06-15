@@ -20,6 +20,25 @@
             </div>
           </div>
         </el-tab-pane>
+        <el-tab-pane label="OpenClaw 技能" name="openclaw">
+          <div class="skill-grid">
+            <div v-for="s in openclawSkills" :key="s.name" class="skill-card">
+              <div class="sc-icon">{{ s.emoji || '⚡' }}</div>
+              <div class="sc-body">
+                <div class="sc-name">{{ s.displayName || s.name }}</div>
+                <div class="sc-desc">{{ s.description || s.summary || '暂无描述' }}</div>
+                <div class="sc-meta" v-if="s.version">v{{ s.version }} · {{ s.source || '' }}</div>
+              </div>
+              <div class="sc-action">
+                <el-tag v-if="!s.disabled" size="small" type="success" effect="plain">已启用</el-tag>
+                <el-tag v-else size="small" type="info" effect="plain">已禁用</el-tag>
+              </div>
+            </div>
+            <div v-if="!openclawSkills.length" class="skill-empty">
+              <el-empty description="暂无 OpenClaw 技能" />
+            </div>
+          </div>
+        </el-tab-pane>
         <el-tab-pane label="ClawHub 市场" name="clawhub">
           <div class="clawhub-search">
             <el-input v-model="clawhubQuery" placeholder="搜索 ClawHub 技能..." clearable
@@ -98,7 +117,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { marked } from 'marked'
 import request from '../api/index.js'
@@ -115,6 +134,7 @@ const clawhubResults = ref([])
 const clawhubLoading = ref(false)
 const clawhubSearched = ref(false)
 const installedSlugs = ref(new Set())
+const openclawSkills = ref([])
 
 function skillEmoji(name) {
   if (name.includes('PPT')) return '📊'
@@ -147,7 +167,20 @@ async function loadInstalledSlugs() {
   } catch {}
 }
 
+async function loadOpenClawSkills() {
+  try {
+    const { data } = await request.get('/clawhub/status')
+    if (data.code === 200 && data.data?.skills) {
+      openclawSkills.value = data.data.skills.map(s => ({
+        ...s,
+        emoji: skillEmoji(s.name || s.displayName || '')
+      }))
+    }
+  } catch {}
+}
+
 async function searchClawHub() {
+  if (!clawhubQuery.value.trim()) return
   clawhubLoading.value = true
   clawhubSearched.value = true
   try {
@@ -196,6 +229,7 @@ function downloadPpt(url) {
   window.open(url, '_blank')
 }
 
+watch(activeTab, (tab) => { if (tab === 'openclaw') loadOpenClawSkills() })
 onMounted(() => { loadSkills(); loadInstalledSlugs() })
 </script>
 

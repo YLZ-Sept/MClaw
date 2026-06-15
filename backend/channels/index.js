@@ -2,6 +2,7 @@
 const { randomUUID } = require('crypto');
 const db = require('../db');
 const { loadAgentConfig, callLLM, execTool, polishReply, scoreAgentForMessage } = require('./agent-bridge');
+const { setExecutionContext } = require('../shared/execution-context');
 const { broadcast } = require('./event-bus');
 
 // ─── 内部缓存：WebSocket 连接 ───
@@ -150,6 +151,7 @@ async function generateAIReply(conversationId, platform, agentId) {
     let reply = msg?.content || '';
 
     // 如果有工具调用（最多1轮）
+    setExecutionContext(agentId);
     if (msg?.tool_calls && msg.tool_calls.length > 0) {
       messages.push({ role: 'assistant', content: null, tool_calls: msg.tool_calls });
       for (const tc of msg.tool_calls) {

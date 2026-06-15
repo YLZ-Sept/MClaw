@@ -65,17 +65,39 @@
         <el-button type="primary" :loading="dlg.saving" @click="saveJob">{{ dlg.isEdit ? '保存' : '创建' }}</el-button>
       </template>
     </el-dialog>
+
+    <!-- 执行结果弹窗 -->
+    <el-dialog v-model="resultDlg.visible" :title="'执行结果 - ' + resultDlg.taskName" width="700px" :close-on-click-modal="false">
+      <div v-if="resultDlg.loading" style="text-align:center;padding:40px">
+        <el-icon class="is-loading" :size="32"><Loading /></el-icon>
+        <div style="margin-top:12px;color:#b8aad0">正在执行任务...</div>
+      </div>
+      <div v-else class="result-content" v-html="renderMd(resultDlg.content)"></div>
+      <template #footer>
+        <el-button v-if="resultDlg.agentId" type="primary" plain @click="viewInChat">在聊天中查看</el-button>
+        <el-button @click="resultDlg.visible=false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Loading } from '@element-plus/icons-vue'
+import { marked } from 'marked'
 import request from '../api/index.js'
 
+function renderMd(text) {
+  return marked(text || '')
+}
+
+const router = useRouter()
 const tasks = ref([])
 const loading = ref(false)
 const dlg = ref({ visible: false, isEdit: false, saving: false, form: {} })
+const resultDlg = ref({ visible: false, content: '', loading: false, taskName: '', agentId: '' })
 
 function defaultForm() {
   return { name: '', schedule: '', agentId: '', message: '', enabled: true }
@@ -163,13 +185,14 @@ async function removeJob(row) {
 }
 
 async function runJob(row) {
+  resultDlg.value = { visible: true, content: '', loading: true, taskName: row.name, agentId: row.agentId || '' }
   try {
-    await request.post(`/tasks/${row.id}/run`)
-    ElMessage.success('任务已触发执行')
-    loadTasks()
+    const { data: res } = await request.post(`/tasks/${row.id}/run`)
+    resultDlg.value.content = res.data?.content || '(无返回内容)'
   } catch (e) {
-    ElMessage.error('执行失败: ' + (e.response?.data?.message || e.message))
+    resultDlg.value.content = '执行失败: ' + (e.response?.data?.message || e.message)
   }
+  resultDlg.value.loading = false
 }
 
 async function toggleEnabled(row, val) {
@@ -179,6 +202,10 @@ async function toggleEnabled(row, val) {
   } catch (e) {
     ElMessage.error('操作失败')
   }
+}
+
+function viewInChat() {
+  router.push({ path: '/chat', query: { agent: resultDlg.value.agentId } })
 }
 
 onMounted(() => loadTasks())
@@ -191,4 +218,10 @@ onMounted(() => loadTasks())
 .pg-sub { font-size: 13px; color: #b8aad0; margin-left: 10px; }
 .pg-body { flex: 1; padding: 24px; overflow-y: auto; }
 .form-hint { font-size: 11px; color: #b8aad0; margin-top: 4px; }
+.result-content { max-height: 55vh; overflow-y: auto; font-size: 14px; line-height: 1.8; color: #303133; }
+.result-content :deep(h2) { font-size: 16px; margin: 14px 0 6px; }
+.result-content :deep(h3) { font-size: 14px; margin: 10px 0 4px; }
+.result-content :deep(ul), .result-content :deep(ol) { padding-left: 18px; margin: 6px 0; }
+.result-content :deep(code) { background: #f5f3ff; padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+.result-content :deep(pre) { background: #2d2640; color: #e8e0f0; padding: 12px; border-radius: 8px; overflow-x: auto; font-size: 12px; }
 </style>

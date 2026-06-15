@@ -6,7 +6,6 @@ const { exec: execTool } = require('../agents/executor');
 // Built-in agent definitions (keep in sync with server.js)
 const agentConfigs = {
   'internal-agent': require('../agents/internal'),
-  'support-agent': require('../agents/support'),
   'sales-agent': require('../agents/sales'),
   'default': require('../agents/internal')
 };
@@ -190,6 +189,88 @@ function loadAgentConfig(agent) {
       if (articles.length) {
         const kbPrompt = articles.map(a => `## ${a.title}\n${(a.content || '').slice(0, 3000)}`).join('\n\n---\n\n');
         systemPrompt += '\n\n---\n\n# 参考知识库\n' + kbPrompt;
+      }
+    }
+  } catch {}
+
+  // 所有 Agent 自动注入 create_scheduled_task 工具
+  if (!seenToolNames.has('create_scheduled_task')) {
+    mergedTools.push({
+      type: 'function',
+      function: {
+        name: 'create_scheduled_task',
+        description: '创建一个定时任务。用户用自然语言描述调度需求时调用此工具。任务创建后出现在「任务调度」管理页面。如用户未指定执行Agent，默认使用当前对话的Agent。',
+        parameters: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: '任务名称' },
+            schedule: { type: 'string', description: '调度规则。cron表达式如"0 9 * * *"（每天9点）、"0 9 * * 1"（每周一9点）；或间隔如"30m"/"1h"；或ISO时间戳。请根据用户描述转换。' },
+            message: { type: 'string', description: '任务执行的具体内容，Agent收到后据此执行' },
+            agent_id: { type: 'string', description: '执行此任务的Agent ID。可选，默认使用当前对话的Agent（推荐），除非用户明确指定其他Agent。' },
+            description: { type: 'string', description: '任务描述或备注（可选）' }
+          },
+          required: ['name', 'schedule', 'message']
+        }
+      }
+    });
+  }
+
+  // 注入已勾选的 OpenClaw 技能（prompt + openclaw_exec 工具）
+  try {
+    const enabledSkills = db.prepare(
+      "SELECT skill_name FROM agent_openclaw_skills WHERE (agent_id=? OR agent_id='*') AND enabled=1"
+    ).all(agent);
+    if (enabledSkills.length > 0) {
+      const fs = require('fs');
+      const path = require('path');
+      const os = require('os');
+      const homeDir = os.homedir();
+      let skillPrompts = '';
+
+      for (const { skill_name } of enabledSkills) {
+        // 尝试从 agents 目录和 plugin-skills 目录找 SKILL.md
+        const candidates = [
+          path.join(homeDir, '.agents', 'skills', skill_name, 'SKILL.md'),
+          path.join(homeDir, '.openclaw', 'plugin-skills', skill_name, 'SKILL.md'),
+          path.join(homeDir, '.openclaw', 'workspace', 'skills', skill_name, 'SKILL.md')
+        ];
+        let skillContent = null;
+        for (const p of candidates) {
+          try { skillContent = fs.readFileSync(p, 'utf8'); break; } catch {}
+        }
+        if (!skillContent) continue;
+
+        // 解析 YAML frontmatter（--- 包围）
+        let body = skillContent;
+        if (body.startsWith('---')) {
+          const end = body.indexOf('---', 4);
+          if (end !== -1) body = body.slice(end + 3).trim();
+        }
+        if (!body) continue;
+
+        skillPrompts += `\n\n---\n\n# OpenClaw 技能: ${skill_name}\n${body}`;
+      }
+
+      if (skillPrompts) {
+        systemPrompt += '\n\n---\n\n# OpenClaw 技能\n以下技能来自 OpenClaw，你可以通过调用 execute_command 工具来运行这些技能的 CLI 命令。' + skillPrompts;
+      }
+
+      // 注入 openclaw_exec 工具
+      if (!seenToolNames.has('execute_command')) {
+        mergedTools.push({
+          type: 'function',
+          function: {
+            name: 'execute_command',
+            description: '执行一个 OpenClaw 技能的命令。当你需要使用 OpenClaw 技能（如 agent-browser、agent-tools 等）时调用此工具。命令会在 OpenClaw 环境中执行并返回结果。',
+            parameters: {
+              type: 'object',
+              properties: {
+                command: { type: 'string', description: '要执行的命令，如 "npx agent-browser skills get core" 或 "infsh app run falai/flux-dev-lora"' }
+              },
+              required: ['command']
+            }
+          }
+        });
       }
     }
   } catch {}
