@@ -565,9 +565,9 @@ router.post('/update', authRequired, (req, res) => {
     remoteUrl = remoteUrl.replace(/^git@github\.com:/, 'https://github.com/');
     console.log('[update] remote:', remoteUrl);
 
-    // 3. git fetch + merge
+    // 3. git fetch + merge（绕过 kkgithub 镜像重定向）
     console.log('[update] git fetch...');
-    gitRun(['fetch', '--depth=1', remoteUrl, 'main']);
+    gitRun(['-c', 'url.https://kkgithub.com/.insteadOf=', 'fetch', '--depth=1', remoteUrl, 'main']);
     console.log('[update] git merge...');
     const mergeMsg = gitRun(['merge', 'FETCH_HEAD', '--ff-only']);
     console.log('[update] merge:', mergeMsg);
