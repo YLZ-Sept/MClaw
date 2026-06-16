@@ -107,7 +107,7 @@
         <el-form-item label="基础 Agent">
           <el-select v-model="dlg.form.base_agent" style="width:100%" clearable placeholder="不继承（纯自定义）">
             <el-option label="不继承（纯自定义提示词）" value=""/>
-            <el-option label="内部管理 Agent (完整工具集)" value="internal-agent"/>
+            <el-option label="企业经营管理 Agent (完整工具集)" value="internal-agent"/>
             <el-option label="售后管理 Agent (客服工具集)" value="support-agent"/>
             <el-option label="销售管理 Agent (CRM 工具集)" value="sales-agent"/>
           </el-select>

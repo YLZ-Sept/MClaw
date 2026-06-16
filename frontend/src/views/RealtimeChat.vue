@@ -81,7 +81,10 @@ async function loadMessages() {
     // 无会话时从空开始，不伪造历史
     try {
       const res = await getChatHistory(agentKey())
-      messages.value = res.data.data || []
+      messages.value = (res.data.data || []).map(m => ({
+        role: m.role === 'assistant' ? 'ai' : m.role,
+        content: m.content
+      }))
     } catch {
       messages.value = []
     }

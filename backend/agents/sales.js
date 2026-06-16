@@ -312,7 +312,7 @@ const tools = [
           name: { type: 'string', description: '任务名称，如「每日销售报表」' },
           schedule: { type: 'string', description: '调度规则。必须为以下格式之一：1)cron表达式如"0 9 * * *"（每天早上9点）或"0 9 * * 1"（每周一早上9点）；2)时间间隔如"30m"/"1h"；3)ISO时间戳表示一次性执行。请根据用户描述的频率转换为此格式。' },
           message: { type: 'string', description: '任务执行的具体内容，Agent将收到此消息并据此执行操作' },
-          agent_id: { type: 'string', description: '执行此任务的智能体ID。可选：internal-agent(内部管理)、sales-agent(销售管理)、support-agent(售后管理)。留空使用默认。' },
+          agent_id: { type: 'string', description: '执行此任务的智能体ID。可选：internal-agent(企业经营管理)、sales-agent(销售管理)、support-agent(售后管理)。留空使用默认。' },
           description: { type: 'string', description: '任务描述或备注（可选）' }
         },
         required: ['name', 'schedule', 'message']

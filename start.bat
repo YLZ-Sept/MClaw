@@ -15,23 +15,21 @@ echo   URL: http://localhost:18621
 echo ================================
 echo.
 
-:: Start backend
+:: ── Start OpenClaw Gateway ──
+where openclaw >nul 2>&1
+if %ERRORLEVEL% NEQ 0 (
+    echo [warn] openclaw not found in PATH, skip gateway startup
+    goto :backend_start
+)
+echo [start] OpenClaw gateway :18622
+start "OpenClaw" /B cmd /c "openclaw gateway run >> %~dp0backend\openclaw.log 2>&1"
+call :wait_for "http://localhost:18622/health" "OpenClaw" 10
+
+:backend_start
+:: ── Start MClaw Backend ──
 echo [start] backend :18621
 start /B cmd /c "cd /d %~dp0backend && node server.js >> server.log 2>&1"
-
-:: Wait for backend to be ready
-echo [wait] waiting for backend...
-set /a RETRY=0
-:healthcheck
-timeout /t 1 /nobreak >nul
-set /a RETRY+=1
-curl -s -o nul http://localhost:18621/api/status 2>nul && goto ready
-if %RETRY% LSS 15 goto healthcheck
-echo [warn] backend startup timeout, checking log...
-type "%~dp0backend\server.log" | findstr /i "error fail"
-goto :ready
-
-:ready
+call :wait_for "http://localhost:18621/api/status" "backend" 15
 
 :: Start auto publisher
 echo [start] publisher :18623
@@ -58,6 +56,22 @@ exit
 
 :cleanup
 echo Stopping...
-taskkill /F /IM node.exe   >nul 2>&1
-taskkill /F /IM python.exe >nul 2>&1
+taskkill /F /IM node.exe      >nul 2>&1
+taskkill /F /IM python.exe    >nul 2>&1
+taskkill /F /IM openclaw.exe  >nul 2>&1
 echo Done.
+exit /b
+
+:: ── Helper: wait_for URL label retries ──
+:wait_for
+set /a N=0
+:wait_loop
+timeout /t 1 /nobreak >nul
+set /a N+=1
+curl -s -o nul %1 2>nul && (
+    echo [ok] %2 ready
+    exit /b 0
+)
+if %N% LSS %3 goto :wait_loop
+echo [warn] %2 startup timeout, continuing anyway...
+exit /b 1

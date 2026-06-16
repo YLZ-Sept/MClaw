@@ -121,7 +121,7 @@ app.get('/api/info', (req, res) => {
 
 app.get('/api/agents', (req, res) => {
   const builtin = [
-    { id: 'internal-agent', name: '内部管理 Agent', icon: 'Avatar', emoji: '📋', bg: 'linear-gradient(135deg,#0d47a1 0%,#42a5f5 100%)', desc: '处理内部审批、日程安排、文档管理和协作任务', builtin: true },
+    { id: 'internal-agent', name: '企业经营管理 Agent', icon: 'Avatar', emoji: '📋', bg: 'linear-gradient(135deg,#0d47a1 0%,#42a5f5 100%)', desc: '处理内部审批、日程安排、文档管理和协作任务', builtin: true },
     { id: 'sales-agent', name: '销售管理 Agent', icon: 'Coin', emoji: '🤝', bg: 'linear-gradient(135deg,#667eea 0%,#764ba2 100%)', desc: '管理销售流程、客户跟进、合同签署和业绩统计', builtin: true },
   ];
   try {
@@ -208,7 +208,7 @@ function sse(res, event, data) {
 async function streamReply(ocRes, res) {
   const reader = ocRes.body.getReader();
   const decoder = new TextDecoder();
-  let buf = '';
+  let buf = '', fullText = '';
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -222,10 +222,11 @@ async function streamReply(ocRes, res) {
       try {
         const parsed = JSON.parse(data);
         const delta = parsed.choices?.[0]?.delta?.content;
-        if (delta) sse(res, 'text', { content: delta });
+        if (delta) { fullText += delta; sse(res, 'text', { content: delta }); }
       } catch {}
     }
   }
+  return fullText;
 }
 
 // ── MClaw 聊天辅助 ──
@@ -339,8 +340,14 @@ app.post('/api/chat/send', async (req, res) => {
       // OpenClaw 路径：通用聊天 → 透传 OpenClaw
       const msgs = clientMessages || [{ role: 'user', content }];
       const gw = getOpenClawGateway();
+      const historyKey = agent || 'default';
+      const history = getHistory(historyKey);
 
       console.log(`[chat] → OpenClaw stream=${isStream} msgs=${msgs.length}`);
+
+      // 保存用户消息
+      history.push({ role: 'user', content });
+      if (session_id) saveSessionMessage(session_id, 'user', content);
 
       const body = { model: 'openclaw', messages: msgs, stream: isStream };
       const ocRes = await fetch(`${gw.url}/v1/chat/completions`, {
@@ -354,14 +361,20 @@ app.post('/api/chat/send', async (req, res) => {
         throw new Error(`OpenClaw ${ocRes.status}: ${errText.slice(0, 300)}`);
       }
 
+      let reply;
       if (isStream) {
-        await streamReply(ocRes, res);
+        reply = await streamReply(ocRes, res);
         sse(res, 'done', {});
         res.end();
       } else {
         const data = await ocRes.json();
-        res.json({ code: 200, data: { content: data.choices?.[0]?.message?.content || '' } });
+        reply = data.choices?.[0]?.message?.content || '';
+        res.json({ code: 200, data: { content: reply } });
       }
+
+      // 保存 AI 回复
+      history.push({ role: 'assistant', content: reply });
+      if (session_id) saveSessionMessage(session_id, 'assistant', reply);
     }
   } catch (err) {
     console.error('[chat] error:', err.message);
