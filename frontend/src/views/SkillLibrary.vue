@@ -27,13 +27,16 @@
               @click="activeCategory = cat.key">
               {{ cat.icon }} {{ cat.label }}
             </span>
+            <el-button size="small" text type="primary" :loading="translating" @click="translateAll" style="margin-left:auto">
+              🌐 翻译全部
+            </el-button>
           </div>
           <div class="skill-grid" style="margin-top:16px">
             <div v-for="s in filteredOpenclawSkills" :key="s.name" class="skill-card">
               <div class="sc-icon">{{ s.emoji || '⚡' }}</div>
               <div class="sc-body">
-                <div class="sc-name">{{ s.displayName || s.name }}</div>
-                <div class="sc-desc">{{ s.description || s.summary || '暂无描述' }}</div>
+                <div class="sc-name">{{ s.nameZh || s.displayName || s.name }}</div>
+                <div class="sc-desc">{{ s.descZh || s.description || s.summary || '暂无描述' }}</div>
                 <div class="sc-meta" v-if="s.version">v{{ s.version }} · {{ s.source || '' }}</div>
               </div>
               <div class="sc-action">
@@ -187,7 +190,8 @@ function matchRecentUsage(s) {
   const skillKey = (s.skillKey || '').toLowerCase()
   for (const log of recentUsage.value) {
     const cmd = (log.command || '').toLowerCase()
-    if (cmd && (cmd.includes(name) || cmd.includes(displayName) || cmd === skillKey)) return true
+    if (!cmd) continue
+    if ((name && cmd.includes(name)) || (displayName && cmd.includes(displayName)) || (skillKey && cmd === skillKey)) return true
   }
   return false
 }
@@ -206,6 +210,7 @@ const clawhubResults = ref([])
 const clawhubLoading = ref(false)
 const clawhubSearched = ref(false)
 const installedSlugs = ref(new Set())
+const translating = ref(false)
 const openclawSkills = ref([])
 
 function skillEmoji(name) {
@@ -257,6 +262,7 @@ async function toggleSkill(s) {
   try {
     await request.put('/agent-openclaw-skills/toggle', { skillKey: s.skillKey, enabled })
     s.disabled = !enabled
+    loadRecentUsage()
     ElMessage.success(enabled ? '已启用' : '已禁用')
   } catch (e) {
     ElMessage.error('操作失败: ' + (e.response?.data?.message || e.message))
@@ -271,6 +277,20 @@ async function loadRecentUsage() {
       recentUsage.value = data.data || []
     }
   } catch { recentUsage.value = [] }
+}
+
+async function translateAll() {
+  translating.value = true
+  try {
+    const { data } = await request.post('/clawhub/translate-batch')
+    if (data.code === 200) {
+      ElMessage.success(`翻译完成：${data.data.translated}/${data.data.total}`)
+      loadOpenClawSkills()
+    }
+  } catch (e) {
+    ElMessage.error('翻译失败: ' + (e.response?.data?.message || e.message))
+  }
+  translating.value = false
 }
 
 async function searchClawHub() {

@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const wsClient = require('../openclaw/ws-client');
+const { getTranslations, translateInBackground, translateBatch } = require('../services/skill-translator');
 
 function openclaw(method, params) {
   return wsClient.request(method, params).catch(err => {
@@ -61,7 +62,37 @@ router.post('/install', async (req, res) => {
 router.get('/status', async (req, res) => {
   try {
     const result = await openclaw('skills.status');
-    res.json({ code: 200, data: result });
+    const translations = getTranslations();
+    const skills = (result.skills || []).map(s => {
+      const t = translations[s.skillKey || s.name];
+      return {
+        ...s,
+        nameZh: t?.name_zh || null,
+        descZh: t?.desc_zh || null
+      };
+    });
+    // 后台翻译未缓存的技能
+    const untranslated = skills.filter(s => !translations[s.skillKey || s.name]);
+    if (untranslated.length > 0) {
+      translateInBackground(untranslated);
+    }
+    res.json({ code: 200, data: { ...result, skills } });
+  } catch (e) {
+    res.status(e.status || 500).json({ code: e.status || 500, message: e.message });
+  }
+});
+
+// POST /api/clawhub/translate-batch — 批量翻译所有未缓存技能
+router.post('/translate-batch', async (req, res) => {
+  try {
+    const result = await openclaw('skills.status');
+    const skills = (result.skills || []).map(s => ({
+      skillKey: s.skillKey || s.name,
+      name: s.name,
+      description: s.description || s.summary || ''
+    }));
+    const r = await translateBatch(skills, 3);
+    res.json({ code: 200, data: r });
   } catch (e) {
     res.status(e.status || 500).json({ code: e.status || 500, message: e.message });
   }
