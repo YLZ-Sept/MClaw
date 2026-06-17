@@ -612,6 +612,14 @@ async function exec(toolName, args, context) {
           if (stderr) output += (output ? '\n\n[stderr]\n' : '[stderr]\n') + stderr;
           if (!output) output = success ? '命令执行成功（无输出）' : `命令执行失败，退出码: ${exitCode ?? '未知'}`;
 
+          // 记录使用日志
+          try {
+            const ctx = context || getExecutionContext();
+            if (ctx?.agentId) {
+              db.prepare('INSERT INTO skill_usage_log (agent_id, command) VALUES (?,?)').run(ctx.agentId, command);
+            }
+          } catch {}
+
           return { success, exitCode, output };
         }
 

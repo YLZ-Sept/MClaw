@@ -338,18 +338,18 @@ app.post('/api/chat/send', async (req, res) => {
       }
     } else {
       // OpenClaw 路径：通用聊天 → 透传 OpenClaw
-      const msgs = clientMessages || [{ role: 'user', content }];
       const gw = getOpenClawGateway();
       const historyKey = agent || 'default';
-      const history = getHistory(historyKey);
+      const history = session_id ? loadSessionHistory(session_id) : getHistory(historyKey);
 
-      console.log(`[chat] → OpenClaw stream=${isStream} msgs=${msgs.length}`);
+      console.log(`[chat] → OpenClaw stream=${isStream} history=${history.length}`);
 
       // 保存用户消息
       history.push({ role: 'user', content });
       if (session_id) saveSessionMessage(session_id, 'user', content);
 
-      const body = { model: 'openclaw', messages: msgs, stream: isStream };
+      const body = { model: 'openclaw', messages: [...history], stream: isStream };
+      if (session_id) body.user = session_id;
       const ocRes = await fetch(`${gw.url}/v1/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${gw.token}` },

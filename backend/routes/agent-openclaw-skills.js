@@ -11,6 +11,13 @@ db.exec(`CREATE TABLE IF NOT EXISTS agent_openclaw_skills (
   PRIMARY KEY (agent_id, skill_name)
 )`);
 
+db.exec(`CREATE TABLE IF NOT EXISTS skill_usage_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent_id TEXT NOT NULL,
+  command TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now','localtime'))
+)`);
+
 function openclaw(method, params) {
   return wsClient.request(method, params).catch(err => {
     throw { status: 503, message: 'OpenClaw 服务不可用: ' + err.message };
@@ -30,6 +37,41 @@ router.get('/', async (req, res) => {
       baseDir: s.baseDir
     }));
     res.json({ code: 200, data: skills });
+  } catch (e) {
+    res.status(e.status || 500).json({ code: e.status || 500, message: e.message });
+  }
+});
+
+// GET /api/agent-openclaw-skills/recent-usage — 获取最近使用记录
+router.get('/recent-usage', (req, res) => {
+  try {
+    const agentId = req.query.agent_id || null;
+    const limit = parseInt(req.query.limit) || 50;
+    let rows;
+    if (agentId) {
+      rows = db.prepare(
+        'SELECT * FROM skill_usage_log WHERE agent_id=? ORDER BY created_at DESC LIMIT ?'
+      ).all(agentId, limit);
+    } else {
+      rows = db.prepare(
+        'SELECT * FROM skill_usage_log ORDER BY created_at DESC LIMIT ?'
+      ).all(limit);
+    }
+    res.json({ code: 200, data: rows });
+  } catch (e) {
+    res.status(500).json({ code: 500, message: e.message });
+  }
+});
+
+// PUT /api/agent-openclaw-skills/toggle — 切换技能启用/禁用状态
+router.put('/toggle', async (req, res) => {
+  try {
+    const { skillKey, enabled } = req.body;
+    if (!skillKey || typeof skillKey !== 'string') return res.status(400).json({ code: 400, message: 'skillKey 为必填项' });
+    await openclaw('skills.update', { skillKey, enabled: !!enabled });
+    // 记录使用日志（最近使用追踪）
+    try { db.prepare('INSERT INTO skill_usage_log (agent_id, command) VALUES (?,?)').run('openclaw', skillKey); } catch {}
+    res.json({ code: 200, data: { ok: true } });
   } catch (e) {
     res.status(e.status || 500).json({ code: e.status || 500, message: e.message });
   }

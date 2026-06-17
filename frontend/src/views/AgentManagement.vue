@@ -71,7 +71,7 @@
             </div>
           </div>
         </el-tab-pane>
-        <el-tab-pane label="OpenClaw 技能" name="openclaw">
+        <el-tab-pane label="我的技能" name="openclaw">
           <div v-if="openclawSkills.length === 0" style="text-align:center;padding:40px 0">
             <el-empty description="OpenClaw 服务不可用或无已安装技能">
               <span style="color:#909399;font-size:12px">请确认 OpenClaw 已启动并已安装技能</span>

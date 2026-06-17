@@ -20,9 +20,16 @@
             </div>
           </div>
         </el-tab-pane>
-        <el-tab-pane label="OpenClaw 技能" name="openclaw">
-          <div class="skill-grid">
-            <div v-for="s in openclawSkills" :key="s.name" class="skill-card">
+        <el-tab-pane label="我的技能" name="openclaw">
+          <div class="category-bar">
+            <span v-for="cat in categories" :key="cat.key"
+              class="category-tag" :class="{ active: activeCategory === cat.key }"
+              @click="activeCategory = cat.key">
+              {{ cat.icon }} {{ cat.label }}
+            </span>
+          </div>
+          <div class="skill-grid" style="margin-top:16px">
+            <div v-for="s in filteredOpenclawSkills" :key="s.name" class="skill-card">
               <div class="sc-icon">{{ s.emoji || '⚡' }}</div>
               <div class="sc-body">
                 <div class="sc-name">{{ s.displayName || s.name }}</div>
@@ -30,12 +37,12 @@
                 <div class="sc-meta" v-if="s.version">v{{ s.version }} · {{ s.source || '' }}</div>
               </div>
               <div class="sc-action">
-                <el-tag v-if="!s.disabled" size="small" type="success" effect="plain">已启用</el-tag>
-                <el-tag v-else size="small" type="info" effect="plain">已禁用</el-tag>
+                <el-tag v-if="!s.disabled" size="small" type="success" effect="plain" class="skill-status-tag" @click.stop="toggleSkill(s)">已启用</el-tag>
+                <el-tag v-else size="small" type="info" effect="plain" class="skill-status-tag" @click.stop="toggleSkill(s)">已禁用</el-tag>
               </div>
             </div>
-            <div v-if="!openclawSkills.length" class="skill-empty">
-              <el-empty description="暂无 OpenClaw 技能" />
+            <div v-if="!filteredOpenclawSkills.length" class="skill-empty">
+              <el-empty :description="activeCategory === 'recent' ? '暂无最近使用的技能' : activeCategory === 'all' ? '暂无已安装技能' : '暂无匹配技能'" />
             </div>
           </div>
         </el-tab-pane>
@@ -117,7 +124,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { marked } from 'marked'
 import request from '../api/index.js'
@@ -127,6 +134,71 @@ const skills = ref([])
 const detailDlg = ref({ visible: false, skill: null })
 const pptDlg = ref({ visible: false, prompt: '', loading: false, result: null })
 const pptExamples = ['Q3 营收复盘，分析增长引擎与风险', '新产品发布会，面向投资人', '季度技术分享：AI 在企业中的应用', '年度工作总结与明年规划']
+
+// ─── 分类 & 我的技能 ───
+const activeCategory = ref('all')
+const recentUsage = ref([])
+
+const categories = [
+  { key: 'all', label: '全部', icon: '📋' },
+  { key: 'recent', label: '最近使用', icon: '🕐' },
+  { key: 'design', label: '设计多媒体', icon: '🎨' },
+  { key: 'dev', label: '开发编程', icon: '🛠️' },
+  { key: 'itops', label: 'IT 运维与安全', icon: '🔒' },
+  { key: 'data', label: '数据分析', icon: '📊' },
+  { key: 'ai', label: 'AI Agent', icon: '🤖' },
+  { key: 'content', label: '内容创作', icon: '✍️' },
+  { key: 'knowledge', label: '知识管理', icon: '📚' },
+  { key: 'business', label: '商业运营', icon: '💼' },
+  { key: 'edu', label: '教育学习', icon: '🎓' },
+  { key: 'industry', label: '行业专业', icon: '🏭' },
+  { key: 'office', label: '办公效率', icon: '⚡' },
+  { key: 'life', label: '生活服务', icon: '🌟' }
+]
+
+const CATEGORY_KEYWORDS = {
+  design: ['image', 'video', 'audio', 'music', 'photo', 'picture', 'design', 'graphic', 'draw', 'art', 'animation', 'voice', 'speech', 'icon', 'logo', 'color', 'render', '3d', 'canvas', 'svg', 'font', 'filter', 'effect', 'edit', 'clip', 'screen', 'record', 'camera', 'sound'],
+  dev: ['dev', 'code', 'git', 'browser', 'api', 'cli', 'npm', 'node', 'python', 'debug', 'terminal', 'shell', 'command', 'sdk', 'program', 'javascript', 'typescript', 'rust', 'golang', 'java', 'compile', 'build', 'ide', 'vscode', 'lint', 'commit', 'repo', 'package', 'plugin', 'framework', 'library', 'frontend', 'backend', 'css', 'html', 'react', 'vue', 'swift'],
+  itops: ['security', 'auth', 'devops', 'monitor', 'deploy', 'server', 'cloud', 'network', 'backup', 'ci', 'cd', 'infra', 'encrypt', 'scan', 'audit', 'permission', 'sre', 'admin', 'linux', 'docker', 'kubernetes', 'firewall', 'proxy', 'dns', 'ssl', 'vpn', 'log', 'ssh', 'nginx', 'terraform', 'ansible', 'vault', 'secret', 'policy'],
+  data: ['analytics', 'visualization', 'chart', 'dashboard', 'bi', 'etl', 'csv', 'spreadsheet', 'metric', 'kpi', 'statistics', 'tableau', 'bigquery', 'databricks', 'database', 'sql', 'excel', 'parse', 'extract', 'transform', 'report', 'stats', 'query', 'schema', 'pandas', 'numpy', 'jupyter'],
+  ai: ['llm', 'gpt', 'claude', 'agent', 'chatbot', 'prompt', 'rag', 'embedding', 'token', 'copilot', 'assistant', 'reasoning', 'nlp', 'chat', 'ai', 'model', 'language', 'completion', 'vector', 'llama', 'mistral', 'gemini', 'openai', 'anthropic', 'deepseek', 'qwen', 'generate', 'generative'],
+  content: ['content', 'write', 'blog', 'article', 'social', 'copywriting', 'seo', 'creative', 'text', 'story', 'script', 'newsletter', 'tweet', 'publish', 'headline', 'medium', 'post', 'essay', 'translate', 'summary', 'caption'],
+  knowledge: ['knowledge', 'wiki', 'memory', 'faq', 'kb', 'retrieve', 'catalog', 'archive', 'library', 'record', 'search', 'obsidian', 'notion', 'index', 'reference', 'handbook', 'guide', 'manual'],
+  business: ['business', 'crm', 'sales', 'market', 'finance', 'hr', 'erp', 'supply', 'inventory', 'order', 'customer', 'lead', 'contract', 'invoice', 'payment', 'account', 'ecommerce', 'shop', 'revenue', 'tax', 'payroll'],
+  edu: ['education', 'learn', 'course', 'tutorial', 'quiz', 'exam', 'study', 'teach', 'train', 'skill', 'academy', 'student', 'flashcard', 'explain', 'lesson', 'textbook', 'classroom'],
+  industry: ['legal', 'medical', 'health', 'real estate', 'logistics', 'manufacture', 'retail', 'industry', 'compliance', 'regulation', 'clinic', 'construction', 'pharma', 'insurance', 'bank'],
+  office: ['productivity', 'workflow', 'automation', 'task', 'schedule', 'calendar', 'todo', 'email', 'meeting', 'office', 'batch', 'organize', 'quick', 'reminder', 'plan', 'deadline', 'project', 'note', 'ppt', 'presentation', 'slide', 'document', 'word', 'pdf', 'markdown', 'format', 'convert', 'template', 'manage', 'collab'],
+  life: ['travel', 'food', 'health', 'fitness', 'weather', 'shop', 'news', 'entertainment', 'fun', 'hobby', 'personal', 'lifestyle', 'recipe', 'restaurant', 'game', 'sport', 'music', 'movie', 'book', 'pet']
+}
+
+function getSkillCategory(s) {
+  const text = ((s.name || '') + ' ' + (s.displayName || '') + ' ' + (s.description || s.summary || '')).toLowerCase()
+  for (const [cat, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
+    for (const kw of keywords) {
+      if (text.includes(kw)) return cat
+    }
+  }
+  return 'ai' // 默认归入 AI Agent
+}
+
+function matchRecentUsage(s) {
+  const name = (s.name || '').toLowerCase()
+  const displayName = (s.displayName || '').toLowerCase()
+  const skillKey = (s.skillKey || '').toLowerCase()
+  for (const log of recentUsage.value) {
+    const cmd = (log.command || '').toLowerCase()
+    if (cmd && (cmd.includes(name) || cmd.includes(displayName) || cmd === skillKey)) return true
+  }
+  return false
+}
+
+const filteredOpenclawSkills = computed(() => {
+  if (activeCategory.value === 'recent') {
+    return openclawSkills.value.filter(s => matchRecentUsage(s))
+  }
+  if (activeCategory.value === 'all') return openclawSkills.value
+  return openclawSkills.value.filter(s => getSkillCategory(s) === activeCategory.value)
+})
 
 // ClawHub state
 const clawhubQuery = ref('')
@@ -179,6 +251,28 @@ async function loadOpenClawSkills() {
   } catch {}
 }
 
+async function toggleSkill(s) {
+  const enabled = !!s.disabled // 当前是禁用状态，点一下变成启用
+  s._toggling = true
+  try {
+    await request.put('/agent-openclaw-skills/toggle', { skillKey: s.skillKey, enabled })
+    s.disabled = !enabled
+    ElMessage.success(enabled ? '已启用' : '已禁用')
+  } catch (e) {
+    ElMessage.error('操作失败: ' + (e.response?.data?.message || e.message))
+  }
+  s._toggling = false
+}
+
+async function loadRecentUsage() {
+  try {
+    const { data } = await request.get('/agent-openclaw-skills/recent-usage', { params: { limit: 50 } })
+    if (data.code === 200) {
+      recentUsage.value = data.data || []
+    }
+  } catch { recentUsage.value = [] }
+}
+
 async function searchClawHub() {
   if (!clawhubQuery.value.trim()) return
   clawhubLoading.value = true
@@ -198,7 +292,7 @@ async function installSkill(s) {
     await request.post('/clawhub/install', { slug: s.slug })
     ElMessage.success(`已安装技能: ${s.name}`)
     installedSlugs.value.add(s.slug)
-    loadSkills()
+    loadOpenClawSkills()
   } catch (e) {
     ElMessage.error('安装失败: ' + (e.response?.data?.message || e.message))
   }
@@ -229,7 +323,7 @@ function downloadPpt(url) {
   window.open(url, '_blank')
 }
 
-watch(activeTab, (tab) => { if (tab === 'openclaw') loadOpenClawSkills() })
+watch(activeTab, (tab) => { if (tab === 'openclaw') { loadOpenClawSkills(); loadRecentUsage(); activeCategory.value = 'all' } })
 onMounted(() => { loadSkills(); loadInstalledSlugs() })
 </script>
 
@@ -254,7 +348,21 @@ onMounted(() => { loadSkills(); loadInstalledSlugs() })
 .sc-desc { font-size: 12px; color: #909399; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sc-meta { font-size: 11px; color: #b8aad0; margin-top: 4px; }
 .sc-action { flex-shrink: 0; }
+.skill-status-tag { cursor: pointer; }
+.skill-status-tag:hover { opacity: 0.8; }
 .skill-empty { padding: 60px 0; text-align: center; width: 100%; }
+
+/* 分类标签栏 */
+.category-bar { display: flex; gap: 8px; flex-wrap: wrap; }
+.category-tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 6px 14px; border-radius: 18px; font-size: 13px;
+  background: #f5f3ff; color: #7c7b8e; cursor: pointer; transition: all .2s;
+  user-select: none; border: 1px solid transparent;
+}
+.category-tag:hover { border-color: #7c3aed; color: #7c3aed; }
+.category-tag.active { background: #7c3aed; color: #fff; }
+.cat-count { font-size: 11px; background: rgba(255,255,255,.3); padding: 0 6px; border-radius: 8px; }
 
 .clawhub-search { display: flex; gap: 10px; align-items: center; }
 
