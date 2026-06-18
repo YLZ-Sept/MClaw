@@ -9,7 +9,7 @@ function syncModelConfig(activeConfig) {
 
   let config;
   try {
-    config = JSON.parse(fs.readFileSync(OPENCLAW_CONFIG_PATH, 'utf8'));
+    config = JSON.parse(fs.readFileSync(OPENCLAW_CONFIG_PATH, 'utf8').replace(/^﻿/, ''));
   } catch (e) {
     console.warn('[model-sync] Cannot read openclaw.json:', e.message);
     return;

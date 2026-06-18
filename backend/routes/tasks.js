@@ -18,7 +18,7 @@ function openclaw(method, params) {
 
 function getOpenClawGateway() {
   try {
-    const cfg = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.openclaw', 'openclaw.json'), 'utf8'));
+    const cfg = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.openclaw', 'openclaw.json'), 'utf8').replace(/^﻿/, ''));
     return {
       url: `http://127.0.0.1:${cfg.gateway?.port || 18622}`,
       token: cfg.gateway?.auth?.token || ''

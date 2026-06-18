@@ -503,7 +503,7 @@ if (Test-Command openclaw) {
             }
 
             if ($needsWrite) {
-                $ocJson | ConvertTo-Json -Depth 8 | Out-File -FilePath $ocConfigFile -Encoding UTF8 -Force
+                $ocJson | ConvertTo-Json -Depth 8 | % { [System.IO.File]::WriteAllText($ocConfigFile, $_, [System.Text.UTF8Encoding]::new($false)) }
                 Write-OK "OpenClaw 网关配置已更新 (端口: 18622)"
             } else {
                 Write-OK "OpenClaw 网关配置已就绪"

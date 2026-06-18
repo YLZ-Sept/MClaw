@@ -13,7 +13,7 @@ function base64url(buf) {
 }
 
 function readJson(filePath) {
-  try { return JSON.parse(fs.readFileSync(filePath, 'utf8')); } catch { return null; }
+  try { return JSON.parse(fs.readFileSync(filePath, 'utf8').replace(/^﻿/, '')); } catch { return null; }
 }
 
 // Config
