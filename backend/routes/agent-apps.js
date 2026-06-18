@@ -20,7 +20,7 @@ try { db.exec('ALTER TABLE agent_apps ADD COLUMN kb_article_ids TEXT'); } catch 
 
 // 列表
 router.get('/', (req, res) => {
-  const rows = db.prepare('SELECT * FROM agent_apps ORDER BY created_at DESC').all();
+  const rows = db.prepare('SELECT * FROM agent_apps WHERE is_expert IS NULL OR is_expert=0 ORDER BY created_at DESC').all();
   res.json({ code: 200, data: rows });
 });
 

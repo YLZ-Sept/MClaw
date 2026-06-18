@@ -63,10 +63,21 @@ router.delete('/:id', async (req, res) => {
   // 通过 WebSocket RPC 通知 OpenClaw 删除对应会话
   try {
     const wsClient = require('../openclaw/ws-client');
-    const sessionKey = `agent:main:openai-user:${req.params.id}`;
-    await wsClient.request('sessions.delete', { key: sessionKey, deleteTranscript: true });
+    // 等待 WS 连接就绪（最多等 3 秒）
+    for (let i = 0; i < 10 && !wsClient.isConnected(); i++) {
+      await new Promise(r => setTimeout(r, 300));
+    }
+    if (!wsClient.isConnected()) {
+      console.log('[chat-sessions] OpenClaw WS not connected, skip delete sync for', req.params.id);
+    } else {
+      const sessionKey = `agent:main:openai-user:${req.params.id}`;
+      const result = await wsClient.request('sessions.delete', { key: sessionKey, deleteTranscript: true });
+      if (result && !result.deleted) {
+        console.log('[chat-sessions] OpenClaw session key not found:', sessionKey);
+      }
+    }
   } catch (e) {
-    console.log('[chat-sessions] OpenClaw session delete failed (ignored):', e.message);
+    console.log('[chat-sessions] OpenClaw session delete error:', e.message);
   }
   res.json({ code: 200 });
 });

@@ -63,6 +63,9 @@
           <router-link v-if="hasPerm('digital')" to="/digital" class="nav-item" active-class="active">
             <el-icon><DataAnalysis /></el-icon><span>应用智能体管理</span>
           </router-link>
+          <router-link v-if="hasPerm('digital')" to="/expert-hub" class="nav-item" active-class="active">
+            <el-icon><MagicStick /></el-icon><span>专家广场</span>
+          </router-link>
           <router-link v-if="hasPerm('channels')" to="/channels" class="nav-item" active-class="active">
             <el-icon><ChatLineSquare /></el-icon><span>消息渠道</span>
           </router-link>
@@ -254,7 +257,14 @@ async function delSession(id) {
   await loadChatSessions()
 }
 
-watch(() => route.query.agent, () => { if (showChatSessions.value) loadChatSessions() })
+watch(() => route.query.agent, () => {
+  if (route.path === '/chat') {
+    showChatSessions.value = true
+    loadChatSessions()
+  } else if (showChatSessions.value) {
+    loadChatSessions()
+  }
+})
 
 const userRole = ref('')
 const userPerms = ref([])

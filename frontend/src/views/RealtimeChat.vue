@@ -53,11 +53,12 @@
 
 <script setup>
 import { ref, onMounted, nextTick, computed, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { Promotion, Upload } from '@element-plus/icons-vue'
 import request, { getChatHistory, clearChat } from '../api/index.js'
 import ChatMessage from '../components/ChatMessage.vue'
 
+const router = useRouter()
 const route = useRoute()
 const messages = ref([])
 const inputText = ref('')
@@ -106,6 +107,21 @@ async function handleSend() {
   if (!text || streaming.value) return
   inputText.value = ''
   streaming.value = true
+
+  // 有 agent 但无 session 时自动创建会话，保证切换页面后聊天记录不丢失
+  if (agentKey() && !sessionId.value && !route.query.employee_id) {
+    try {
+      const sessionName = currentAgentName.value || text.slice(0, 20)
+      const { data } = await request.post('/chat-sessions', {
+        name: sessionName,
+        agent_id: agentKey()
+      })
+      if (data.data?.id) {
+        sessionId.value = data.data.id
+        router.replace({ query: { ...route.query, session: data.data.id } })
+      }
+    } catch { /* 创建失败不阻塞发送 */ }
+  }
 
   messages.value.push({ role: 'user', content: text })
   const aiIdx = messages.value.length
@@ -215,6 +231,8 @@ async function handleClear() {
 function scrollToBottom() { nextTick(() => { if (messagesRef.value) messagesRef.value.scrollTop = messagesRef.value.scrollHeight }) }
 
 // ----- 初始化 -----
+const greetingInProgress = ref(false)
+
 async function init() {
   // 如果 URL 带 session 参数，直接加载该会话
   const sid = route.query.session
@@ -226,6 +244,36 @@ async function init() {
     } catch {}
   }
   await loadMessages()
+
+  // 从专家广场进入：无 session、无消息 → 自动创建会话 + 专家自我介绍
+  const ag = agentKey()
+  if (ag && !sid && messages.value.length === 0 && !greetingInProgress.value) {
+    await greetExpert(ag)
+  }
+}
+
+async function greetExpert(ag) {
+  greetingInProgress.value = true
+  try {
+    const sessionName = currentAgentName.value || '新会话'
+    const { data } = await request.post('/chat-sessions', {
+      name: sessionName,
+      agent_id: ag
+    })
+    if (!data.data?.id) return
+    sessionId.value = data.data.id
+
+    // 先发消息再更新 URL，避免 session watcher 触发 loadMessages 清空消息
+    const body = { content: '你好，请简单介绍一下你的身份和能力', agent: ag, stream: true, session_id: data.data.id }
+    streaming.value = true
+    messages.value.push({ role: 'user', content: '你好' })
+    const aiIdx = messages.value.length
+    messages.value.push({ role: 'ai', content: '' })
+    scrollToBottom()
+    await streamResponse(body, aiIdx)
+    router.replace({ query: { ...route.query, session: data.data.id } })
+  } catch { /* 失败不阻塞 */ }
+  finally { greetingInProgress.value = false }
 }
 
 watch(() => route.query.session, (sid) => {

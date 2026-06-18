@@ -125,7 +125,7 @@ app.get('/api/agents', (req, res) => {
     { id: 'sales-agent', name: '销售管理 Agent', icon: 'Coin', emoji: '🤝', bg: 'linear-gradient(135deg,#667eea 0%,#764ba2 100%)', desc: '管理销售流程、客户跟进、合同签署和业绩统计', builtin: true },
   ];
   try {
-    const custom = require('./db').prepare('SELECT id,name,desc,icon,color AS bg,emoji,base_agent,system_prompt,status FROM agent_apps ORDER BY created_at DESC').all();
+    const custom = require('./db').prepare('SELECT id,name,desc,icon,color AS bg,emoji,base_agent,system_prompt,status FROM agent_apps WHERE is_expert IS NULL OR is_expert=0 ORDER BY created_at DESC').all();
     res.json({ code: 200, data: [...builtin, ...custom.map(c => ({ ...c, builtin: false }))] });
   } catch { res.json({ code: 200, data: builtin }); }
 });
@@ -142,6 +142,7 @@ app.use('/api/chat-sessions', require('./routes/chat-sessions'));
 app.use('/api/agent-apps', require('./routes/agent-apps'));
 app.use('/api/agent-skills', require('./routes/agent-skills'));
 app.use('/api/agent-openclaw-skills', require('./routes/agent-openclaw-skills'));
+app.use('/api/expert-agents', require('./routes/expert-agents'));
 app.use('/api/digital-employees', require('./routes/digital-employees'));
 app.use('/api/digital-human', require('./routes/digital-human'));
 app.use('/api/faq', require('./routes/faq'));
@@ -284,7 +285,11 @@ app.post('/api/chat/send', async (req, res) => {
   }
 
   try {
-    if (agent) {
+    // 判断是否为专家 Agent（走 OpenClaw，调用技能）
+    const expertRow = agent ? db.prepare('SELECT name, is_expert FROM agent_apps WHERE id=? AND is_expert=1').get(agent) : null;
+    const isExpert = !!expertRow;
+
+    if (agent && !isExpert) {
       // MClaw 路径：选中 agent/数字员工 → agent-bridge → 直接调 LLM（含工具执行/润色）
       const history = session_id ? loadSessionHistory(session_id) : getHistory(agent);
       const config = loadAgentConfig(agent);
@@ -337,18 +342,33 @@ app.post('/api/chat/send', async (req, res) => {
         res.json({ code: 200, data: { content: reply } });
       }
     } else {
-      // OpenClaw 路径：通用聊天 → 透传 OpenClaw
+      // OpenClaw 路径：专家 Agent 或通用聊天 → 透传 OpenClaw
       const gw = getOpenClawGateway();
       const historyKey = agent || 'default';
       const history = session_id ? loadSessionHistory(session_id) : getHistory(historyKey);
 
-      console.log(`[chat] → OpenClaw stream=${isStream} history=${history.length}`);
+      console.log(`[chat] → OpenClaw agent=${agent||'none'} expert=${!!isExpert} session=${session_id||'memory'} content="${(content||'').slice(0,80)}"`);
 
       // 保存用户消息
       history.push({ role: 'user', content });
       if (session_id) saveSessionMessage(session_id, 'user', content);
 
-      const body = { model: 'openclaw', messages: [...history], stream: isStream };
+      // 专家 Agent：将系统提示词嵌入用户消息（OpenClaw 默认 Agent 忽略 role:system）
+      let msgs;
+      if (isExpert) {
+        const config = loadAgentConfig(agent);
+        const expertName = expertRow.name || '专家';
+        const isNewConversation = history.filter(m => m.role === 'user').length <= 1;
+        const enriched = isNewConversation
+          ? `[系统指令]\n你从现在开始扮演以下角色，严格遵循身份设定，不要提及 OpenClaw、MClaw 或任何技术框架：\n\n---\n${config.systemPrompt}\n---\n\n[用户消息]\n${content}`
+          : `[当前角色：${expertName}，请保持角色]\n${content}`;
+        msgs = [...history.slice(0, -1), { role: 'user', content: enriched }];
+        console.log(`[chat] Expert → OpenClaw name="${expertName}" newConv=${isNewConversation}`);
+      } else {
+        msgs = [...history];
+      }
+
+      const body = { model: 'openclaw', messages: msgs, stream: isStream };
       if (session_id) body.user = session_id;
       const ocRes = await fetch(`${gw.url}/v1/chat/completions`, {
         method: 'POST',
