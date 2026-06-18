@@ -399,7 +399,106 @@ if (Test-Path (Join-Path $frontendDir "package.json")) {
 }
 
 # ============================================================
-# 步骤 6: 安装 Python 发布服务依赖
+# 步骤 6: 安装 OpenClaw Gateway
+# ============================================================
+Write-Step "安装 OpenClaw Gateway (技能市场/Agent 运行时)"
+
+$ocVersion = "2026.6.6"
+$ocInstalled = $false
+
+if (Test-Command openclaw) {
+    $currentOc = openclaw --version 2>&1
+    if ($currentOc -match $ocVersion) {
+        Write-OK "OpenClaw $ocVersion 已安装"
+        $ocInstalled = $true
+    } else {
+        Write-Host "    当前: $currentOc，将安装 $ocVersion" -ForegroundColor Gray
+    }
+}
+
+if (-not $ocInstalled) {
+    Write-Host "    安装 openclaw@$ocVersion ..." -ForegroundColor Gray
+    $ocInstallOutput = npm install -g openclaw@$ocVersion 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        Refresh-Path
+        if (Test-Command openclaw) {
+            Write-OK "OpenClaw $ocVersion 安装完成"
+        } else {
+            Write-Warn "OpenClaw 安装完成但命令不可用，可能需要重新打开终端"
+            Write-Warn "技能市场/OpenClaw Agent 功能将不可用"
+        }
+    } else {
+        Write-Fail "OpenClaw 安装失败"
+        Write-Host $ocInstallOutput -ForegroundColor Red
+        Write-Warn "技能市场/OpenClaw Agent 功能将不可用，后端+前端仍可正常运行"
+    }
+}
+
+# 初始化 OpenClaw 配置（设备身份 + 网关配置）
+if (Test-Command openclaw) {
+    $ocDir = Join-Path $env:USERPROFILE ".openclaw"
+    $ocConfigFile = Join-Path $ocDir "openclaw.json"
+    $ocIdentityFile = Join-Path (Join-Path $ocDir "identity") "device.json"
+
+    if (-not (Test-Path $ocConfigFile) -or -not (Test-Path $ocIdentityFile)) {
+        Write-Host "    初始化 OpenClaw (setup --mode local)..." -ForegroundColor Gray
+        $setupOutput = openclaw setup --accept-risk --non-interactive --mode local 2>&1
+        if ($LASTEXITCODE -eq 0 -and (Test-Path $ocIdentityFile)) {
+            Write-OK "OpenClaw 设备身份已生成"
+        } else {
+            Write-Fail "OpenClaw 初始化失败"
+            Write-Host $setupOutput -ForegroundColor Red
+        }
+    }
+
+    # 确保网关配置正确（端口 18622 + token 鉴权）
+    if (Test-Path $ocConfigFile) {
+        try {
+            $ocJson = Get-Content $ocConfigFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            $needsWrite = $false
+
+            if (-not ($ocJson.PSObject.Properties.Name -contains 'gateway')) {
+                Add-Member -InputObject $ocJson -NotePropertyName 'gateway' -NotePropertyValue ([PSCustomObject]@{}) -Force
+                $needsWrite = $true
+            }
+            $gw = $ocJson.gateway
+
+            if (-not ($gw.PSObject.Properties.Name -contains 'mode') -or $gw.mode -ne 'local') {
+                Add-Member -InputObject $gw -NotePropertyName 'mode' -NotePropertyValue 'local' -Force
+                $needsWrite = $true
+            }
+            if (-not ($gw.PSObject.Properties.Name -contains 'port') -or $gw.port -ne 18622) {
+                Add-Member -InputObject $gw -NotePropertyName 'port' -NotePropertyValue 18622 -Force
+                $needsWrite = $true
+            }
+            if (-not ($gw.PSObject.Properties.Name -contains 'bind') -or $gw.bind -ne 'loopback') {
+                Add-Member -InputObject $gw -NotePropertyName 'bind' -NotePropertyValue 'loopback' -Force
+                $needsWrite = $true
+            }
+            if (-not ($gw.PSObject.Properties.Name -contains 'auth') -or
+                -not ($gw.auth.PSObject.Properties.Name -contains 'mode')) {
+                $authObj = [PSCustomObject]@{ mode = 'token'; token = (-join ((1..40) | ForEach { '{0:x}' -f (Get-Random -Max 16) })) }
+                Add-Member -InputObject $gw -NotePropertyName 'auth' -NotePropertyValue $authObj -Force
+                $needsWrite = $true
+            }
+
+            if ($needsWrite) {
+                $ocJson | ConvertTo-Json -Depth 8 | Out-File -FilePath $ocConfigFile -Encoding UTF8 -Force
+                Write-OK "OpenClaw 网关配置已更新 (端口: 18622)"
+            } else {
+                Write-OK "OpenClaw 网关配置已就绪"
+            }
+        } catch {
+            Write-Warn "OpenClaw 配置更新失败: $_"
+            Write-Warn "技能市场可能不可用，请运行 openclaw doctor --fix 修复"
+        }
+    }
+}
+
+$ocReady = (Test-Path $ocConfigFile) -and (Test-Path $ocIdentityFile)
+
+# ============================================================
+# 步骤 7: 安装 Python 发布服务依赖
 # ============================================================
 Write-Step "安装 Python 发布服务依赖 (backend/auto_douyin/)"
 
@@ -451,7 +550,7 @@ if (-not $pythonCmd) {
 }
 
 # ============================================================
-# 步骤 7: 安装 Playwright 浏览器（Node.js 侧）
+# 步骤 8: 安装 Playwright 浏览器（Node.js 侧）
 # ============================================================
 Write-Step "安装 Playwright 浏览器 (Node.js)"
 
@@ -472,7 +571,7 @@ if ($pwExit -eq 0) {
 Pop-Location
 
 # ============================================================
-# 步骤 8: 安装 Playwright 浏览器（Python 侧）
+# 步骤 9: 安装 Playwright 浏览器（Python 侧）
 # ============================================================
 if ($pythonCmd) {
     Write-Step "安装 Playwright 浏览器 (Python)"
@@ -492,7 +591,7 @@ if ($pythonCmd) {
 }
 
 # ============================================================
-# 步骤 9: 构建前端
+# 步骤 10: 构建前端
 # ============================================================
 Write-Step "构建前端 (npm run build)"
 
@@ -513,7 +612,7 @@ if ($buildExit -eq 0) {
 Pop-Location
 
 # ============================================================
-# 步骤 10: 检查 .env 配置
+# 步骤 11: 检查 .env 配置
 # ============================================================
 Write-Step "检查环境配置 (.env)"
 
@@ -535,11 +634,11 @@ CHANJING_SECRET_KEY=your_secret_key_here
 }
 
 # ============================================================
-# 步骤 11: 端口检测
+# 步骤 12: 端口检测
 # ============================================================
 Write-Step "端口可用性检测"
 
-$ports = @(18621, 8000)
+$ports = @(18621, 18622, 8000)
 $portsAllFree = $true
 
 foreach ($port in $ports) {
@@ -547,7 +646,7 @@ foreach ($port in $ports) {
     if ($listener) {
         $pid = ($listener -split '\s+')[-1]
         Write-Warn "端口 $port 已被占用 (PID: $pid)"
-        $label = @{18621="后端 API"; 8000="多平台发布"}[$port]
+        $label = @{18621="后端 API"; 18622="OpenClaw 网关"; 8000="多平台发布"}[$port]
         Write-Warn "请先关闭占用 $label 端口 ($port) 的程序，或修改配置"
         $portsAllFree = $false
     } else {
@@ -556,7 +655,7 @@ foreach ($port in $ports) {
 }
 
 # ============================================================
-# 步骤 12: 启动验证
+# 步骤 13: 启动验证
 # ============================================================
 Write-Step "启动验证"
 
@@ -609,6 +708,7 @@ Write-Host "========================================" -ForegroundColor Cyan
 # 检查各部分状态
 $nodeOK = Test-Command node
 $pythonOK = $pythonCmd -and (Test-PythonReal $pythonCmd)
+$ocOK = Test-Command openclaw
 $backendNM = Test-Path (Join-Path $backendDir "node_modules")
 $frontendNM = Test-Path (Join-Path $frontendDir "node_modules")
 $frontendDist = Test-Path (Join-Path $frontendDir "dist")
@@ -616,6 +716,7 @@ $envOK = Test-Path $envFile
 
 Write-Host ("  Node.js          : " + $(if ($nodeOK) { "✔" } else { "✘" })) -ForegroundColor $(if ($nodeOK) { "Green" } else { "Red" })
 Write-Host ("  Python           : " + $(if ($pythonOK) { "✔" } else { "✘" })) -ForegroundColor $(if ($pythonOK) { "Green" } else { "Red" })
+Write-Host ("  OpenClaw         : " + $(if ($ocOK) { "✔" } else { "✘" })) -ForegroundColor $(if ($ocOK) { "Green" } else { "Red" })
 Write-Host ("  后端 node_modules : " + $(if ($backendNM) { "✔" } else { "✘" })) -ForegroundColor $(if ($backendNM) { "Green" } else { "Red" })
 Write-Host ("  前端 node_modules : " + $(if ($frontendNM) { "✔" } else { "✘" })) -ForegroundColor $(if ($frontendNM) { "Green" } else { "Red" })
 Write-Host ("  前端 dist         : " + $(if ($frontendDist) { "✔" } else { "✘" })) -ForegroundColor $(if ($frontendDist) { "Green" } else { "Red" })
@@ -627,6 +728,12 @@ if ($backendNM -and $frontendNM -and $frontendDist -and $nodeOK) {
     Write-Host "  访问地址: http://localhost:18621" -ForegroundColor Green
 } else {
     Write-Host "  存在未完成项，请检查上方日志修复后重新运行" -ForegroundColor Yellow
+}
+
+if (-not $ocOK) {
+    Write-Host ""
+    Write-Warn "OpenClaw 未安装，技能市场和 OpenClaw Agent 功能将不可用"
+    Write-Warn "如需此功能，请确保 npm 可用后运行: npm install -g openclaw@2026.6.6 && openclaw setup --accept-risk --non-interactive --mode local"
 }
 
 Write-Host ""

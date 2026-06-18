@@ -19,10 +19,11 @@ echo.
 where openclaw >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
     echo [warn] openclaw not found in PATH, skip gateway startup
+    echo [warn] run setup.bat to install OpenClaw
     goto :backend_start
 )
 echo [start] OpenClaw gateway :18622
-start "OpenClaw" /B cmd /c "openclaw gateway run >> %~dp0backend\openclaw.log 2>&1"
+start "OpenClaw" /B cmd /c "openclaw gateway run --port 18622 --bind loopback >> %~dp0backend\openclaw.log 2>&1"
 call :wait_for "http://localhost:18622/health" "OpenClaw" 10
 
 :backend_start
