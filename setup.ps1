@@ -482,6 +482,26 @@ if (Test-Command openclaw) {
                 $needsWrite = $true
             }
 
+            # 确保 HTTP chat completions 端点已启用（MClaw 聊天依赖此端点）
+            if (-not ($gw.PSObject.Properties.Name -contains 'http')) {
+                $httpObj = [PSCustomObject]@{ endpoints = [PSCustomObject]@{ chatCompletions = [PSCustomObject]@{ enabled = $true } } }
+                Add-Member -InputObject $gw -NotePropertyName 'http' -NotePropertyValue $httpObj -Force
+                $needsWrite = $true
+            } else {
+                if (-not ($gw.http.PSObject.Properties.Name -contains 'endpoints')) {
+                    $endpointsObj = [PSCustomObject]@{ chatCompletions = [PSCustomObject]@{ enabled = $true } }
+                    Add-Member -InputObject $gw.http -NotePropertyName 'endpoints' -NotePropertyValue $endpointsObj -Force
+                    $needsWrite = $true
+                } else {
+                    if (-not ($gw.http.endpoints.PSObject.Properties.Name -contains 'chatCompletions') -or
+                        -not $gw.http.endpoints.chatCompletions.enabled) {
+                        $ccObj = [PSCustomObject]@{ enabled = $true }
+                        Add-Member -InputObject $gw.http.endpoints -NotePropertyName 'chatCompletions' -NotePropertyValue $ccObj -Force
+                        $needsWrite = $true
+                    }
+                }
+            }
+
             if ($needsWrite) {
                 $ocJson | ConvertTo-Json -Depth 8 | Out-File -FilePath $ocConfigFile -Encoding UTF8 -Force
                 Write-OK "OpenClaw 网关配置已更新 (端口: 18622)"
