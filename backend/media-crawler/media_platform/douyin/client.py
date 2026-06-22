@@ -207,6 +207,25 @@ class DOUYINClient(AbstractApiClient):
         headers["Referer"] = urllib.parse.quote(referer_url, safe=':/')
         return await self.get(uri, params)
 
+    async def post_comment(self, aweme_id: str, content: str, reply_to_comment_id: str = "0"):
+        """发布评论或回复评论
+
+        Args:
+            aweme_id: 视频ID
+            content: 评论内容
+            reply_to_comment_id: 要回复的评论ID，默认为 "0" 表示直接评论视频
+        """
+        uri = "/aweme/v1/web/comment/publish/"
+        data = {
+            "aweme_id": aweme_id,
+            "content": content,
+            "comment_id": reply_to_comment_id,
+            "item_type": 0,
+        }
+        headers = copy.copy(self.headers)
+        headers["Referer"] = f"https://www.douyin.com/video/{aweme_id}"
+        return await self.post(uri, data, headers)
+
     async def get_sub_comments(self, comment_id: str, cursor: int = 0):
         """
             获取子评论

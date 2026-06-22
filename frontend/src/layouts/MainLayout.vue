@@ -15,19 +15,9 @@
         <div class="nav-group">
           <div class="nav-group-title">对话</div>
           <div class="nav-item-wrapper" v-if="hasPerm('chat')">
-            <router-link to="/chat" class="nav-item" active-class="active" style="flex:1">
+            <a class="nav-item" :class="{ active: isChatActive }" href="#" @click.prevent="newChatSession" style="flex:1">
               <el-icon><ChatDotSquare /></el-icon><span>实时聊天</span>
-            </router-link>
-            <el-popover placement="right" :width="100" trigger="click" :hide-after="0">
-              <template #reference>
-                <el-button class="nav-item-more" size="small" text @click.stop>
-                  <el-icon><MoreFilled /></el-icon>
-                </el-button>
-              </template>
-              <div class="session-menu">
-                <div class="session-menu-item" @click.stop="newChatSession">新建会话</div>
-              </div>
-            </el-popover>
+            </a>
             <el-button class="nav-item-toggle" text size="small" @click="toggleChatSessions">
               <el-icon><component :is="showChatSessions ? ArrowUp : ArrowDown" /></el-icon>
             </el-button>
@@ -59,6 +49,9 @@
           </router-link>
           <router-link v-if="hasPerm('trending')" to="/trending" class="nav-item" active-class="active">
             <el-icon><TrendCharts /></el-icon><span>一键追爆款</span>
+          </router-link>
+          <router-link v-if="hasPerm('social_acquisition')" to="/social-acquisition" class="nav-item" active-class="active">
+            <el-icon><Aim /></el-icon><span>社媒拓客</span>
           </router-link>
           <router-link v-if="hasPerm('digital')" to="/digital" class="nav-item" active-class="active">
             <el-icon><DataAnalysis /></el-icon><span>应用智能体管理</span>
@@ -184,7 +177,7 @@ import { ElMessageBox, ElMessage } from 'element-plus'
 import {
   ChatDotSquare, DataAnalysis, List,
   Cpu, Setting, ChatLineSquare, Lock, UserFilled, Avatar,
-  ArrowDown, ArrowUp, Close, Plus, MoreFilled, TrendCharts, Collection, MagicStick, Phone, Service
+  ArrowDown, ArrowUp, Close, Plus, MoreFilled, TrendCharts, Aim, Collection, MagicStick, Phone, Service
 } from '@element-plus/icons-vue'
 import request, { logout } from '../api/index.js'
 
@@ -197,6 +190,7 @@ const showAbout = ref(false)
 const chatSessions = ref([])
 const showChatSessions = ref(false)
 const currentSessionId = computed(() => route.query.session || null)
+const isChatActive = computed(() => route.path === '/chat')
 
 async function loadChatSessions() {
   try {

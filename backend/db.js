@@ -523,6 +523,102 @@ db.exec(`
   );
 `);
 
+// ===== 社媒拓客 =====
+db.exec(`
+  CREATE TABLE IF NOT EXISTS social_tasks (
+    id TEXT PRIMARY KEY,
+    name TEXT DEFAULT '',
+    platform TEXT NOT NULL,
+    keyword TEXT NOT NULL,
+    status TEXT DEFAULT 'pending',
+    total_posts INTEGER DEFAULT 0,
+    total_comments INTEGER DEFAULT 0,
+    error_msg TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now','localtime')),
+    updated_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+  CREATE TABLE IF NOT EXISTS social_comments (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL,
+    post_title TEXT DEFAULT '',
+    post_url TEXT DEFAULT '',
+    comment_content TEXT DEFAULT '',
+    comment_author TEXT DEFAULT '',
+    comment_likes INTEGER DEFAULT 0,
+    comment_time TEXT DEFAULT '',
+    post_author TEXT DEFAULT '',
+    post_body TEXT DEFAULT '',
+    post_likes INTEGER DEFAULT 0,
+    post_comments_count INTEGER DEFAULT 0,
+    raw_json TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+  CREATE TABLE IF NOT EXISTS social_replies (
+    id TEXT PRIMARY KEY,
+    comment_id TEXT NOT NULL REFERENCES social_comments(id) ON DELETE CASCADE,
+    content TEXT NOT NULL,
+    status TEXT DEFAULT 'draft',
+    reviewed_at TEXT,
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+  CREATE TABLE IF NOT EXISTS social_monitors (
+    id TEXT PRIMARY KEY,
+    platform TEXT NOT NULL,
+    name TEXT DEFAULT '',
+    post_url TEXT NOT NULL,
+    post_title TEXT DEFAULT '',
+    reply_prompt TEXT DEFAULT '',
+    trigger_keywords TEXT DEFAULT '',
+    enabled INTEGER DEFAULT 1,
+    check_interval INTEGER DEFAULT 900,
+    last_checked_at TEXT,
+    total_replied INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+`);
+
+// 迁移：移除 social_comments.task_id 外键约束，允许 monitor-xxx 格式的伪 task_id
+try {
+  // 尝试插入一条 monitor 风格的记录来检测 FK 是否还存在
+  const probeId = 'migration-probe-' + Date.now();
+  db.prepare(`INSERT INTO social_comments (id, task_id) VALUES (?, 'monitor-test')`).run(probeId);
+  db.prepare(`DELETE FROM social_comments WHERE id = ?`).run(probeId);
+} catch {
+  // FK 约束仍然存在，需要重建表
+  console.log('[db] 迁移 social_comments 移除 task_id 外键...');
+  db.exec(`
+    DROP TABLE IF EXISTS social_replies;
+    CREATE TABLE IF NOT EXISTS social_comments_v2 (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      post_title TEXT DEFAULT '',
+      post_url TEXT DEFAULT '',
+      comment_content TEXT DEFAULT '',
+      comment_author TEXT DEFAULT '',
+      comment_likes INTEGER DEFAULT 0,
+      comment_time TEXT DEFAULT '',
+      post_author TEXT DEFAULT '',
+      post_body TEXT DEFAULT '',
+      post_likes INTEGER DEFAULT 0,
+      post_comments_count INTEGER DEFAULT 0,
+      raw_json TEXT DEFAULT '',
+      created_at TEXT DEFAULT (datetime('now','localtime'))
+    );
+    INSERT OR IGNORE INTO social_comments_v2 SELECT * FROM social_comments;
+    DROP TABLE social_comments;
+    ALTER TABLE social_comments_v2 RENAME TO social_comments;
+    CREATE TABLE social_replies (
+      id TEXT PRIMARY KEY,
+      comment_id TEXT NOT NULL REFERENCES social_comments(id) ON DELETE CASCADE,
+      content TEXT NOT NULL,
+      status TEXT DEFAULT 'draft',
+      reviewed_at TEXT,
+      created_at TEXT DEFAULT (datetime('now','localtime'))
+    );
+  `);
+  console.log('[db] social_comments 迁移完成');
+}
+
 // ===== 安全 =====
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
@@ -531,7 +627,7 @@ db.exec(`
     password_hash TEXT NOT NULL,
     name TEXT NOT NULL,
     role TEXT DEFAULT 'admin',
-    permissions TEXT DEFAULT '["chat","digital","trending","knowledge","skills","crm","inventory","hr","docs","channels","publish","model","security"]',
+    permissions TEXT DEFAULT '["chat","digital","trending","social_acquisition","knowledge","skills","crm","inventory","hr","docs","channels","publish","model","security"]',
     created_at TEXT DEFAULT (datetime('now','localtime'))
   );
 
@@ -566,7 +662,7 @@ try { db.exec(`CREATE TABLE IF NOT EXISTS logs (
   created_at TEXT DEFAULT (datetime('now','localtime'))
 )`); } catch {}
 
-const ALL_PERMS = ["chat","tasks","digital","trending","knowledge","skills","channels","model","security","security_config","security_sessions","security_maintain","security_logs","security_users","security_roles","security_permissions","crm","inventory","hr","docs","finance","publish"];
+const ALL_PERMS = ["chat","tasks","digital","trending","social_acquisition","knowledge","skills","channels","model","security","security_config","security_sessions","security_maintain","security_logs","security_users","security_roles","security_permissions","crm","inventory","hr","docs","finance","publish"];
 const ALL_SUB_PERMS = ["security_config","security_sessions","security_maintain","security_logs","security_roles","security_permissions"];
 
 // 种子角色

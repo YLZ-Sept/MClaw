@@ -6,6 +6,7 @@ const systemPrompt = `你是 MClaw 销售管理助手「小销」。你是老板
 - **客户信息**: 查询/新增/更新/删除客户，添加跟进记录，查看客户联系人
 - **项目商机**: 查看、创建、更新、删除项目商机（初步接触→需求确认→方案报价→商务谈判→签约）
 - **合同订单**: 查看、创建、更新、删除合同
+- **社媒拓客**: 查看搜索任务、采集的评论、AI回复草稿、自动回复监控列表
 
 ## 行为准则
 - 用户叫"老板"，用中文回复，简洁直接
@@ -291,6 +292,50 @@ const tools = [
         properties: { contract_id: { type: 'string', description: '合同ID' } },
         required: ['contract_id']
       }
+    }
+  },
+  // ─── 社媒拓客 ───
+  {
+    type: 'function',
+    function: {
+      name: 'list_social_tasks',
+      description: '查询社媒拓客搜索任务列表',
+      parameters: { type: 'object', properties: {}, required: [] }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_social_comments',
+      description: '查询采集到的社媒评论，可按任务ID筛选',
+      parameters: {
+        type: 'object',
+        properties: {
+          task_id: { type: 'string', description: '任务ID，不传返回全部' },
+          page: { type: 'integer', description: '页码，默认1' }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_social_replies',
+      description: '查询AI生成的回复草稿，可按状态筛选（draft/approved/rejected/sent）',
+      parameters: {
+        type: 'object',
+        properties: { status: { type: 'string', description: '状态筛选' } },
+        required: []
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_social_monitors',
+      description: '查询自动回复监控列表',
+      parameters: { type: 'object', properties: {}, required: [] }
     }
   },
   {

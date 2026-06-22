@@ -68,6 +68,7 @@ const routePermMap = [
   { prefix: '/api/hot-quick-reply', perm: 'trending' },
   { prefix: '/api/hot-leads', perm: 'trending' },
   { prefix: '/api/hot-chanjing', perm: 'trending' },
+  { prefix: '/api/social-acquisition', perm: 'social_acquisition' },
   { prefix: '/api/faq', perm: 'knowledge' },
   { prefix: '/api/knowledge-base', perm: 'knowledge' },
   { prefix: '/api/doc-import', perm: 'knowledge' },
@@ -168,6 +169,7 @@ app.use('/api/hot-extract', require('./routes/hot-extract'));
 app.use('/api/hot-quick-reply', require('./routes/hot-quick-reply'));
 app.use('/api/hot-leads', require('./routes/hot-leads'));
 app.use('/api/hot-chanjing', require('./routes/hot-chanjing'));
+app.use('/api/social-acquisition', require('./routes/social-acquisition'));
 app.use('/api/ppt', require('./routes/ppt'));
 app.use('/api/download', require('./routes/downloads'));
 

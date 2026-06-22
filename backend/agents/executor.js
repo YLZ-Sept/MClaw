@@ -626,6 +626,83 @@ async function exec(toolName, args, context) {
         return { error: '命令执行返回异常: ' + JSON.stringify(result).slice(0, 500) };
       }
 
+      // ─── 财务管理 ───
+      case 'list_finance_records': {
+        const ftype = args.type || 'receivable';
+        return db.prepare('SELECT * FROM finance_records WHERE type=? ORDER BY created_at DESC').all(ftype);
+      }
+      case 'get_finance_summary': {
+        const stats = (type) => {
+          const rows = db.prepare('SELECT * FROM finance_records WHERE type=?').all(type);
+          return {
+            count: rows.length,
+            total_receivable: rows.reduce((s, r) => s + (r.receivable_amount || 0), 0),
+            total_received: rows.reduce((s, r) => s + (r.received_amount || 0), 0),
+            total_unreceived: rows.reduce((s, r) => s + (r.unreceived_amount || 0), 0),
+          };
+        };
+        return { receivable: stats('receivable'), payable: stats('payable') };
+      }
+
+      // ─── 招投标统计 ───
+      case 'list_bid_statistics': {
+        const { keyword, region, industry, page = 1, pageSize = 50 } = args || {};
+        let sql = 'SELECT * FROM bid_statistics WHERE 1=1';
+        const params = [];
+        if (keyword) { sql += ' AND (project_name LIKE ? OR bidder LIKE ? OR win_company LIKE ? OR project_content LIKE ?)';
+          params.push(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`, `%${keyword}%`); }
+        if (region) { sql += ' AND region=?'; params.push(region); }
+        if (industry) { sql += ' AND industry=?'; params.push(industry); }
+        sql += ' ORDER BY created_at DESC';
+        const total = db.prepare(sql.replace('SELECT *', 'SELECT COUNT(*) AS cnt')).get(...params)?.cnt || 0;
+        const offset = (Number(page) - 1) * Number(pageSize);
+        const rows = db.prepare(sql + ' LIMIT ? OFFSET ?').all(...params, Number(pageSize), offset);
+        return { rows, total, page: Number(page) };
+      }
+
+      // ─── 招投标 ───
+      case 'list_bid_items': {
+        const { status, keyword } = args || {};
+        let sql = 'SELECT bi.*, bs.name AS source_name FROM bid_items bi LEFT JOIN bid_sources bs ON bi.source_id=bs.id WHERE 1=1';
+        const params = [];
+        if (status) { sql += ' AND bi.status=?'; params.push(status); }
+        if (keyword) { sql += ' AND bi.title LIKE ?'; params.push(`%${keyword}%`); }
+        sql += ' ORDER BY bi.created_at DESC LIMIT 100';
+        return db.prepare(sql).all(...params);
+      }
+      case 'search_bid_items': {
+        const kw = args.keyword || '';
+        return db.prepare('SELECT bi.*, bs.name AS source_name FROM bid_items bi LEFT JOIN bid_sources bs ON bi.source_id=bs.id WHERE bi.title LIKE ? ORDER BY bi.fetch_time DESC LIMIT 50').all(`%${kw}%`);
+      }
+      case 'list_bid_sources':
+        return db.prepare('SELECT * FROM bid_sources ORDER BY name').all();
+      case 'list_bid_keywords':
+        return db.prepare('SELECT * FROM bid_keywords ORDER BY keyword').all();
+
+      // ─── 社媒拓客 ───
+      case 'list_social_tasks':
+        return db.prepare('SELECT * FROM social_tasks ORDER BY created_at DESC LIMIT 50').all();
+      case 'list_social_comments': {
+        const { task_id, page = 1, pageSize = 30 } = args || {};
+        let sql = 'SELECT * FROM social_comments';
+        const params = [];
+        if (task_id) { sql += ' WHERE task_id=?'; params.push(task_id); }
+        sql += ' ORDER BY comment_likes DESC LIMIT ? OFFSET ?';
+        const offset = (Number(page) - 1) * Number(pageSize);
+        params.push(Number(pageSize), offset);
+        return db.prepare(sql).all(...params);
+      }
+      case 'list_social_replies': {
+        const { status } = args || {};
+        let sql = 'SELECT r.*, c.comment_content, c.comment_author, c.post_title, c.post_url FROM social_replies r LEFT JOIN social_comments c ON r.comment_id = c.id';
+        const params = [];
+        if (status) { sql += ' WHERE r.status=?'; params.push(status); }
+        sql += ' ORDER BY r.created_at DESC LIMIT 50';
+        return db.prepare(sql).all(...params);
+      }
+      case 'list_social_monitors':
+        return db.prepare('SELECT * FROM social_monitors ORDER BY created_at DESC').all();
+
       default:
         return { error: `未知工具: ${toolName}` };
     }

@@ -18,6 +18,7 @@ const routes = [
       { path: 'digital', name: 'DigitalManagement', component: () => import('../views/AgentManagement.vue'), meta: { perm: 'digital' } },
       { path: 'expert-hub', name: 'ExpertHub', component: () => import('../views/ExpertHub.vue'), meta: { perm: 'digital' } },
       { path: 'trending', name: 'TrendTracker', component: () => import('../views/TrendTracker.vue'), meta: { perm: 'trending' } },
+      { path: 'social-acquisition', name: 'SocialAcquisition', component: () => import('../views/SocialAcquisition.vue'), meta: { perm: 'social_acquisition' } },
 
       { path: 'knowledge-base', name: 'KnowledgeBase', component: () => import('../views/KnowledgeBase.vue'), meta: { perm: 'knowledge' } },
       { path: 'skill-library', name: 'SkillLibrary', component: () => import('../views/SkillLibrary.vue'), meta: { perm: 'skills' } },

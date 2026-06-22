@@ -7,6 +7,7 @@ const { exec: execTool } = require('../agents/executor');
 const agentConfigs = {
   'internal-agent': require('../agents/internal'),
   'sales-agent': require('../agents/sales'),
+  'support-agent': require('../agents/support'),
   'default': require('../agents/internal')
 };
 
