@@ -174,7 +174,7 @@ html, body, #app {
 .nav-sub-item:hover .nav-sub-del { opacity: 1; }
 .nav-sub-more { opacity: 0; transition: opacity .15s; padding: 2px; color: #b8aad0; }
 .nav-sub-item:hover .nav-sub-more { opacity: 1; }
-.nav-sub-add { color: #b8aad0; gap: 4px; }
+.nav-sub-add { color: #b8aad0; gap: 4px; justify-content: flex-start; }
 .nav-sub-add:hover { color: #7c3aed; }
 .nav-sub-empty { text-align: center; padding: 6px; color: #b8aad0; font-size: 12px; }
 .session-menu { padding: 4px 0; }

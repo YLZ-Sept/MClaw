@@ -119,4 +119,57 @@ router.delete('/:id', (req, res) => {
   res.json({ code: 200 });
 });
 
+// 浏览服务器目录（供智能体选择本地文件夹/文件引用）
+router.post('/browse', (req, res) => {
+  const { filePath } = req.body;
+  const fs = require('fs');
+  const path = require('path');
+  const os = require('os');
+
+  try {
+    // 未指定路径：返回驱动器列表(Windows)或根目录
+    if (!filePath || !filePath.trim()) {
+      if (process.platform === 'win32') {
+        // Windows: 列出可用驱动器
+        const items = [];
+        for (let c = 'A'.charCodeAt(0); c <= 'Z'.charCodeAt(0); c++) {
+          const drive = String.fromCharCode(c) + ':\\';
+          try { fs.accessSync(drive); items.push({ name: drive, path: drive, type: 'dir' }); } catch {}
+        }
+        return res.json({ code: 200, data: { current: '此电脑', parent: null, items } });
+      } else {
+        const items = fs.readdirSync('/').map(n => {
+          const p = '/' + n;
+          try { return { name: n, path: p, type: fs.statSync(p).isDirectory() ? 'dir' : 'file' }; } catch { return null; }
+        }).filter(Boolean);
+        return res.json({ code: 200, data: { current: '/', parent: null, items } });
+      }
+    }
+
+    const resolved = path.resolve(filePath.trim());
+    const stat = fs.statSync(resolved);
+    if (!stat.isDirectory()) {
+      return res.json({ code: 200, data: { current: resolved, parent: path.dirname(resolved), items: [] } });
+    }
+
+    const skipDirs = new Set(['node_modules','.git','.svn','dist','build','__pycache__','.venv','venv','.next','.nuxt','coverage','.cache','uploads','.idea','.vscode','target','out']);
+    const entries = fs.readdirSync(resolved, { withFileTypes: true });
+    const items = entries
+      .filter(e => e.isDirectory() ? (!e.name.startsWith('.') && !skipDirs.has(e.name)) : true)
+      .map(e => ({
+        name: e.name,
+        path: path.join(resolved, e.name),
+        type: e.isDirectory() ? 'dir' : 'file'
+      }));
+
+    const parent = path.dirname(resolved);
+    res.json({
+      code: 200,
+      data: { current: resolved, parent: parent === resolved ? null : parent, items }
+    });
+  } catch (e) {
+    res.json({ code: 400, message: '路径无效或无法访问: ' + e.message });
+  }
+});
+
 module.exports = router;

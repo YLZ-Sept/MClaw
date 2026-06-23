@@ -94,6 +94,32 @@
       </template>
     </el-dialog>
 
+    <!-- 目录浏览对话框 -->
+    <el-dialog v-model="browseDlg.visible" title="浏览文件夹/文件" width="520px" :close-on-click-modal="false">
+      <div style="margin-bottom:8px;font-size:12px;color:#909399">
+        当前：{{ browseDlg.current || '—' }}
+        <el-button v-if="browseDlg.parent !== null" size="small" text @click="browsePath(browseDlg.parent)">⬆ 上级目录</el-button>
+      </div>
+      <div style="max-height:360px;overflow-y:auto;border:1px solid #f0ecfc;border-radius:6px">
+        <div v-if="browseDlg.loading" style="text-align:center;padding:40px"><el-icon class="is-loading"><Loading /></el-icon></div>
+        <div v-else-if="browseDlg.items.length===0" style="text-align:center;padding:40px;color:#b8aad0">空目录</div>
+        <div v-for="item in browseDlg.items" :key="item.path" class="browse-item"
+          @dblclick="item.type==='dir' ? browsePath(item.path) : selectBrowseItem(item.path)"
+          :style="{ cursor: item.type==='dir' ? 'pointer' : 'default' }">
+          <el-icon :size="16" :color="item.type==='dir'?'#7c3aed':'#909399'">
+            <FolderOpened v-if="item.type==='dir'" /><Document v-else />
+          </el-icon>
+          <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ item.name }}</span>
+          <el-button v-if="item.type==='dir'" size="small" text @click="browsePath(item.path)">进入</el-button>
+          <el-button v-if="item.type==='file'" size="small" text type="primary" @click="selectBrowseItem(item.path)">选择</el-button>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="browseDlg.visible=false">取消</el-button>
+        <el-button type="primary" @click="selectBrowseItem(browseDlg.current)">选择当前目录</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 添加/编辑智能体对话框 -->
     <el-dialog v-model="dlg.visible" :title="dlg.isEdit ? '编辑智能体' : '添加智能体'" width="560px">
       <el-form :model="dlg.form" label-width="90px">
@@ -105,8 +131,7 @@
         </el-row>
         <el-form-item label="背景色"><el-color-picker v-model="dlg.form.color"/></el-form-item>
         <el-form-item label="基础 Agent">
-          <el-select v-model="dlg.form.base_agent" style="width:100%" clearable placeholder="不继承（纯自定义）">
-            <el-option label="不继承（纯自定义提示词）" value=""/>
+          <el-select v-model="dlg.form.base_agent" multiple style="width:100%" clearable placeholder="不继承（纯自定义提示词）">
             <el-option label="企业经营管理 Agent (完整工具集)" value="internal-agent"/>
             <el-option label="售后管理 Agent (客服工具集)" value="support-agent"/>
             <el-option label="销售管理 Agent (CRM 工具集)" value="sales-agent"/>
@@ -129,6 +154,18 @@
             </el-option>
           </el-select>
         </el-form-item>
+        <el-form-item label="本地引用">
+          <div style="width:100%">
+            <div v-for="(fp, idx) in dlg.form.kb_folder_paths" :key="idx" style="display:flex;gap:6px;margin-bottom:6px;align-items:center">
+              <el-input v-model="dlg.form.kb_folder_paths[idx]" placeholder="文件夹或文件路径，如 E:\docs\产品" size="small" style="flex:1" />
+              <el-button size="small" @click="openBrowse(idx)">浏览</el-button>
+              <el-button size="small" type="danger" :icon="Delete" circle @click="dlg.form.kb_folder_paths.splice(idx,1)" />
+            </div>
+            <el-button size="small" type="primary" text @click="dlg.form.kb_folder_paths.push('')">
+              <el-icon><Plus /></el-icon> 添加本地文件夹/文件引用
+            </el-button>
+          </div>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dlg.visible=false">取消</el-button>
@@ -142,7 +179,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Avatar, Cpu, Check, Setting } from '@element-plus/icons-vue'
+import { Avatar, Cpu, Check, Setting, Plus, Delete, FolderOpened, Document, Loading } from '@element-plus/icons-vue'
 import request from '../api/index.js'
 const router = useRouter()
 
@@ -150,6 +187,7 @@ const agents = ref([])
 const kbArticles = ref([])
 const dlg = reactive({ visible: false, isEdit: false, form: {} })
 const promptGenerating = ref(false)
+const browseDlg = reactive({ visible: false, loading: false, current: '', parent: null, items: [], editIdx: -1 })
 const icons = ['Avatar', 'Coin', 'Headset', 'Lock', 'ChatDotSquare', 'DataAnalysis', 'Cpu', 'Setting', 'Promotion', 'List', 'FolderOpened', 'Document']
 const emojis = ['🤖', '🤝', '📋', '🔧', '🛡️', '💻', '💬', '📢', '🎯', '🧠', '👔', '📊']
 
@@ -233,21 +271,56 @@ function toggleOpenClawCheck(skillName) {
   else openclawChecked.value.push(skillName)
 }
 
+// ----- 浏览本地目录 -----
+async function browsePath(p) {
+  browseDlg.loading = true
+  try {
+    const { data } = await request.post('/knowledge-base/browse', { filePath: p || '' })
+    if (data.code === 200) {
+      browseDlg.current = data.data.current
+      browseDlg.parent = data.data.parent
+      browseDlg.items = data.data.items || []
+    }
+  } catch (e) {
+    ElMessage.error('浏览失败')
+  }
+  browseDlg.loading = false
+}
+function openBrowse(idx) {
+  browseDlg.editIdx = idx
+  browseDlg.visible = true
+  const p = dlg.form.kb_folder_paths[idx] || ''
+  browsePath(p)
+}
+function selectBrowseItem(p) {
+  if (browseDlg.editIdx >= 0) {
+    dlg.form.kb_folder_paths[browseDlg.editIdx] = p
+  }
+  browseDlg.visible = false
+}
+
 // ----- 智能体 -----
 function openAdd() {
   dlg.isEdit = false
-  dlg.form = { name: '', desc: '', icon: 'Avatar', emoji: '🤖', color: '#7c3aed', base_agent: '', system_prompt: '', kb_article_ids: [] }
+  dlg.form = { name: '', desc: '', icon: 'Avatar', emoji: '🤖', color: '#7c3aed', base_agent: [], system_prompt: '', kb_article_ids: [], kb_folder_paths: [] }
   dlg.visible = true
 }
 function openEdit(agent) {
   dlg.isEdit = true
   const ids = agent.kb_article_ids ? agent.kb_article_ids.split(',').filter(Boolean) : []
-  dlg.form = { ...agent, color: agent.bg || agent.color || '#7c3aed', kb_article_ids: ids }
+  const fps = agent.kb_folder_paths ? agent.kb_folder_paths.split(',').filter(Boolean) : []
+  const bas = agent.base_agent ? agent.base_agent.split(',').filter(Boolean) : []
+  dlg.form = { ...agent, color: agent.bg || agent.color || '#7c3aed', base_agent: bas, kb_article_ids: ids, kb_folder_paths: fps.length ? fps : [] }
   dlg.visible = true
 }
 async function saveAgent() {
   if (!dlg.form.name) return ElMessage.warning('请输入名称')
-  const payload = { ...dlg.form, kb_article_ids: (dlg.form.kb_article_ids || []).join(',') }
+  const payload = {
+    ...dlg.form,
+    base_agent: (dlg.form.base_agent || []).join(','),
+    kb_article_ids: (dlg.form.kb_article_ids || []).join(','),
+    kb_folder_paths: (dlg.form.kb_folder_paths || []).filter(Boolean).join(',')
+  }
   if (dlg.isEdit) { await request.put('/agent-apps/' + dlg.form.id, payload) }
   else { await request.post('/agent-apps', payload) }
   dlg.visible = false; await loadAgents(); ElMessage.success('OK')
@@ -346,4 +419,10 @@ onMounted(() => { loadAgents(); loadKB() })
 .sci-body { flex: 1; min-width: 0; }
 .sci-name { font-size: 14px; font-weight: 600; color: #4a3f5e; }
 .sci-desc { font-size: 12px; color: #909399; margin-top: 2px; }
+
+.browse-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 14px; transition: background .15s;
+}
+.browse-item:hover { background: #f5f3ff; }
 </style>

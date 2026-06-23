@@ -1,7 +1,50 @@
 // Agent Bridge — shared LLM/Agent/Tool utilities for channel system
+const fs = require('fs');
+const path = require('path');
 const db = require('../db');
 const { getActiveConfig } = require('../routes/model-configs');
 const { exec: execTool } = require('../agents/executor');
+
+// 文件夹引用：可读文本扩展名
+const TEXT_EXTS = new Set(['txt','md','markdown','json','yaml','yml','xml','html','htm','css','js','ts','jsx','tsx','vue','py','go','rs','java','c','cpp','h','sh','bat','ps1','sql','csv','log','env','cfg','ini','toml','rst','tex']);
+// 跳过目录
+const SKIP_DIRS = new Set(['node_modules','.git','.svn','dist','build','__pycache__','.venv','venv','.next','.nuxt','coverage','.cache','uploads','.idea','.vscode','target','out']);
+
+function readFileText(filePath) {
+  try {
+    const ext = path.extname(filePath).toLowerCase().replace('.', '');
+    if (!TEXT_EXTS.has(ext)) return null;
+    const stat = fs.statSync(filePath);
+    if (stat.size > 5 * 1024 * 1024) return `[文件过大，跳过: ${filePath}]`;
+    return fs.readFileSync(filePath, 'utf-8');
+  } catch { return null; }
+}
+
+function scanFolder(folderPath, maxChars = 50000) {
+  const results = [];
+  let total = 0;
+  const walk = (dir, depth) => {
+    if (depth > 5 || total >= maxChars) return;
+    try {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (total >= maxChars) return;
+        if (e.isDirectory()) {
+          if (SKIP_DIRS.has(e.name) || e.name.startsWith('.')) continue;
+          walk(path.join(dir, e.name), depth + 1);
+        } else if (e.isFile()) {
+          const fp = path.join(dir, e.name);
+          const txt = readFileText(fp);
+          if (txt !== null) {
+            results.push({ relPath: path.relative(folderPath, fp), text: txt });
+            total += txt.length;
+          }
+        }
+      }
+    } catch {}
+  };
+  walk(folderPath, 0);
+  return results;
+}
 
 // Built-in agent definitions (keep in sync with server.js)
 const agentConfigs = {
@@ -64,14 +107,31 @@ function loadAgentConfig(agent) {
         dbRow = db.prepare('SELECT * FROM agent_apps WHERE id=? AND status=?').get(agentId, 'active');
         if (dbRow) {
           allDbRows.push(dbRow);
-          if (dbRow.base_agent && agentConfigs[dbRow.base_agent]) {
-            const b = agentConfigs[dbRow.base_agent];
-            base = { systemPrompt: dbRow.system_prompt || b.systemPrompt, tools: [...b.tools], agentId };
+          // 支持多 base_agent（逗号分隔），合并多个内置 Agent 的 tools + prompt
+          const baseIds = dbRow.base_agent ? dbRow.base_agent.split(',').map(s => s.trim()).filter(Boolean) : [];
+          const matched = baseIds.filter(id => agentConfigs[id]);
+          const unmatched = baseIds.filter(id => !agentConfigs[id]);
+          if (matched.length > 0) {
+            const mergedTools = [];
+            const seen = new Set();
+            const prompts = [];
+            for (const bid of matched) {
+              const b = agentConfigs[bid];
+              prompts.push(b.systemPrompt);
+              for (const t of (b.tools || [])) {
+                const n = t.function?.name;
+                if (n && !seen.has(n)) { seen.add(n); mergedTools.push(t); }
+              }
+            }
+            const mergedPrompt = matched.length === 1
+              ? agentConfigs[matched[0]].systemPrompt
+              : prompts.join('\n\n---\n\n');
+            base = { systemPrompt: dbRow.system_prompt || mergedPrompt, tools: mergedTools, agentId };
           } else {
             if (!dbRow.base_agent) {
               console.warn('[agent-bridge] agent_app %s 未指定 base_agent，tools 将为空', agentId);
-            } else {
-              console.warn('[agent-bridge] agent_app %s 的 base_agent=%s 未匹配任何内置 Agent', agentId, dbRow.base_agent);
+            } else if (unmatched.length > 0) {
+              console.warn('[agent-bridge] agent_app %s 的 base_agent=%s 未匹配任何内置 Agent', agentId, unmatched.join(','));
             }
             base = { systemPrompt: dbRow.system_prompt || '你是 MClaw 智能助手，请用中文简洁回复。', tools: [], agentId };
           }
@@ -194,6 +254,43 @@ function loadAgentConfig(agent) {
     }
   } catch {}
 
+  // 绑定的本地文件夹/文件引用（所有 agent_app 行）
+  try {
+    const allFolderPaths = allDbRows
+      .map(r => r.kb_folder_paths)
+      .filter(Boolean)
+      .flatMap(s => s.split(',').map(p => p.trim()).filter(Boolean));
+    const uniquePaths = [...new Set(allFolderPaths)];
+    if (uniquePaths.length) {
+      const folderContents = [];
+      for (const fp of uniquePaths) {
+        try {
+          const stat = fs.statSync(fp);
+          if (stat.isDirectory()) {
+            const files = scanFolder(fp);
+            if (files.length) {
+              const content = files.map(f => `### ${f.relPath}\n${f.text.slice(0, 3000)}`).join('\n\n');
+              folderContents.push(`## 📁 ${fp}\n${content.slice(0, 10000)}`);
+            }
+          } else if (stat.isFile()) {
+            const ext = path.extname(fp).toLowerCase().replace('.', '');
+            if (TEXT_EXTS.has(ext)) {
+              const txt = readFileText(fp);
+              if (txt) {
+                folderContents.push(`## 📄 ${path.basename(fp)}\n${txt.slice(0, 5000)}`);
+              }
+            } else {
+              folderContents.push(`## 📄 ${path.basename(fp)}\n[非文本文件，格式: ${ext || '未知'}]`);
+            }
+          }
+        } catch { folderContents.push(`## ❌ ${fp}\n[路径不存在或无法访问]`); }
+      }
+      if (folderContents.length) {
+        systemPrompt += '\n\n---\n\n# 本地文件/文件夹引用\n以下内容来自智能体配置中引用的本地路径，实时读取于磁盘：\n\n' + folderContents.join('\n\n---\n\n');
+      }
+    }
+  } catch {}
+
   // 所有 Agent 自动注入 create_scheduled_task 工具
   if (!seenToolNames.has('create_scheduled_task')) {
     mergedTools.push({
@@ -222,8 +319,6 @@ function loadAgentConfig(agent) {
       "SELECT skill_name FROM agent_openclaw_skills WHERE (agent_id=? OR agent_id='*') AND enabled=1"
     ).all(agent);
     if (enabledSkills.length > 0) {
-      const fs = require('fs');
-      const path = require('path');
       const os = require('os');
       const homeDir = os.homedir();
       let skillPrompts = '';

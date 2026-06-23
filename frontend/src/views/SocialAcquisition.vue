@@ -9,11 +9,17 @@
       <!-- Tab 1: 搜索发现 -->
       <el-tab-pane label="搜索发现" name="search">
         <div class="search-form">
-          <el-select v-model="searchPlatform" placeholder="选择平台" style="width:160px">
+          <el-select v-model="searchPlatform" placeholder="选择平台" style="width:140px">
             <el-option v-for="p in platforms" :key="p.value" :label="p.label" :value="p.value" />
           </el-select>
-          <el-input v-model="searchKeyword" placeholder="输入关键词" style="width:240px" @keydown.enter="startSearch" />
-          <el-input-number v-model="searchLimit" :min="5" :max="50" :step="5" style="width:120px" />
+          <el-input v-model="searchKeyword" placeholder="输入关键词，如：美妆 测评 广州" style="width:260px" @keydown.enter="startSearch" />
+          <el-select v-model="searchPublishTime" style="width:130px">
+            <el-option label="不限时间" value="0" />
+            <el-option label="一天内" value="1" />
+            <el-option label="一周内" value="7" />
+            <el-option label="半年内" value="180" />
+          </el-select>
+          <el-input-number v-model="searchLimit" :min="5" :max="50" :step="5" style="width:100px" />
           <el-button type="primary" @click="startSearch" :loading="searching">开始搜索</el-button>
           <el-button size="small" @click="handleSwitchAccount" :loading="switchingAcc">切换账号</el-button>
         </div>
@@ -57,6 +63,7 @@
             <el-tag size="small">平台：{{ activeTask.platform }}</el-tag>
             <el-tag size="small">评论数：{{ activeTask.total_comments }}</el-tag>
             <el-button size="small" @click="loadWordcloud" :loading="loadingWc">词云分析</el-button>
+            <el-input v-model="commentLocation" placeholder="地点过滤，如：广州" size="small" style="width:140px" clearable @change="loadComments" />
             <div style="flex:1" />
             <el-select v-model="commentSort" size="small" style="width:120px" @change="loadComments">
               <el-option label="按热度" value="comment_likes" />
@@ -73,7 +80,7 @@
           </div>
 
           <!-- 评论列表 -->
-          <el-table :data="comments" stripe size="small" style="margin-top:12px" @selection-change="onSelChange">
+          <el-table :data="comments" stripe size="small" max-height="400" style="margin-top:12px" @selection-change="onSelChange">
             <el-table-column type="selection" width="40" />
             <el-table-column prop="comment_content" label="评论内容" min-width="200" show-overflow-tooltip />
             <el-table-column prop="comment_author" label="评论者" width="100" />
@@ -105,7 +112,7 @@
           </el-radio-group>
         </div>
 
-        <el-table :data="replyList" stripe size="small">
+        <el-table :data="replyList" stripe size="small" max-height="400">
           <el-table-column prop="post_title" label="原帖" min-width="150" show-overflow-tooltip />
           <el-table-column prop="comment_author" label="评论者" width="90" />
           <el-table-column prop="comment_content" label="原始评论" min-width="180" show-overflow-tooltip />
@@ -117,10 +124,11 @@
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="350">
+          <el-table-column label="操作" width="420">
             <template #default="{row}">
               <el-button link type="success" size="small" @click="approveReply(row)" :disabled="row.status==='approved'||row.status==='sent'"><el-icon><Check /></el-icon>批准</el-button>
               <el-button link type="danger" size="small" @click="rejectReply(row)" :disabled="row.status==='rejected'"><el-icon><Close /></el-icon>拒绝</el-button>
+              <el-button link type="primary" size="small" @click="handleSendReply(row)" :loading="row._sending" :disabled="row.status==='sent'||row.status==='draft'||row.status==='rejected'"><el-icon><Promotion /></el-icon>{{ row.status==='send_failed'?'重发':'发送' }}</el-button>
               <el-button link type="primary" size="small" @click="copyAndOpen(row)" :disabled="!row.post_url"><el-icon><CopyDocument /></el-icon>复制并跳转</el-button>
               <el-button link size="small" @click="editReply(row)">编辑</el-button>
               <el-button link type="danger" size="small" @click="delReply(row)">删除</el-button>
@@ -221,10 +229,10 @@
 <script setup>
 import { ref, reactive } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ChatDotSquare, Check, Close, CopyDocument } from '@element-plus/icons-vue'
+import { ChatDotSquare, Check, Close, CopyDocument, Promotion } from '@element-plus/icons-vue'
 import {
   createSearch, getTasks, getTask, getComments, getWordcloud,
-  deleteTask, generateReplies, updateReply, getReplies, deleteReply,
+  deleteTask, generateReplies, updateReply, getReplies, deleteReply, sendReply,
   switchAccount, getAccountStatus,
   addMonitor, getMonitors, updateMonitor, deleteMonitor, checkMonitor, checkAllMonitors
 } from '../api/social-acquisition.js'
@@ -243,6 +251,7 @@ const platforms = [
 ]
 const searchPlatform = ref('xiaohongshu')
 const searchKeyword = ref('')
+const searchPublishTime = ref('0')
 const searchLimit = ref(10)
 const searching = ref(false)
 const tasks = ref([])
@@ -269,6 +278,7 @@ async function startSearch() {
       platform: searchPlatform.value,
       keyword: searchKeyword.value.trim(),
       limit: searchLimit.value,
+      publish_time: searchPublishTime.value,
     })
     ElMessage.success('搜索任务已创建，后台执行中...')
     setTimeout(loadTasks, 3000)
@@ -310,6 +320,7 @@ const commentTotal = ref(0)
 const commentPage = ref(1)
 const commentSort = ref('comment_likes')
 const selectedComments = ref([])
+const commentLocation = ref('')
 const wcloud = ref([])
 const loadingWc = ref(false)
 const wcColors = ['#7c3aed','#5b21b6','#a78bfa','#c4b5fd','#4c1d95','#8b5cf6','#ede9fe','#6d28d9','#9f7aea','#dcd5f5']
@@ -323,11 +334,13 @@ function viewComments(row) {
 
 async function loadComments() {
   try {
-    const { data } = await getComments(activeTask.value.id, {
+    const params = {
       page: commentPage.value,
       pageSize: 30,
       sort: commentSort.value,
-    })
+    }
+    if (commentLocation.value) params.location = commentLocation.value
+    const { data } = await getComments(activeTask.value.id, params)
     comments.value = (data.data?.list || []).map(c => ({
       ...c,
       // 用 post_url 或 post_title 作为唯一标识
@@ -471,6 +484,20 @@ async function rejectReply(row) {
   } catch { ElMessage.error('操作失败') }
 }
 
+async function handleSendReply(row) {
+  try {
+    await ElMessageBox.confirm(
+      `确定要将此回复发布到平台吗？\n\n回复内容：${row.content?.slice(0, 80)}...`,
+      '确认发布', { type: 'warning', confirmButtonText: '发布' }
+    )
+    row._sending = true
+    await sendReply(row.id)
+    ElMessage.success('发布请求已提交，浏览器窗口将自动操作')
+    loadReplies()
+  } catch { /* 取消 */ }
+  finally { row._sending = false }
+}
+
 async function copyAndOpen(row) {
   try {
     await navigator.clipboard.writeText(row.content)
@@ -519,7 +546,7 @@ async function saveEditReply() {
 </script>
 
 <style scoped>
-.sa-page { padding: 20px 24px; }
+.sa-page { padding: 20px 24px; height: 100%; overflow-y: auto; }
 .sa-header { margin-bottom: 16px; }
 .sa-header h3 { margin: 0 0 4px; font-size: 18px; color: #4a3f5e; }
 .sa-subtitle { font-size: 13px; color: #b8aad0; }

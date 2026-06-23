@@ -15,7 +15,7 @@
         <div class="nav-group">
           <div class="nav-group-title">对话</div>
           <div class="nav-item-wrapper" v-if="hasPerm('chat')">
-            <a class="nav-item" :class="{ active: isChatActive }" href="#" @click.prevent="newChatSession" style="flex:1">
+            <a class="nav-item" :class="{ active: isChatActive }" href="#" @click.prevent="toggleChatSessions" style="flex:1">
               <el-icon><ChatDotSquare /></el-icon><span>实时聊天</span>
             </a>
             <el-button class="nav-item-toggle" text size="small" @click="toggleChatSessions">
@@ -23,6 +23,10 @@
             </el-button>
           </div>
           <div class="nav-sub-group" v-show="showChatSessions && hasPerm('chat')">
+            <div class="nav-sub-item nav-sub-add" @click="newChatSession">
+              <el-icon :size="14"><Plus /></el-icon>
+              <span>新建会话</span>
+            </div>
             <div
               v-for="s in chatSessions" :key="s.id"
               class="nav-sub-item"
