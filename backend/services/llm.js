@@ -7,7 +7,7 @@ async function chat(messages, temperature = 0.7) {
   const res = await fetch(`${config.api_base}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.api_key}` },
-    body: JSON.stringify({ model: config.model, messages, temperature, max_tokens: 1024 })
+    body: JSON.stringify({ model: config.model, messages, temperature, max_tokens: 4096 })
   });
   if (!res.ok) { const err = await res.text().catch(() => ''); throw new Error(`LLM ${res.status}: ${err.slice(0, 300)}`); }
   const data = await res.json();
@@ -16,11 +16,22 @@ async function chat(messages, temperature = 0.7) {
 
 function parseJSON(response) {
   let text = response.trim();
-  if (text.startsWith('```')) {
-    const lines = text.split('\n');
-    text = lines.slice(1, lines[lines.length - 1].startsWith('```') ? -1 : lines.length).join('\n');
+  // Strip markdown code fences
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fence) text = fence[1].trim();
+  // Try to find a JSON object in the response
+  const objMatch = text.match(/\{[\s\S]*\}/);
+  if (objMatch) text = objMatch[0];
+  try {
+    return JSON.parse(text);
+  } catch {
+    // Retry with escaped newlines if needed
+    try {
+      return JSON.parse(text.replace(/\n/g, '\\n'));
+    } catch {
+      throw new Error('AI返回格式异常，请重试');
+    }
   }
-  return JSON.parse(text);
 }
 
 module.exports = { chat, parseJSON };

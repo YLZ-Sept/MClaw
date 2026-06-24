@@ -30,9 +30,9 @@ export const hotContentApi = {
 }
 
 export const hotExtractApi = {
-  extract: (url) => POST('/hot-extract/content', { url }),
-  crawl: (platform, keyword, limit) => POST('/hot-extract/crawl', { platform, keyword, limit }),
   rewrite: (d) => POST('/hot-extract/rewrite', d),
+  history: () => GET('/hot-extract/history'),
+  getHistory: (id) => GET(`/hot-extract/history/${id}`),
 }
 
 export const hotQuickReplyApi = {

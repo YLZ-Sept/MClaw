@@ -4,7 +4,7 @@
     <div class="page-hd">
       <div>
         <span class="page-title">一键追爆款</span>
-        <span class="page-sub">内容提取 · AI改写 · 视频生成 · 全平台分发</span>
+        <span class="page-sub">AI改写 · 视频生成 · 全平台分发</span>
       </div>
     </div>
 
@@ -29,96 +29,89 @@
       </div>
     </div>
 
-    <!-- === Step 0: Extract === -->
+    <!-- === Step 0: Rewrite === -->
     <div v-show="step === 0">
-      <el-card header="内容提取" class="step-card">
-        <el-form :model="extract" label-width="80px" style="max-width:700px">
-          <el-form-item label="平台URL">
-            <el-input v-model="extract.url" placeholder="粘贴抖音/小红书/快手等平台链接" @keyup.enter="doExtract"/>
-          </el-form-item>
-          <el-form-item>
-            <el-button type="primary" :loading="extracting" @click="doExtract">提取内容</el-button>
-          </el-form-item>
-        </el-form>
-      </el-card>
-
-      <el-card v-if="extractResult" style="margin-top:16px" header="提取结果">
-        <el-descriptions :column="1" border size="small">
-          <el-descriptions-item label="标题">{{ extractResult.title }}</el-descriptions-item>
-          <el-descriptions-item label="平台">{{ extractResult.platform }}</el-descriptions-item>
-          <el-descriptions-item label="标签">{{ extractResult.tags }}</el-descriptions-item>
-          <el-descriptions-item label="正文"><div style="max-height:200px;overflow-y:auto;white-space:pre-wrap">{{ extractResult.body }}</div></el-descriptions-item>
-        </el-descriptions>
-        <div style="margin-top:12px">
-          <el-button type="primary" @click="step=1;rewriteForm.source_title=extractResult.title;rewriteForm.source_body=extractResult.body;rewriteForm.source_tags=extractResult.tags;rewriteForm.source_url=extractResult.source_url;rewriteForm.source_platform=extractResult.platform;rewriteForm.user_prompt='';rewriteResult=null">下一步：AI改写</el-button>
-        </div>
-      </el-card>
-
-      <el-card style="margin-top:16px" header="全部内容">
-        <HistoryTable :data="contentList" :step="0" @go-step="goStep" @go-video="goToVideo" @publish="publishContent" @approve="approveContent" @reject="rejectContent" @delete="deleteContent" @retry-video="retryVideo"/>
-      </el-card>
-    </div>
-
-    <!-- === Step 1: Rewrite === -->
-    <div v-show="step === 1">
       <el-card header="AI改写" class="step-card" style="max-width:700px">
-        <el-form label-width="90px">
-          <el-form-item label="原标题">
-            <el-input v-model="rewriteForm.source_title" placeholder="选填：原内容的标题"/>
+        <el-form label-width="100px">
+          <el-form-item label="原文文案">
+            <el-input v-model="rewriteForm.source_body" type="textarea" :rows="6" placeholder="粘贴短视频文案/口播脚本/种草笔记原文..."/>
           </el-form-item>
-          <el-form-item label="原文">
-            <el-input v-model="rewriteForm.source_body" type="textarea" :rows="5" placeholder="粘贴原始文案，或从Step 0提取后自动填充"/>
+          <el-form-item label="输出版本">
+            <el-checkbox-group v-model="rewriteForm.versions">
+              <el-checkbox label="口播版">口播版</el-checkbox>
+              <el-checkbox label="种草版">种草版(小红书)</el-checkbox>
+              <el-checkbox label="促单版">促单版(直播)</el-checkbox>
+            </el-checkbox-group>
           </el-form-item>
-          <el-form-item label="标签">
-            <el-input v-model="rewriteForm.source_tags" placeholder="选填：原内容的标签，逗号分隔"/>
+          <el-form-item label="进阶">
+            <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+              <el-checkbox v-model="rewriteForm.remove_ai_trace">去AI痕迹</el-checkbox>
+              <el-checkbox v-model="rewriteForm.use_word_limit">限制字数</el-checkbox>
+              <el-input-number v-if="rewriteForm.use_word_limit" v-model="rewriteForm.word_limit" :min="20" :max="2000" :step="10" size="small" style="width:120px"/>
+              <span v-if="rewriteForm.use_word_limit" style="font-size:12px;color:#909399">字</span>
+            </div>
           </el-form-item>
           <el-form-item label="改写要求">
-            <el-input v-model="rewriteForm.user_prompt" type="textarea" :rows="2" placeholder="选填：描述改写风格、语气、目标平台等要求"/>
+            <el-input v-model="rewriteForm.user_prompt" type="textarea" :rows="2" placeholder="选填：额外风格、语气、侧重点等要求"/>
           </el-form-item>
           <el-form-item>
-            <el-button @click="step=0">上一步</el-button>
             <el-button type="primary" :loading="rewriting" @click="doRewrite">开始改写</el-button>
           </el-form-item>
         </el-form>
       </el-card>
 
       <el-card v-if="rewriteResult" style="margin-top:16px;max-width:700px" header="改写结果">
-        <el-descriptions :column="1" border size="small">
-          <el-descriptions-item label="新标题">{{ rewriteResult.title }}</el-descriptions-item>
-          <el-descriptions-item label="新标签">{{ rewriteResult.tags }}</el-descriptions-item>
-          <el-descriptions-item label="新正文"><div style="max-height:200px;overflow-y:auto;white-space:pre-wrap">{{ rewriteResult.body }}</div></el-descriptions-item>
-        </el-descriptions>
-        <div style="margin-top:12px">
-          <el-button type="primary" @click="editForm.title=rewriteResult.title;editForm.body=rewriteResult.body;editForm.tags=rewriteResult.tags;step=2">下一步：编辑发布</el-button>
-        </div>
+        <el-tabs v-model="rewriteActiveTab">
+          <el-tab-pane v-for="v in rewriteForm.versions" :key="v" :label="v" :name="v">
+            <div style="white-space:pre-wrap;padding:12px;background:#f8f7ff;border-radius:8px;min-height:80px;line-height:1.8">{{ rewriteResult[v] || '(暂无内容)' }}</div>
+            <div style="margin-top:12px">
+              <el-button type="primary" @click="useRewriteVersion(v)">送入编辑</el-button>
+            </div>
+          </el-tab-pane>
+        </el-tabs>
       </el-card>
 
-      <el-card style="margin-top:16px" header="待编辑内容">
-        <HistoryTable :data="rewriteHistory" :step="1" @go-step="goStep" @go-video="goToVideo" @publish="publishContent" @approve="approveContent" @reject="rejectContent" @delete="deleteContent" @retry-video="retryVideo"/>
+      <el-card v-if="rewriteHistory.length" style="margin-top:16px" header="改写历史">
+        <el-table :data="rewriteHistory" stripe size="small" max-height="400">
+          <el-table-column label="原文" min-width="200" show-overflow-tooltip>
+            <template #default="{row}">{{ row.source_body }}</template>
+          </el-table-column>
+          <el-table-column label="版本" width="160">
+            <template #default="{row}">{{ row.versions }}</template>
+          </el-table-column>
+          <el-table-column label="时间" width="160">
+            <template #default="{row}">{{ row.created_at }}</template>
+          </el-table-column>
+          <el-table-column label="操作" width="80">
+            <template #default="{row}">
+              <el-button size="small" type="primary" link @click="loadRewriteHistoryItem(row.id)">查看</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
       </el-card>
     </div>
 
-    <!-- === Step 2: Edit === -->
-    <div v-show="step === 2">
+    <!-- === Step 1: Edit === -->
+    <div v-show="step === 1">
       <el-card header="编辑内容" class="step-card">
         <el-form :model="editForm" label-width="90px" style="max-width:700px">
           <el-form-item label="标题"><el-input v-model="editForm.title"/></el-form-item>
           <el-form-item label="正文"><el-input v-model="editForm.body" type="textarea" :rows="6"/></el-form-item>
           <el-form-item label="标签"><el-input v-model="editForm.tags" placeholder="逗号分隔"/></el-form-item>
           <el-form-item>
-            <el-button @click="step=1">上一步</el-button>
+            <el-button @click="step=0">上一步</el-button>
             <el-button type="primary" :loading="saving" @click="doSaveContent">保存为草稿</el-button>
           </el-form-item>
         </el-form>
       </el-card>
 
       <el-card style="margin-top:16px" header="内容列表">
-        <HistoryTable :data="editHistory" :step="2" @go-step="goStep" @go-video="goToVideo" @publish="publishContent" @approve="approveContent" @reject="rejectContent" @delete="deleteContent" @retry-video="retryVideo"/>
+        <HistoryTable :data="editHistory" :step="1" @go-step="goStep" @go-video="goToVideo" @publish="publishContent" @approve="approveContent" @reject="rejectContent" @delete="deleteContent" @retry-video="retryVideo"/>
       </el-card>
     </div>
 
-    <!-- === Step 3: Video === -->
-    <div v-show="step === 3">
+    <!-- === Step 2: Video === -->
+    <div v-show="step === 2">
       <el-card header="生成视频" class="step-card">
         <el-form :model="videoForm" label-width="100px" style="max-width:650px">
           <el-form-item label="当前内容"><strong>{{ videoForm.title || '请先从内容列表选择' }}</strong></el-form-item>
@@ -164,7 +157,7 @@
 
 
           <el-form-item>
-            <el-button @click="step=2">上一步</el-button>
+            <el-button @click="step=1">上一步</el-button>
             <el-button type="primary" :loading="generating" @click="doGenerateVideo" :disabled="!videoForm.contentId">开始生成视频</el-button>
           </el-form-item>
         </el-form>
@@ -177,12 +170,12 @@
         <el-result v-else-if="videoStatus==='failed'" icon="error" title="生成失败" :sub-title="videoError"/>
         <div v-else-if="videoStatus==='done'">
           <video :src="videoUrl" controls style="width:100%;max-width:540px;border-radius:8px"/>
-          <div style="margin-top:8px"><el-button type="primary" @click="step=4">下一步：发布</el-button></div>
+          <div style="margin-top:8px"><el-button type="primary" @click="step=3">下一步：发布</el-button></div>
         </div>
       </el-card>
 
       <el-card style="margin-top:16px" header="视频历史">
-        <HistoryTable :data="videoHistory" :step="3" @go-step="goStep" @go-video="goToVideo" @publish="publishContent" @approve="approveContent" @reject="rejectContent" @delete="deleteContent" @viewVideo="viewHistoryVideo" @downloadVideo="downloadHistoryVideo" @retryVideo="retryVideo"/>
+        <HistoryTable :data="videoHistory" :step="2" @go-step="goStep" @go-video="goToVideo" @publish="publishContent" @approve="approveContent" @reject="rejectContent" @delete="deleteContent" @viewVideo="viewHistoryVideo" @downloadVideo="downloadHistoryVideo" @retryVideo="retryVideo"/>
       </el-card>
     </div>
 
@@ -233,8 +226,8 @@
       <el-empty v-if="!fontLoading && fontList.length===0" description="暂无字体"/>
     </el-dialog>
 
-    <!-- === Step 4: Publish === -->
-    <div v-show="step === 4">
+    <!-- === Step 3: Publish === -->
+    <div v-show="step === 3">
       <!-- 多平台账号状态卡片 -->
       <el-alert v-if="publishHealth !== 'healthy'" :title="publishHealth === 'unreachable' ? '发布服务未连接' : '服务状态未知'"
         :type="publishHealth === 'unreachable' ? 'error' : 'warning'" :closable="false" show-icon style="margin-bottom:12px"/>
@@ -337,7 +330,7 @@
                 type="datetime" placeholder="选择发布时间" format="YYYY-MM-DD HH:mm" value-format="YYYY-MM-DD HH:mm"/>
             </div>
             <div style="display:flex;gap:12px">
-              <el-button @click="step=3" size="large">上一步</el-button>
+              <el-button @click="step=2" size="large">上一步</el-button>
               <el-button type="primary" size="large" :loading="publishing" @click="doPublish"
                 :disabled="!publishTargets.length || !publishTargets.some(id => getAccountById(id)?.acc?.status?.is_logged_in)">
                 {{ publishForm.scheduled ? '定时发布' : '发布' }}
@@ -372,7 +365,7 @@
       </div>
 
       <el-card style="margin-top:16px" header="已发布内容">
-        <HistoryTable :data="publishHistory" :step="4" @go-step="goStep" @go-video="goToVideo" @publish="publishContent" @approve="approveContent" @reject="rejectContent" @delete="deleteContent" @retry-video="retryVideo" @republish="republishContent" @view-publish="viewPublishContent"/>
+        <HistoryTable :data="publishHistory" :step="3" @go-step="goStep" @go-video="goToVideo" @publish="publishContent" @approve="approveContent" @reject="rejectContent" @delete="deleteContent" @retry-video="retryVideo" @republish="republishContent" @view-publish="viewPublishContent"/>
       </el-card>
     </div>
   </div>
@@ -387,7 +380,6 @@ import HistoryTable from './HistoryTable.vue'
 
 const step = ref(0)
 const steps = [
-  { title: '提取', desc: '粘贴爆款链接' },
   { title: '改写', desc: 'AI去重改写' },
   { title: '编辑', desc: '上传素材' },
   { title: '视频', desc: 'AI生成' },
@@ -410,64 +402,86 @@ function stepStat(i) {
   const list = contentList.value
   switch (i) {
     case 0: return list.length > 0 ? 'done' : 'process'
-    case 1: return list.length > 0 ? 'done' : 'process'
-    case 2: return list.some(c => c.status === 'draft' || c.status === 'approved' || c.status === 'published') ? 'done' : 'process'
-    case 3: return list.some(c => c.video_status === 'done') ? 'done' : 'process'
-    case 4: return list.some(c => c.status === 'published') ? 'done' : 'process'
+    case 1: return list.some(c => c.status === 'draft' || c.status === 'approved' || c.status === 'published') ? 'done' : 'process'
+    case 2: return list.some(c => c.video_status === 'done') ? 'done' : 'process'
+    case 3: return list.some(c => c.status === 'published') ? 'done' : 'process'
     default: return 'wait'
   }
 }
 
 // ─── Filtered lists ───
-const rewriteHistory = computed(() => contentList.value.filter(c => c.status === 'draft'))
+const rewriteHistory = ref([])
 const editHistory = computed(() => contentList.value.filter(c => c.status === 'draft' || c.status === 'approved'))
 const videoHistory = computed(() => contentList.value.filter(c => c.video_status))
 const publishHistory = computed(() => contentList.value.filter(c => c.status === 'published'))
 
 function goStep(row, s) {
-  if (s === 2) {
+  if (s === 1) {
     editForm.title = row.title
     editForm.body = row.body
     editForm.tags = row.tags || ''
-  } else if (s === 3) {
+  } else if (s === 2) {
     goToVideo(row)
     return
   }
   step.value = s
 }
 
-// ─── Step 0: Extract ───
-const extract = reactive({ url: '' })
-const extracting = ref(false)
-const extractResult = ref(null)
-async function doExtract() {
-  if (!extract.url) return ElMessage.warning('请输入URL')
-  extracting.value = true
-  try {
-    const res = await hotExtractApi.extract(extract.url)
-    extractResult.value = res.data.data
-    ElMessage.success('提取成功')
-  } catch (e) {
-    ElMessage.error(e.response?.data?.message || '提取失败')
-  } finally { extracting.value = false }
-}
-
-// ─── Step 1: Rewrite ───
-const rewriteForm = reactive({ source_title: '', source_body: '', source_tags: '', source_url: '', source_platform: 'other', user_prompt: '' })
+// ─── Step 0: Rewrite ───
+const rewriteForm = reactive({ source_body: '', versions: ['口播版', '种草版', '促单版'], remove_ai_trace: false, use_word_limit: false, word_limit: 200, user_prompt: '' })
 const rewriting = ref(false), rewriteResult = ref(null)
+const rewriteActiveTab = ref('口播版')
 async function doRewrite() {
-  if (!rewriteForm.source_body && !rewriteForm.source_title) return ElMessage.warning('缺少原文')
+  if (!rewriteForm.source_body) return ElMessage.warning('请输入原文')
+  if (!rewriteForm.versions.length) return ElMessage.warning('请至少选择一个输出版本')
   rewriting.value = true
   try {
-    const res = await hotExtractApi.rewrite(rewriteForm)
+    const res = await hotExtractApi.rewrite({
+      source_body: rewriteForm.source_body,
+      versions: rewriteForm.versions,
+      remove_ai_trace: rewriteForm.remove_ai_trace,
+      word_limit: rewriteForm.use_word_limit ? rewriteForm.word_limit : null,
+      user_prompt: rewriteForm.user_prompt,
+    })
     rewriteResult.value = res.data.data
+    rewriteActiveTab.value = rewriteForm.versions[0]
+    loadRewriteHistory()
     ElMessage.success('改写完成')
   } catch (e) {
     ElMessage.error(e.response?.data?.message || '改写失败')
   } finally { rewriting.value = false }
 }
+function useRewriteVersion(version) {
+  const text = rewriteResult.value[version] || ''
+  const lines = text.split('\n').filter(l => l.trim())
+  editForm.title = lines[0] ? lines[0].slice(0, 30) : ''
+  editForm.body = text
+  editForm.tags = ''
+  step.value = 1
+}
 
-// ─── Step 2: Edit ───
+async function loadRewriteHistory() {
+  try {
+    rewriteHistory.value = (await hotExtractApi.history()).data.data || []
+  } catch {}
+}
+
+async function loadRewriteHistoryItem(id) {
+  try {
+    const res = await hotExtractApi.getHistory(id)
+    const item = res.data.data
+    if (item && item.result) {
+      rewriteResult.value = item.result
+      rewriteActiveTab.value = Object.keys(item.result)[0] || '口播版'
+      // Scroll to result
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+  } catch {
+    ElMessage.error('加载改写历史失败')
+  }
+}
+
+// ─── Step 1: Edit ───
 const editForm = reactive({ title: '', body: '', tags: '' })
 const saving = ref(false), savedContent = ref(null)
 async function doSaveContent() {
@@ -500,10 +514,10 @@ async function rejectContent(row) {
 function goToVideo(row) {
   videoForm.contentId = row.id
   videoForm.title = row.title
-  step.value = 3
+  step.value = 2
 }
 async function publishContent(row) {
-  // 跳转到 Step 4 进行抖音发布预览
+  // 跳转到发布步骤
   videoForm.contentId = row.id
   videoForm.title = row.title || ''
   if (row.video_url_landscape) videoForm.orientation = 'landscape'
@@ -516,11 +530,11 @@ async function publishContent(row) {
   publishForm.location = ''
   coverUrl.value = ''
   coverSamples.value = []
-  step.value = 4
+  step.value = 3
 }
 
 function republishContent(row) {
-  // 二次发布：填充表单到 Step 4 上方模块
+  // 二次发布：填充发布表单
   videoForm.contentId = row.id
   videoForm.title = row.title || ''
   if (row.video_url_landscape) { videoForm.orientation = 'landscape'; coverOrientation.value = 'landscape' }
@@ -545,7 +559,7 @@ async function deleteContent(id) {
   try { await ElMessageBox.confirm('确认删除?'); await hotContentApi.remove(id); await loadContents() } catch {}
 }
 
-// ─── Step 3: Video ───
+// ─── Step 2: Video ───
 const videoForm = reactive({ contentId: '', title: '', mode: 'chanjing', orientation: 'portrait', speed: 1.0, person_id: '', audio_man_id: '', pitch: 1.0, font_id: '', figure_type: '', figure_width: 0, figure_height: 0 })
 const generating = ref(false), videoStatus = ref(null), videoError = ref(''), videoUrl = ref('')
 
@@ -703,7 +717,7 @@ async function doGenerateVideo() {
 async function retryVideo(row) {
   videoForm.contentId = row.id
   videoForm.title = row.title || ''
-  step.value = 3
+  step.value = 2
   await nextTick()
   doGenerateVideo()
 }
@@ -734,7 +748,7 @@ function downloadHistoryVideo(row) {
   document.body.removeChild(a)
 }
 
-// ─── Step 4: Publish ───
+// ─── Step 3: Publish ───
 const publishForm = reactive({ title: '', description: '', tagList: [], tags: '', scheduled: false, publishDate: null, location: '' })
 
 const tagInputText = ref('')
@@ -918,7 +932,7 @@ async function doPublish() {
 
 // 进入 Step 4 时预填
 watch(step, async (s) => {
-  if (s === 4) {
+  if (s === 3) {
     await checkPublishHealth()
     await checkAllAccountStatus()
     // Auto-detect cover orientation from video availability
@@ -939,6 +953,7 @@ watch(step, async (s) => {
 
 onMounted(() => {
   loadContents()
+  loadRewriteHistory()
   checkPublishHealth()
 })
 </script>
@@ -1076,7 +1091,7 @@ onMounted(() => {
 .rc-meta { font-size: 12px; color: #909399; margin-top: 2px; }
 .rc-check { position: absolute; top: 8px; right: 8px; font-size: 22px; color: #7c3aed; }
 
-/* ─── Step 4: Douyin Publish Layout ─── */
+/* ─── Step 3: Publish Layout ─── */
 .douyin-publish-layout {
   display: flex;
   gap: 20px;

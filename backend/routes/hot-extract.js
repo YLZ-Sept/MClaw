@@ -1,43 +1,58 @@
-// 爆款视频 — 内容提取 + AI 改写 + 多平台爬虫
+// 爆款视频 — AI 改写 + 改写历史 + TTS 试听
 const { Router } = require('express');
-const { extractFromUrl } = require('../services/content-extractor');
+const crypto = require('crypto');
 const { rewriteContent } = require('../services/content-rewriter');
-const { extract: mcExtract } = require('../services/media-crawler');
 const router = Router();
 
-// 通用 URL 提取（原有）
-router.post('/content', async (req, res) => {
-  try {
-    const { url } = req.body;
-    if (!url) return res.status(400).json({ code: 400, message: 'url 必填' });
-    const result = await extractFromUrl(url);
-    res.json({ code: 200, data: result });
-  } catch (err) {
-    res.status(500).json({ code: 500, message: err.message });
-  }
-});
-
-// MediaCrawler 多平台搜索提取
-router.post('/crawl', async (req, res) => {
-  try {
-    const { platform, keyword, limit } = req.body;
-    if (!platform || !keyword) return res.status(400).json({ code: 400, message: 'platform 和 keyword 必填' });
-    const result = await mcExtract({ platform, keyword, limit: limit || 10 });
-    res.json({ code: 200, data: result });
-  } catch (err) {
-    res.status(500).json({ code: 500, message: err.message });
-  }
-});
+function getDB() {
+  return require('../db');
+}
 
 // AI 改写
 router.post('/rewrite', async (req, res) => {
   try {
-    const { source_title, source_body, source_tags, source_url, source_platform, user_prompt } = req.body;
-    if (!source_title && !source_body) return res.status(400).json({ code: 400, message: '缺少原文内容' });
-    const result = await rewriteContent({
-      title: source_title, body: source_body, tags: source_tags, platform: source_platform || 'other'
-    }, user_prompt);
-    res.json({ code: 200, data: result });
+    const { source_body, versions, remove_ai_trace, word_limit, user_prompt } = req.body;
+    if (!source_body) return res.status(400).json({ code: 400, message: '缺少原文内容' });
+    const result = await rewriteContent({ source_body, versions, remove_ai_trace, word_limit, user_prompt });
+    console.log('[rewrite] result keys:', Object.keys(result));
+
+    // Auto-save to history
+    try {
+      const db = getDB();
+      const id = crypto.randomUUID();
+      const v = versions && versions.length ? versions : ['口播版', '种草版', '促单版'];
+      db.prepare('INSERT INTO rewrite_history (id, source_body, result_json, versions) VALUES (?, ?, ?, ?)').run(
+        id, source_body, JSON.stringify(result), v.join(',')
+      );
+      res.json({ code: 200, data: result, history_id: id });
+    } catch (e) {
+      console.error('[rewrite] save history failed:', e.message);
+      res.json({ code: 200, data: result });
+    }
+  } catch (err) {
+    console.error('[rewrite] error:', err.message);
+    res.status(500).json({ code: 500, message: err.message });
+  }
+});
+
+// 改写历史
+router.get('/history', async (req, res) => {
+  try {
+    const db = getDB();
+    const rows = db.prepare('SELECT id, source_body, versions, created_at FROM rewrite_history ORDER BY created_at DESC LIMIT 50').all();
+    res.json({ code: 200, data: rows });
+  } catch (err) {
+    res.status(500).json({ code: 500, message: err.message });
+  }
+});
+
+router.get('/history/:id', async (req, res) => {
+  try {
+    const db = getDB();
+    const row = db.prepare('SELECT * FROM rewrite_history WHERE id = ?').get(req.params.id);
+    if (!row) return res.status(404).json({ code: 404, message: '记录不存在' });
+    row.result = JSON.parse(row.result_json);
+    res.json({ code: 200, data: row });
   } catch (err) {
     res.status(500).json({ code: 500, message: err.message });
   }

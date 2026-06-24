@@ -17,17 +17,17 @@
     <el-table-column prop="generated_at" label="时间" width="110"/>
     <el-table-column label="操作" width="280" fixed="right">
       <template #default="{row}">
-        <el-button v-if="step===1 && row.status==='draft'" size="small" type="primary" link @click="$emit('goStep', row, 2)">编辑</el-button>
-        <el-button v-if="(step===2 || step===0) && row.status==='draft'" size="small" type="success" link @click="$emit('approve', row)">通过</el-button>
-        <el-button v-if="(step===2 || step===0) && row.status==='draft'" size="small" type="danger" link @click="$emit('reject', row)">驳回</el-button>
+        <el-button v-if="step===0 && row.status==='draft'" size="small" type="primary" link @click="$emit('goStep', row, 1)">编辑</el-button>
+        <el-button v-if="step===1 && row.status==='draft'" size="small" type="success" link @click="$emit('approve', row)">通过</el-button>
+        <el-button v-if="step===1 && row.status==='draft'" size="small" type="danger" link @click="$emit('reject', row)">驳回</el-button>
         <el-button v-if="row.status==='approved' && row.video_status!=='generating'" size="small" type="primary" link @click="$emit('goVideo', row)">生成视频</el-button>
         <el-button v-if="(row.status==='approved' || row.status==='published') && row.video_status==='done'" size="small" type="warning" link @click="$emit('publish', row)">发布</el-button>
         <el-button v-if="row.video_status==='failed'" size="small" type="danger" link @click="$emit('retryVideo', row)">重试</el-button>
-        <el-button v-if="step===3 && row.video_status==='done'" size="small" type="primary" link @click="$emit('viewVideo', row)">查看</el-button>
-        <el-button v-if="step===3 && row.video_status==='done'" size="small" type="success" link @click="$emit('downloadVideo', row)">下载</el-button>
-        <el-button v-if="step===4 && row.status==='published'" size="small" type="warning" link @click="$emit('republish', row)">二次发布</el-button>
-        <el-button v-if="step===4 && row.status==='published'" size="small" type="primary" link @click="$emit('viewPublish', row)">查看</el-button>
-        <el-button v-if="step<=4" size="small" type="danger" link @click="$emit('delete', row.id)">删除</el-button>
+        <el-button v-if="step===2 && row.video_status==='done'" size="small" type="primary" link @click="$emit('viewVideo', row)">查看</el-button>
+        <el-button v-if="step===2 && row.video_status==='done'" size="small" type="success" link @click="$emit('downloadVideo', row)">下载</el-button>
+        <el-button v-if="step===3 && row.status==='published'" size="small" type="warning" link @click="$emit('republish', row)">二次发布</el-button>
+        <el-button v-if="step===3 && row.status==='published'" size="small" type="primary" link @click="$emit('viewPublish', row)">查看</el-button>
+        <el-button v-if="step<=3" size="small" type="danger" link @click="$emit('delete', row.id)">删除</el-button>
       </template>
     </el-table-column>
   </el-table>

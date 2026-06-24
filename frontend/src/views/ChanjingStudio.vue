@@ -1,23 +1,7 @@
 <template>
   <div>
     <el-tabs v-model="tab" type="border-card">
-      <!-- ① 文案提取 -->
-      <el-tab-pane label="文案提取" name="extract">
-        <el-card header="粘贴平台链接提取文案">
-          <el-form :inline="true"><el-form-item><el-input v-model="extractUrl" placeholder="粘贴抖音/小红书/快手等链接" style="width:420px" @keyup.enter="doExtract"/></el-form-item><el-form-item><el-button type="primary" :loading="extracting" @click="doExtract">提取</el-button></el-form-item></el-form>
-          <div v-if="extractResult" style="margin-top:12px;background:#f8f7ff;padding:16px;border-radius:8px">
-            <div><strong>{{ extractResult.title }}</strong></div>
-            <div style="color:#909399;font-size:12px;margin-top:4px">{{ extractResult.platform }} | {{ extractResult.tags }}</div>
-            <div style="margin-top:8px;white-space:pre-wrap;max-height:200px;overflow-y:auto">{{ extractResult.body }}</div>
-            <div style="margin-top:10px">
-              <el-button size="small" type="primary" @click="useForVideo(extractResult)">送入智能成片</el-button>
-              <el-button size="small" @click="useForRewrite(extractResult)">送去改写</el-button>
-            </div>
-          </div>
-        </el-card>
-      </el-tab-pane>
-
-      <!-- ② 文案创作 -->
+      <!-- ① 文案创作 -->
       <el-tab-pane label="文案创作" name="rewrite">
         <el-card header="AI 文案创作">
           <el-form label-width="80px" style="max-width:600px">
@@ -35,7 +19,7 @@
         </el-card>
       </el-tab-pane>
 
-      <!-- ③ 智能成片 -->
+      <!-- ② 智能成片 -->
       <el-tab-pane label="智能成片" name="smartVideo">
         <el-card header="文字智能成片">
           <el-form label-width="90px" style="max-width:650px">
@@ -104,7 +88,7 @@
         </el-dialog>
       </el-tab-pane>
 
-      <!-- ④ 照片说话 -->
+      <!-- ③ 照片说话 -->
       <el-tab-pane label="照片说话" name="lipSync">
         <el-card header="对口型 / 照片说话">
           <el-form label-width="100px" style="max-width:650px">
@@ -149,7 +133,7 @@
         </el-card>
       </el-tab-pane>
 
-      <!-- ⑤ 数字人库 -->
+      <!-- ④ 数字人库 -->
       <el-tab-pane label="数字人库" name="dpLib">
         <el-card>
           <template #header><div style="display:flex;align-items:center;gap:12px"><span>公共数字人</span><el-button size="small" @click="reloadDpSmart">刷新</el-button><span style="font-size:12px;color:#909399">共 {{ dpList.length }} 个</span></div></template>
@@ -184,7 +168,7 @@
         </el-card>
       </el-tab-pane>
 
-      <!-- ⑥ 声音库 -->
+      <!-- ⑤ 声音库 -->
       <el-tab-pane label="声音库" name="voiceLib">
         <el-card header="公共声音">
           <div v-loading="voiceLoading" class="resource-grid">
@@ -200,7 +184,7 @@
         </el-card>
       </el-tab-pane>
 
-      <!-- ⑦ 批量生成 -->
+      <!-- ⑥ 批量生成 -->
       <el-tab-pane label="批量生成" name="batch">
         <el-card header="批量生成视频">
           <el-form label-width="90px" style="max-width:700px">
@@ -260,7 +244,7 @@
         </el-dialog>
       </el-tab-pane>
 
-      <!-- ⑧ 我的视频 -->
+      <!-- ⑦ 我的视频 -->
       <el-tab-pane label="我的视频" name="myVideos">
         <el-card header="视频列表">
           <div class="tb"><el-button size="small" @click="loadMyVideos" :loading="myVideosLoading">刷新</el-button><el-button size="small" type="success" @click="loadUserInfo">用户信息</el-button></div>
@@ -284,21 +268,9 @@ import { ElMessage } from 'element-plus'
 import { Delete, CircleCheckFilled, Search } from '@element-plus/icons-vue'
 import { hotChanjingApi, hotExtractApi } from '../api/hot-video'
 
-const tab = ref('extract')
+const tab = ref('rewrite')
 
-// ─── ① 文案提取 ───
-const extractUrl = ref(''), extracting = ref(false), extractResult = ref(null)
-async function doExtract() {
-  if (!extractUrl.value) return ElMessage.warning('请输入URL')
-  extracting.value = true
-  try { extractResult.value = (await hotExtractApi.extract(extractUrl.value)).data.data; ElMessage.success('提取成功') }
-  catch (e) { ElMessage.error(e.response?.data?.message || '提取失败') }
-  finally { extracting.value = false }
-}
-function useForVideo(r) { smartForm.text = `${r.title || ''}\n\n${r.body || ''}`; tab.value = 'smartVideo' }
-function useForRewrite(r) { rewriteForm.text = r.body || ''; rewriteForm.source_title = r.title || ''; rewriteForm.source_tags = r.tags || ''; tab.value = 'rewrite' }
-
-// ─── ② 文案创作 ───
+// ─── ① 文案创作 ───
 const rewriteMode = ref('rewrite'), rewriting = ref(false), rewriteResult = ref('')
 const rewriteForm = reactive({ text: '', prompt: '', source_title: '', source_tags: '' })
 async function doRewrite() {
@@ -306,19 +278,25 @@ async function doRewrite() {
   rewriting.value = true
   try {
     const res = await hotExtractApi.rewrite({
-      source_title: rewriteForm.source_title || (rewriteMode.value==='create'?rewriteForm.text.slice(0,30):''),
-      source_body: rewriteForm.text, source_tags: rewriteForm.source_tags,
-      source_platform: 'other', user_prompt: rewriteForm.prompt
+      source_body: rewriteForm.text,
+      versions: ['口播版', '种草版', '促单版'],
+      remove_ai_trace: false,
+      word_limit: null,
+      user_prompt: rewriteForm.prompt
     })
     const d = res.data.data
-    rewriteResult.value = rewriteMode.value==='create' ? (d.body || d.title) : `${d.title}\n\n${d.body}`
+    const parts = []
+    if (d['口播版']) parts.push('【口播版】\n' + d['口播版'])
+    if (d['种草版']) parts.push('【种草版】\n' + d['种草版'])
+    if (d['促单版']) parts.push('【促单版】\n' + d['促单版'])
+    rewriteResult.value = parts.join('\n\n') || '(无内容)'
     ElMessage.success('生成完成')
   } catch (e) { ElMessage.error(e.response?.data?.message || '生成失败') }
   finally { rewriting.value = false }
 }
 function rewriteToVideo() { smartForm.text = rewriteResult.value; tab.value = 'smartVideo' }
 
-// ─── ③ 智能成片 ───
+// ─── ② 智能成片 ───
 const smartForm = reactive({ text: '', personId: '', audioId: '', speed: 1.0, pitch: 1.0, model: 0, showSubtitle: true })
 const smartGenerating = ref(false), smartTaskId = ref('')
 async function doSmartGenerate() {
@@ -343,7 +321,7 @@ async function checkSmartStatus() {
   catch (e) { ElMessage.error('查询失败') }
 }
 
-// ─── ④ 照片说话 ───
+// ─── ③ 照片说话 ───
 const lipForm = reactive({ audioType: 'tts', ttsText: '', audioId: '' })
 const lipGenerating = ref(false), lipTaskId = ref(''), lipUploading = ref(false)
 const lipVideoFile = ref(null), lipVideoId = ref(''), lipVideoPreview = ref('')
@@ -478,7 +456,7 @@ function selectSmartVoice(v) {
   showSmartVoiceDialog.value = false
 }
 
-// ─── ⑤ 数字人库 ───
+// ─── ④ 数字人库 ───
 const customDpList = ref([]), customDpLoading = ref(false)
 async function loadCustomDp() {
   customDpLoading.value = true
@@ -487,7 +465,7 @@ async function loadCustomDp() {
   customDpLoading.value = false
 }
 
-// ─── ⑥ 声音库 ───
+// ─── ⑤ 声音库 ───
 async function loadVoices() {
   voiceLoading.value = true
   try { const d = (await hotChanjingApi.voices(1, 100)).data.data; voiceList.value = d?.list || [] }
@@ -495,7 +473,7 @@ async function loadVoices() {
   voiceLoading.value = false
 }
 
-// ─── ⑦ 批量生成 ───
+// ─── ⑥ 批量生成 ───
 const batchItems = reactive([{ text: '' }]), batchPersonId = ref(''), batchAudioId = ref('')
 const batchGenerating = ref(false), batchResults = ref([]), batchRunning = ref(false)
 const showBatchDp = ref(false), showBatchVoice = ref(false)
@@ -553,7 +531,7 @@ function downloadBatchVideo(row) {
   if (url) window.open(url, '_blank')
 }
 
-// ─── ⑧ 我的视频 ───
+// ─── ⑦ 我的视频 ───
 const myVideos = ref([]), myVideosLoading = ref(false)
 const userInfo = ref(null)
 async function loadMyVideos() {

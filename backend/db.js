@@ -523,6 +523,17 @@ db.exec(`
   );
 `);
 
+// ===== 改写历史 =====
+db.exec(`
+  CREATE TABLE IF NOT EXISTS rewrite_history (
+    id TEXT PRIMARY KEY,
+    source_body TEXT NOT NULL,
+    result_json TEXT NOT NULL,
+    versions TEXT DEFAULT '口播版,种草版,促单版',
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+`);
+
 // ===== 社媒拓客 =====
 db.exec(`
   CREATE TABLE IF NOT EXISTS social_tasks (
