@@ -3,7 +3,7 @@ const { Router } = require('express');
 const path = require('path');
 const fs = require('fs');
 const db = require('../db');
-const { health, getAccountStatus, login, uploadVideo, getPlatformLabel } = require('../services/multi-publish');
+const { health, getAccountStatus, login, uploadVideo, uploadImages, getPlatformLabel } = require('../services/multi-publish');
 
 const router = Router();
 const VIDEOS_DIR = path.join(__dirname, '..', 'videos');
@@ -46,11 +46,6 @@ router.post('/contents/:contentId/publish', async (req, res) => {
   if (!cur) return res.status(404).json({ code: 404, message: '内容不存在' });
   if (cur.status !== 'approved' && cur.status !== 'published') return res.status(400).json({ code: 400, message: '只有已通过审核的内容才能发布' });
 
-  const videoPath = cur.video_url || cur.video_url_landscape;
-  if (!videoPath || !fs.existsSync(videoPath)) {
-    return res.status(400).json({ code: 400, message: '视频文件不存在，请先生成视频' });
-  }
-
   const platform = req.body.platform || 'douyin';
   const accountName = req.body.account_name || 'default';
   const title = (req.body.title || cur.title || '').trim();
@@ -60,19 +55,47 @@ router.post('/contents/:contentId/publish', async (req, res) => {
   const description = (req.body.description || cur.body || '').trim();
   const publishDate = req.body.publish_date || null;
   const label = getPlatformLabel(platform);
+  const contentType = req.body.content_type || 'video';
 
   try {
-    const result = await uploadVideo({
-      accountName,
-      platform,
-      videoPath,
-      title,
-      tags,
-      description,
-      publishDate,
-      coverOrientation: req.body.cover_orientation || 'portrait',
-      location: req.body.location || '',
-    });
+    let result;
+    if (contentType === 'image') {
+      const images = req.body.images || [];
+      if (!images.length) {
+        return res.status(400).json({ code: 400, message: '图文模式需要至少一张图片' });
+      }
+      const musicQuery = cur.bgm_path
+        ? require('path').basename(cur.bgm_path, require('path').extname(cur.bgm_path))
+        : (req.body.music_query || null);
+      result = await uploadImages({
+        accountName,
+        platform,
+        images,
+        title,
+        tags,
+        description,
+        publishDate,
+        location: req.body.location || '',
+        musicPath: cur.bgm_path || null,
+        musicQuery,
+      });
+    } else {
+      const videoPath = cur.video_url || cur.video_url_landscape;
+      if (!videoPath || !fs.existsSync(videoPath)) {
+        return res.status(400).json({ code: 400, message: '视频文件不存在，请先生成视频' });
+      }
+      result = await uploadVideo({
+        accountName,
+        platform,
+        videoPath,
+        title,
+        tags,
+        description,
+        publishDate,
+        coverOrientation: req.body.cover_orientation || 'portrait',
+        location: req.body.location || '',
+      });
+    }
 
     if (result.success) {
       // 多平台追加模式

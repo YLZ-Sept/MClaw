@@ -18,7 +18,7 @@ export const hotContentApi = {
   update: (id, d) => PUT(`/hot-contents/${id}`, d),
   remove: (id) => DEL(`/hot-contents/${id}`),
   generate: (d) => POST('/hot-contents/generate', d),
-  uploadAssets: (id, fd) => POST(`/hot-contents/${id}/assets`, fd, { headers: { 'Content-Type': 'multipart/form-data' } }),
+  uploadAssets: (id, fd) => POST(`/hot-contents/${id}/assets`, fd),
   review: (id, d) => POST(`/hot-contents/${id}/review`, d),
   publish: (id, d) => POST(`/hot-contents/${id}/publish`, d),
   generateVideo: (id, params) => POST(`/hot-contents/${id}/generate-video`, null, { params }),
@@ -27,12 +27,18 @@ export const hotContentApi = {
     return `/api/hot-contents/${id}/video?orientation=${orientation}&token=${encodeURIComponent(token)}`
   },
   deleteVideo: (id, orientation) => DEL(`/hot-contents/${id}/video?orientation=${orientation}`),
+  uploadPublishImages: (id, fd) => POST(`/hot-contents/${id}/publish-images`, fd),
+  publishImageUrl: (contentId, idx) => {
+    const token = localStorage.getItem('token')
+    return `/api/hot-contents/${contentId}/publish-image/${idx}?token=${encodeURIComponent(token)}`
+  },
 }
 
 export const hotExtractApi = {
   rewrite: (d) => POST('/hot-extract/rewrite', d),
   history: () => GET('/hot-extract/history'),
   getHistory: (id) => GET(`/hot-extract/history/${id}`),
+  deleteHistory: (id) => DEL(`/hot-extract/history/${id}`),
 }
 
 export const hotQuickReplyApi = {

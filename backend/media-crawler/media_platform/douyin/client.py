@@ -53,6 +53,33 @@ class DOUYINClient(AbstractApiClient):
             return
         headers = headers or self.headers
         local_storage: Dict = await self.playwright_page.evaluate("() => window.localStorage")  # type: ignore
+        # 动态读取浏览器指纹，避免硬编码导致的 verify_check 反爬
+        browser_info: Dict = await self.playwright_page.evaluate("""() => {
+            const ua = navigator.userAgent;
+            const getChromeVersion = (ua) => {
+                const m = ua.match(/Chrom(?:e|ium)\\/(\\d+)\\./);
+                return m ? m[1] + '.0.0.0' : '125.0.0.0';
+            };
+            const getOSInfo = (ua) => {
+                if (ua.includes('Windows NT')) { const m = ua.match(/Windows NT ([\\d.]+)/); return { name: 'Windows', version: m ? m[1] : '10.0' }; }
+                if (ua.includes('Mac OS X')) { const m = ua.match(/Mac OS X ([\\d_]+)/); return { name: 'Mac OS', version: m ? m[1].replace(/_/g, '.') : '10.15.7' }; }
+                return { name: 'Windows', version: '10.0' };
+            };
+            const os = getOSInfo(ua);
+            return {
+                browser_language: navigator.language || 'zh-CN',
+                browser_platform: navigator.platform || 'Win32',
+                browser_name: 'Chrome',
+                browser_version: getChromeVersion(ua),
+                os_name: os.name,
+                os_version: os.version,
+                cpu_core_num: String(navigator.hardwareConcurrency || 8),
+                device_memory: String(navigator.deviceMemory || 8),
+                screen_width: String(screen.width || 1920),
+                screen_height: String(screen.height || 1080),
+                engine_version: ua.match(/AppleWebKit\\/([\\d.]+)/)?.[1]?.split('.')[0] || '109',
+            };
+        }""")
         common_params = {
             "device_platform": "webapp",
             "aid": "6383",
@@ -62,20 +89,20 @@ class DOUYINClient(AbstractApiClient):
             "update_version_code": "170400",
             "pc_client_type": "1",
             "cookie_enabled": "true",
-            "browser_language": "zh-CN",
-            "browser_platform": "MacIntel",
-            "browser_name": "Chrome",
-            "browser_version": "125.0.0.0",
+            "browser_language": browser_info.get("browser_language", "zh-CN"),
+            "browser_platform": browser_info.get("browser_platform", "Win32"),
+            "browser_name": browser_info.get("browser_name", "Chrome"),
+            "browser_version": browser_info.get("browser_version", "125.0.0.0"),
             "browser_online": "true",
             "engine_name": "Blink",
-            "os_name": "Mac OS",
-            "os_version": "10.15.7",
-            "cpu_core_num": "8",
-            "device_memory": "8",
-            "engine_version": "109.0",
+            "os_name": browser_info.get("os_name", "Windows"),
+            "os_version": browser_info.get("os_version", "10.0"),
+            "cpu_core_num": browser_info.get("cpu_core_num", "8"),
+            "device_memory": browser_info.get("device_memory", "8"),
+            "engine_version": browser_info.get("engine_version", "109"),
             "platform": "PC",
-            "screen_width": "2560",
-            "screen_height": "1440",
+            "screen_width": browser_info.get("screen_width", "1920"),
+            "screen_height": browser_info.get("screen_height", "1080"),
             'effective_type': '4g',
             "round_trip_time": "50",
             "webid": get_web_id(),
@@ -101,7 +128,17 @@ class DOUYINClient(AbstractApiClient):
             if response.text == "" or response.text == "blocked":
                 utils.logger.error(f"request params incrr, response.text: {response.text}")
                 raise Exception("account blocked")
-            return response.json()
+            data = response.json()
+            status_code = data.get("status_code", 0) if isinstance(data, dict) else 0
+            if status_code != 0:
+                status_msg = data.get("status_msg", "")
+                utils.logger.error(f"[DouyinClient] API error status_code={status_code}, msg={status_msg}")
+                if status_code == 2483:
+                    raise LoginRequiredError(f"Douyin API requires login: {status_msg}")
+                raise DataFetchError(f"Douyin API error {status_code}: {status_msg}")
+            return data
+        except (LoginRequiredError, DataFetchError):
+            raise
         except Exception as e:
             raise DataFetchError(f"{e}, {response.text}")
 

@@ -28,14 +28,21 @@ class BaseVideoInfo(BaseModel):
     thumbnail_path: Optional[Path] = Field(default=None, description="缩略图路径")
     location: str = Field(default="北京市", description="地理位置")
     cover_orientation: str = Field(default="portrait", description="封面方向: portrait | landscape")
-    
+    content_type: Literal["video", "image"] = Field(default="video", description="内容类型：video（视频）或 image（图文）")
+    images: List[str] = Field(default_factory=list, description="图文内容的图片路径列表")
+    music_path: Optional[str] = Field(default=None, description="背景音乐文件路径（图文模式）")
+    music_query: Optional[str] = Field(default=None, description="背景音乐搜索关键词（抖音曲库搜索）")
+
     @field_validator("video_path", mode="after")
     @classmethod
-    def validate_video_exists(cls, v: Path) -> Path:
+    def validate_video_exists(cls, v: Path, info) -> Path:
+        # 图文模式允许 video_path 为占位符（首图路径），跳过存在校验
+        if info.data and info.data.get('content_type') == 'image':
+            return v
         if not v.exists():
             raise ValueError(f"视频文件不存在: {v}")
         return v
-    
+
     @field_validator("thumbnail_path", mode="after")
     @classmethod
     def validate_thumbnail_exists(cls, v: Optional[Path]) -> Optional[Path]:

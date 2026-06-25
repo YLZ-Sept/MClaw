@@ -31,45 +31,60 @@
 
     <!-- === Step 0: Rewrite === -->
     <div v-show="step === 0">
-      <el-card header="AI改写" class="step-card" style="max-width:700px">
-        <el-form label-width="100px">
-          <el-form-item label="原文文案">
-            <el-input v-model="rewriteForm.source_body" type="textarea" :rows="6" placeholder="粘贴短视频文案/口播脚本/种草笔记原文..."/>
-          </el-form-item>
-          <el-form-item label="输出版本">
-            <el-checkbox-group v-model="rewriteForm.versions">
-              <el-checkbox label="口播版">口播版</el-checkbox>
-              <el-checkbox label="种草版">种草版(小红书)</el-checkbox>
-              <el-checkbox label="促单版">促单版(直播)</el-checkbox>
-            </el-checkbox-group>
-          </el-form-item>
-          <el-form-item label="进阶">
-            <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
-              <el-checkbox v-model="rewriteForm.remove_ai_trace">去AI痕迹</el-checkbox>
-              <el-checkbox v-model="rewriteForm.use_word_limit">限制字数</el-checkbox>
-              <el-input-number v-if="rewriteForm.use_word_limit" v-model="rewriteForm.word_limit" :min="20" :max="2000" :step="10" size="small" style="width:120px"/>
-              <span v-if="rewriteForm.use_word_limit" style="font-size:12px;color:#909399">字</span>
-            </div>
-          </el-form-item>
-          <el-form-item label="改写要求">
-            <el-input v-model="rewriteForm.user_prompt" type="textarea" :rows="2" placeholder="选填：额外风格、语气、侧重点等要求"/>
-          </el-form-item>
-          <el-form-item>
-            <el-button type="primary" :loading="rewriting" @click="doRewrite">开始改写</el-button>
-          </el-form-item>
-        </el-form>
-      </el-card>
+      <div :class="rewriteResult ? 'rewrite-layout' : ''">
+        <!-- 左：AI改写表单 -->
+        <el-card header="AI改写" class="step-card rewrite-form-card">
+          <el-form label-width="100px">
+            <el-form-item label="原文文案">
+              <el-input v-model="rewriteForm.source_body" type="textarea" :rows="10" placeholder="粘贴短视频文案/口播脚本/种草笔记原文..." class="source-textarea"/>
+            </el-form-item>
+            <el-form-item label="输出版本">
+              <el-checkbox-group v-model="rewriteForm.versions">
+                <el-checkbox label="口播版">口播版</el-checkbox>
+                <el-checkbox label="种草版">种草版(小红书)</el-checkbox>
+                <el-checkbox label="促单版">促单版(直播)</el-checkbox>
+              </el-checkbox-group>
+            </el-form-item>
+            <el-form-item label="进阶">
+              <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+                <el-checkbox v-model="rewriteForm.remove_ai_trace">去AI痕迹</el-checkbox>
+                <el-checkbox v-model="rewriteForm.use_word_limit">限制字数</el-checkbox>
+                <el-input-number v-if="rewriteForm.use_word_limit" v-model="rewriteForm.word_limit" :min="20" :max="2000" :step="10" size="small" style="width:120px"/>
+                <span v-if="rewriteForm.use_word_limit" style="font-size:12px;color:#909399">字</span>
+              </div>
+            </el-form-item>
+            <el-form-item label="改写要求">
+              <el-input v-model="rewriteForm.user_prompt" type="textarea" :rows="2" placeholder="选填：额外风格、语气、侧重点等要求"/>
+            </el-form-item>
+            <el-form-item>
+              <el-button type="primary" :loading="rewriting" @click="doRewrite">开始改写</el-button>
+            </el-form-item>
+          </el-form>
+        </el-card>
 
-      <el-card v-if="rewriteResult" style="margin-top:16px;max-width:700px" header="改写结果">
-        <el-tabs v-model="rewriteActiveTab">
-          <el-tab-pane v-for="v in rewriteForm.versions" :key="v" :label="v" :name="v">
-            <div style="white-space:pre-wrap;padding:12px;background:#f8f7ff;border-radius:8px;min-height:80px;line-height:1.8">{{ rewriteResult[v] || '(暂无内容)' }}</div>
-            <div style="margin-top:12px">
-              <el-button type="primary" @click="useRewriteVersion(v)">送入编辑</el-button>
-            </div>
-          </el-tab-pane>
-        </el-tabs>
-      </el-card>
+        <!-- 右：改写结果（有结果时并排显示） -->
+        <el-card v-if="rewriteResult" header="改写结果" class="step-card rewrite-result-card">
+          <el-tabs v-model="rewriteActiveTab">
+            <el-tab-pane v-for="v in rewriteForm.versions" :key="v" :label="v" :name="v">
+              <template v-if="rewriteResult[v]">
+                <div v-if="rewriteResult[v].title" class="result-title-row">
+                  <span class="result-label">标题：</span>
+                  <strong class="result-title-text">{{ rewriteResult[v].title }}</strong>
+                </div>
+                <div class="result-body-box">{{ rewriteResult[v].body || rewriteResult[v] || '(暂无内容)' }}</div>
+                <div v-if="rewriteResult[v].tags" class="result-tags-row">
+                  <span class="result-label">标签：</span>
+                  <el-tag v-for="t in rewriteResult[v].tags.split(',').map(s=>s.trim()).filter(Boolean)" :key="t" size="small" style="margin-right:4px">{{ t }}</el-tag>
+                </div>
+              </template>
+              <div v-else style="color:#909399;padding:20px;text-align:center">(暂无内容)</div>
+              <div style="margin-top:12px">
+                <el-button type="primary" @click="useRewriteVersion(v)">送入编辑</el-button>
+              </div>
+            </el-tab-pane>
+          </el-tabs>
+        </el-card>
+      </div>
 
       <el-card v-if="rewriteHistory.length" style="margin-top:16px" header="改写历史">
         <el-table :data="rewriteHistory" stripe size="small" max-height="400">
@@ -82,9 +97,10 @@
           <el-table-column label="时间" width="160">
             <template #default="{row}">{{ row.created_at }}</template>
           </el-table-column>
-          <el-table-column label="操作" width="80">
+          <el-table-column label="操作" width="120">
             <template #default="{row}">
               <el-button size="small" type="primary" link @click="loadRewriteHistoryItem(row.id)">查看</el-button>
+              <el-button size="small" type="danger" link @click="deleteRewriteHistory(row.id)">删除</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -232,13 +248,14 @@
       <el-alert v-if="publishHealth !== 'healthy'" :title="publishHealth === 'unreachable' ? '发布服务未连接' : '服务状态未知'"
         :type="publishHealth === 'unreachable' ? 'error' : 'warning'" :closable="false" show-icon style="margin-bottom:12px"/>
       <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
-        <el-card v-for="p in PLATFORMS" :key="p.key" shadow="hover" style="flex:1;min-width:240px">
+        <el-card v-for="p in PLATFORMS" :key="p.key" shadow="hover" style="flex:1;min-width:280px">
           <template #header>
             <div style="display:flex;align-items:center;justify-content:space-between">
               <span><span style="font-size:18px;margin-right:6px">{{ p.icon }}</span><b>{{ p.label }}</b></span>
               <el-button size="small" text type="primary" @click="addAccount(p.key)">+ 添加账号</el-button>
             </div>
           </template>
+          <!-- 账号列表 -->
           <div v-for="acc in platformAccounts[p.key]" :key="acc.id" style="display:flex;align-items:center;gap:8px;margin-bottom:8px"
             :style="{ paddingBottom: '8px', borderBottom: platformAccounts[p.key].length > 1 ? '1px solid #ebeef5' : 'none' }">
             <el-checkbox v-model="publishTargets" :value="acc.id" :disabled="!acc.status?.is_logged_in" />
@@ -256,8 +273,46 @@
               <el-button v-if="platformAccounts[p.key].length > 1" size="small" text type="danger" @click="removeAccount(p.key, acc.id)" style="margin-left:auto">×</el-button>
             </template>
           </div>
+          <!-- 内容类型切换 -->
+          <div style="margin-top:8px;padding-top:8px;border-top:1px solid #ebeef5">
+            <span style="font-size:12px;color:#909399;margin-right:8px">类型</span>
+            <el-radio-group v-model="platformConfig[p.key].contentType" size="small">
+              <el-radio-button label="video">视频</el-radio-button>
+              <el-radio-button label="image">图文</el-radio-button>
+            </el-radio-group>
+          </div>
+          <!-- 图文：图片网格 -->
+          <div v-if="platformConfig[p.key].contentType === 'image'" class="pub-img-section">
+            <div class="pub-img-grid">
+              <div v-for="(img, idx) in platformConfig[p.key].images" :key="img.id"
+                class="pub-img-slot"
+                :class="{ 'drag-over': dragOverIdx === idx && dragPlatform === p.key }"
+                draggable="true"
+                @dragstart="onImgDragStart($event, idx, p.key)"
+                @dragover.prevent="onImgDragOver($event, idx, p.key)"
+                @dragleave="onImgDragLeave"
+                @drop="onImgDrop($event, idx, p.key)">
+                <img :src="img.url" class="pub-img-thumb"/>
+                <span class="pub-img-order">{{ idx + 1 }}</span>
+                <el-button class="pub-img-del" size="small" circle type="danger" @click="removePublishImage(p.key, idx)" :icon="null">×</el-button>
+              </div>
+              <div v-if="platformConfig[p.key].images.length < 12" class="pub-img-slot pub-img-add" @click="addCoverToImages(p.key)">
+                <el-icon size="20"><VideoCamera /></el-icon>
+                <span style="font-size:11px;margin-top:2px">封面</span>
+              </div>
+              <div v-if="platformConfig[p.key].images.length < 12" class="pub-img-slot pub-img-add" @click="triggerImageUpload(p.key)">
+                <span style="font-size:22px">+</span>
+                <span style="font-size:11px;margin-top:2px">上传</span>
+              </div>
+            </div>
+            <div style="font-size:11px;color:#909399;margin-top:4px">
+              已选 {{ platformConfig[p.key].images.length }}/12 张 · 拖拽可排序
+            </div>
+          </div>
         </el-card>
       </div>
+      <!-- 隐藏文件上传 -->
+      <input ref="imageUploadInput" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple style="display:none" @change="onImagesSelected"/>
 
       <div class="douyin-publish-layout">
         <!-- 左：作品描述 -->
@@ -452,11 +507,19 @@ async function doRewrite() {
   } finally { rewriting.value = false }
 }
 function useRewriteVersion(version) {
-  const text = rewriteResult.value[version] || ''
-  const lines = text.split('\n').filter(l => l.trim())
-  editForm.title = lines[0] ? lines[0].slice(0, 30) : ''
-  editForm.body = text
-  editForm.tags = ''
+  const entry = rewriteResult.value[version]
+  if (entry && typeof entry === 'object') {
+    editForm.title = entry.title || ''
+    editForm.body = entry.body || ''
+    editForm.tags = entry.tags || ''
+  } else {
+    // 兼容旧格式：纯文本
+    const text = entry || ''
+    const lines = text.split('\n').filter(l => l.trim())
+    editForm.title = lines[0] ? lines[0].slice(0, 30) : ''
+    editForm.body = text
+    editForm.tags = ''
+  }
   step.value = 1
 }
 
@@ -479,6 +542,19 @@ async function loadRewriteHistoryItem(id) {
   } catch {
     ElMessage.error('加载改写历史失败')
   }
+}
+
+async function deleteRewriteHistory(id) {
+  try {
+    await ElMessageBox.confirm('确认删除这条改写记录?', '提示', { type: 'warning' })
+    await hotExtractApi.deleteHistory(id)
+    ElMessage.success('已删除')
+    loadRewriteHistory()
+    // 如果删除的是当前正在查看的，清除结果
+    if (rewriteResult.value && rewriteResult.value[id]) {
+      rewriteResult.value = null
+    }
+  } catch {}
 }
 
 // ─── Step 1: Edit ───
@@ -810,6 +886,95 @@ const publishTargets = ref([])
 const defaultAccounts = Object.fromEntries(PLATFORMS.map(p => [p.key, [newAccount()]]))
 const platformAccounts = reactive(defaultAccounts)
 
+// 每个平台独立的内容配置
+const platformConfig = reactive({
+  douyin: { contentType: 'video', images: [] },
+  xiaohongshu: { contentType: 'image', images: [] },
+  wechat_channel: { contentType: 'video', images: [] },
+})
+
+// 图片拖拽 + 上传
+const dragPlatform = ref(null), dragOverIdx = ref(-1), dragSrcIdx = ref(-1)
+const imageUploadInput = ref(null), imageUploadTarget = ref(null)
+
+function triggerImageUpload(platform) {
+  imageUploadTarget.value = platform
+  imageUploadInput.value?.click()
+}
+
+async function onImagesSelected(e) {
+  const files = e.target.files
+  if (!files.length) return
+  const platform = imageUploadTarget.value
+  if (!platform) return
+  const fd = new FormData()
+  for (const f of files) fd.append('images', f)
+  try {
+    const res = await hotContentApi.uploadPublishImages(videoForm.contentId, fd)
+    const uploaded = res.data.data || []
+    // Generate display URLs
+    const newImages = uploaded.map((img, i) => ({
+      id: `up_${Date.now()}_${i}`,
+      url: img.url,
+      path: img.path,
+    }))
+    platformConfig[platform].images.push(...newImages)
+    // Trim to 12
+    if (platformConfig[platform].images.length > 12) {
+      platformConfig[platform].images = platformConfig[platform].images.slice(0, 12)
+    }
+    ElMessage.success(`已上传 ${newImages.length} 张图片`)
+  } catch (e) {
+    ElMessage.error('图片上传失败: ' + (e.response?.data?.message || e.message))
+  }
+  e.target.value = ''
+  imageUploadTarget.value = null
+}
+
+function addCoverToImages(platform) {
+  if (!coverUrl.value) return ElMessage.warning('请先在封面设置中提取或选择封面')
+  if (platformConfig[platform].images.length >= 12) return ElMessage.warning('已达 12 张上限')
+  // 封面 URL 是带 token 的，可以直接作为图片源
+  platformConfig[platform].images.push({
+    id: `cover_${Date.now()}`,
+    url: coverUrl.value,
+    path: null, // 发布时会用视频 cover frame
+  })
+}
+
+function removePublishImage(platform, idx) {
+  platformConfig[platform].images.splice(idx, 1)
+}
+
+// 拖拽排序
+function onImgDragStart(e, idx, platform) {
+  dragSrcIdx.value = idx
+  dragPlatform.value = platform
+  e.dataTransfer.effectAllowed = 'move'
+}
+
+function onImgDragOver(e, idx, platform) {
+  e.preventDefault()
+  dragOverIdx.value = idx
+  dragPlatform.value = platform
+}
+
+function onImgDragLeave() {
+  dragOverIdx.value = -1
+  dragPlatform.value = null
+}
+
+function onImgDrop(e, idx, platform) {
+  e.preventDefault()
+  dragOverIdx.value = -1
+  dragPlatform.value = null
+  if (dragSrcIdx.value < 0 || dragSrcIdx.value === idx) return
+  const imgs = platformConfig[platform].images
+  const [moved] = imgs.splice(dragSrcIdx.value, 1)
+  imgs.splice(idx, 0, moved)
+  dragSrcIdx.value = -1
+}
+
 function addAccount(platform) {
   platformAccounts[platform].push(newAccount())
 }
@@ -891,7 +1056,7 @@ function getAccountById(id) {
 }
 
 async function doPublish() {
-  if (!videoForm.contentId) return ElMessage.warning('请先从视频步骤生成视频')
+  if (!videoForm.contentId) return ElMessage.warning('请先从视频步骤生成内容')
   if (publishTargets.value.length === 0) return ElMessage.warning('请至少勾选一个已登录账号')
   publishing.value = true
   const results = []
@@ -903,15 +1068,21 @@ async function doPublish() {
       results.push({ label, success: false, message: `${acc.accountName} 未登录` })
       continue
     }
+    const cfg = platformConfig[platform]
+    const contentType = cfg?.contentType || 'video'
     try {
       const payload = {
         account_name: acc.accountName,
         platform,
+        content_type: contentType,
         title: publishForm.title || videoForm.title,
         tags: publishForm.tagList.join(','),
         description: publishForm.description,
         cover_orientation: coverOrientation.value,
         location: publishForm.location || '',
+      }
+      if (contentType === 'image') {
+        payload.images = (cfg?.images || []).map(img => img.path || img.url)
       }
       if (publishForm.scheduled && publishForm.publishDate) {
         payload.publish_date = publishForm.publishDate
@@ -925,7 +1096,7 @@ async function doPublish() {
   const ok = results.filter(r => r.success)
   const fail = results.filter(r => !r.success)
   if (ok.length) ElMessage.success('发布成功: ' + ok.map(r => r.label).join(', '))
-  if (fail.length) ElMessage.error('发布失败: ' + fail.map(r => r.label).join(', '))
+  if (fail.length) ElMessage.error(fail.map(r => `${r.label}: ${r.message}`).join('; '))
   await loadContents()
   publishing.value = false
 }
@@ -935,6 +1106,10 @@ watch(step, async (s) => {
   if (s === 3) {
     await checkPublishHealth()
     await checkAllAccountStatus()
+    // Reset platform config to defaults
+    for (const p of PLATFORMS) {
+      platformConfig[p.key].images = []
+    }
     // Auto-detect cover orientation from video availability
     const cur = contentList.value.find(c => c.id === videoForm.contentId)
     if (cur?.video_url_landscape && !cur?.video_url) coverOrientation.value = 'landscape'
@@ -1226,6 +1401,132 @@ onMounted(() => {
   align-items: center;
   margin-top: 20px;
   padding: 16px 0;
+}
+/* ─── Step 0 左右并排布局 ─── */
+.rewrite-layout {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+.rewrite-form-card {
+  flex: 0 0 420px;
+  min-width: 0;
+}
+.rewrite-form-card :deep(.el-textarea__inner) {
+  max-height: 260px;
+  overflow-y: auto !important;
+  resize: vertical;
+}
+.rewrite-result-card {
+  flex: 1;
+  min-width: 0;
+}
+.result-title-row {
+  margin-bottom: 10px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.result-label {
+  font-size: 13px;
+  color: #909399;
+  flex-shrink: 0;
+}
+.result-title-text {
+  font-size: 15px;
+  color: #303133;
+}
+.result-body-box {
+  white-space: pre-wrap;
+  padding: 12px;
+  background: #f8f7ff;
+  border-radius: 8px;
+  min-height: 60px;
+  line-height: 1.8;
+  max-height: 360px;
+  overflow-y: auto;
+}
+.result-tags-row {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+/* ─── 图文发布：图片网格 ─── */
+.pub-img-section {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #ebeef5;
+}
+.pub-img-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.pub-img-slot {
+  width: 68px;
+  height: 68px;
+  border-radius: 6px;
+  border: 2px dashed #dcdfe6;
+  position: relative;
+  overflow: hidden;
+  cursor: grab;
+  transition: border-color 0.2s;
+  flex-shrink: 0;
+}
+.pub-img-slot:active {
+  cursor: grabbing;
+}
+.pub-img-slot.drag-over {
+  border-color: #7c3aed;
+  box-shadow: 0 0 0 3px rgba(124,58,237,0.15);
+}
+.pub-img-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.pub-img-order {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  background: rgba(0,0,0,0.55);
+  color: #fff;
+  font-size: 10px;
+  padding: 0 4px;
+  border-radius: 3px;
+  line-height: 16px;
+}
+.pub-img-del {
+  position: absolute !important;
+  top: -2px;
+  right: -2px;
+  width: 18px !important;
+  height: 18px !important;
+  min-width: 0 !important;
+  font-size: 12px !important;
+  padding: 0 !important;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.pub-img-slot:hover .pub-img-del {
+  opacity: 1;
+}
+.pub-img-add {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #909399;
+  border-style: dashed;
+  cursor: pointer;
+  background: #fafafa;
+}
+.pub-img-add:hover {
+  border-color: #7c3aed;
+  color: #7c3aed;
+  background: #f5f3ff;
 }
 /* ─── 预览卡片 ─── */
 .preview-card {

@@ -113,45 +113,41 @@ class XiaohongshuUploader:
         """登录小红书"""
         try:
             logger.info(f"开始登录小红书账号: {account.name}")
-            
-            # 访问小红书创作者中心登录页面
-            await self.page.goto("https://creator.xiaohongshu.com/login")
-            await asyncio.sleep(3)
-            
-            # 尝试加载已保存的cookies
-            if await self._load_cookies(account):
-                logger.info("正在验证已保存的登录状态...")
-                # 刷新页面以应用cookies
-                await self.page.reload()
-                await asyncio.sleep(2)
-                
-                # 验证登录状态
-                if await self._verify_login_status():
+
+            # 先验证已有 cookie 是否有效（不打开可见浏览器）
+            if account.cookie_file and account.cookie_file.exists():
+                logger.info("检测到已保存的Cookie，正在验证...")
+                if await self.check_cookie(str(account.cookie_file)):
                     self.is_logged_in = True
                     logger.info("使用已保存的登录状态")
                     return True
-                else:
-                    logger.info("已保存的登录状态已失效，需要重新登录")
-                    
-            # 检查是否需要扫码登录
-            if await self._need_scan_login():
-                logger.info("需要扫码登录，请使用小红书APP扫描二维码")
-                logger.info("请在弹出的浏览器窗口中扫码登录")
-                
-                # 等待扫码登录完成
-                success = await self._wait_for_login_success()
-                if success:
-                    await self._save_cookies(account)
-                    self.is_logged_in = True
-                    logger.info("登录成功")
-                    return True
-                else:
-                    logger.error("登录失败或超时")
-                    return False
+                logger.info("已保存的Cookie已失效，需要重新登录")
+
+            # 访问小红书创作者中心登录页面
+            await self.page.goto("https://creator.xiaohongshu.com/login")
+            await asyncio.sleep(3)
+
+            # 确保在登录页
+            current_url = self.page.url
+            if "/login" not in current_url:
+                logger.info(f"已在创作者中心，无需登录: {current_url}")
+                self.is_logged_in = True
+                await self._save_cookies(account)
+                return True
+
+            logger.info("需要扫码登录，请使用小红书APP扫描二维码")
+            logger.info("请在弹出的浏览器窗口中扫码登录")
+
+            success = await self._wait_for_login_success()
+            if success:
+                await self._save_cookies(account)
+                self.is_logged_in = True
+                logger.info("登录成功")
+                return True
             else:
-                logger.error("无法确定登录状态，可能页面加载失败")
+                logger.error("登录失败或超时")
                 return False
-                
+
         except Exception as e:
             logger.error(f"登录过程出错: {str(e)}")
             return False
@@ -159,50 +155,59 @@ class XiaohongshuUploader:
     async def _need_scan_login(self) -> bool:
         """检查是否需要扫码登录"""
         try:
-            # 检查当前URL是否还在登录页面
             current_url = self.page.url
             logger.info(f"当前页面URL: {current_url}")
-            
-            # 如果已经在创作者中心页面，说明已登录
-            if "creator.xiaohongshu.com" in current_url and "/publish" in current_url:
+
+            # 已在发布页面 = 已登录
+            if "creator.xiaohongshu.com" in current_url and "/login" not in current_url:
+                logger.info("已在创作者中心，无需登录")
                 return False
-                
-            # 检查是否有二维码元素或登录相关元素
+
+            # URL 包含 /login = 确认需要扫码
+            if "/login" in current_url:
+                logger.info("当前在登录页，需要扫码")
+                return True
+
+            # 兜底：检查页面元素
             qr_selectors = [
-                ".qrcode-img", ".login-qr", "[class*='qr']", 
+                ".qrcode-img", ".login-qr", "[class*='qr']",
                 ".login-container", ".scan-login", "[class*='login']"
             ]
-            
             for selector in qr_selectors:
-                if await self.page.locator(selector).is_visible():
-                    logger.info(f"发现登录元素: {selector}")
-                    return True
-                    
-            # 等待页面加载完成，再次检查
+                try:
+                    if await self.page.locator(selector).is_visible():
+                        logger.info(f"发现登录元素: {selector}")
+                        return True
+                except Exception:
+                    continue
+
             await asyncio.sleep(2)
-            
-            # 检查页面内容是否包含登录相关文本
             page_content = await self.page.content()
             login_keywords = ["登录", "扫码", "二维码", "login", "qr"]
             for keyword in login_keywords:
                 if keyword in page_content:
                     logger.info(f"页面包含登录关键词: {keyword}")
                     return True
-                    
+
             return False
         except Exception as e:
             logger.error(f"检查登录状态失败: {str(e)}")
             return True
             
     async def _wait_for_login_success(self, timeout: int = 300) -> bool:
-        """等待登录成功"""
+        """等待登录成功 — 轮询直到 URL 离开登录页"""
         try:
             logger.info(f"等待登录完成，超时时间: {timeout}秒")
-            # 等待页面跳转到创作者中心或者URL包含creator
-            await self.page.wait_for_url("**/creator.xiaohongshu.com/**", timeout=timeout * 1000)
-            await asyncio.sleep(2)
-            logger.info("检测到页面跳转，登录成功")
-            return True
+            for _ in range(timeout):
+                await asyncio.sleep(1)
+                current_url = self.page.url
+                # 登录页 URL 也匹配 creator.xiaohongshu.com，必须排除 /login
+                if "creator.xiaohongshu.com" in current_url and "/login" not in current_url:
+                    logger.info(f"登录成功，跳转到: {current_url}")
+                    await asyncio.sleep(2)
+                    return True
+            logger.error("等待登录超时")
+            return False
         except Exception as e:
             logger.error(f"等待登录超时或失败: {str(e)}")
             return False
@@ -305,34 +310,42 @@ class XiaohongshuUploader:
                     return False
                 else:
                     self.is_logged_in = True
-                
+
             logger.info(f"开始上传视频: {video_info.video_path}")
-            
+
             # 访问发布页面
             await self.page.goto("https://creator.xiaohongshu.com/publish/publish")
             await asyncio.sleep(5)
-            
+
             logger.info(f"当前页面URL: {self.page.url}")
-            
+
             # 检查是否成功进入发布页面
-            if "publish" not in self.page.url:
+            if "publish" not in self.page.url and "creator" not in self.page.url:
                 logger.error("未能进入发布页面，可能需要重新登录")
                 return False
-            
+
             # 上传视频文件
             if not await self._upload_video_file(video_info.video_path):
                 return False
-                
+
             # 等待视频处理完成
             if not await self._wait_video_processing():
                 return False
-                
+
+            # 等待表单加载 + 导出页面输入元素用于诊断
+            await asyncio.sleep(5)
+            await self._dump_page_inputs()
+
             # 填写视频信息
-            await self._fill_video_info(video_info)
-            
+            if not await self._fill_video_info(video_info):
+                logger.error("填写视频信息失败")
+                await self.page.screenshot(path="debug_xhs_fill_info.png")
+                await self._dump_page_inputs()
+                return False
+
             # 发布视频
             return await self._publish_video()
-            
+
         except Exception as e:
             logger.error(f"上传视频失败: {str(e)}")
             return False
@@ -423,175 +436,339 @@ class XiaohongshuUploader:
     async def _wait_video_processing(self, timeout: int = 300) -> bool:
         """等待视频处理完成"""
         try:
-            # 等待视频预览出现
+            # 先等预览出现
             preview_selectors = [
                 ".video-preview",
-                ".preview-container", 
-                "[class*='preview']"
+                ".preview-container",
+                "[class*='preview']",
+                "[class*='cover']",
+                "video",
             ]
-            
             for selector in preview_selectors:
                 try:
                     await self.page.wait_for_selector(selector, timeout=10000)
+                    logger.info(f"视频预览已出现: {selector}")
                     break
-                except:
+                except Exception:
                     continue
-            
-            # 等待处理完成，检查进度条或loading状态
+
+            # 等待 loading 消失（使用 .first 避免 strict mode 多元素报错）
             loading_selectors = [
                 ".loading",
                 ".uploading",
                 ".processing",
                 "[class*='loading']",
-                "[class*='progress']"
+                "[class*='progress']",
             ]
-            
             for selector in loading_selectors:
-                if await self.page.locator(selector).is_visible():
-                    await self.page.wait_for_selector(selector, state="hidden", timeout=timeout * 1000)
-                    
+                try:
+                    el = self.page.locator(selector).first
+                    if await el.count() > 0:
+                        try:
+                            await el.wait_for(state="hidden", timeout=timeout * 1000)
+                        except Exception:
+                            pass
+                except Exception:
+                    continue
+
+            # 额外等待确保表单渲染
+            await asyncio.sleep(3)
             logger.info("视频处理完成")
             return True
-            
+
         except Exception as e:
-            logger.error(f"等待视频处理超时: {str(e)}")
-            return False
+            logger.warning(f"等待视频处理出错（继续执行）: {str(e)}")
+            await asyncio.sleep(5)
+            return True  # 不要因为等待失败而中断流程
             
-    async def _fill_video_info(self, video_info: XiaohongshuVideoInfo):
-        """填写视频信息"""
+    async def _fill_video_info(self, video_info: XiaohongshuVideoInfo) -> bool:
+        """填写视频信息，返回是否成功填写了核心字段（标题+描述）"""
         try:
             logger.info("开始填写小红书视频信息...")
-            
-            # 等待表单加载
-            await asyncio.sleep(3)
-            
-            # 填写标题
+
+            title_ok = False
+            desc_ok = False
+
+            # ── 填写标题 ──
             if video_info.title:
                 title_selectors = [
-                    ".title-input input",
-                    ".title-input textarea", 
-                    "input[placeholder*='标题']",
-                    "textarea[placeholder*='标题']",
-                    "input[placeholder*='title']",
-                    ".note-title input",
-                    ".post-title input"
+                    'input[placeholder*="标题"]',
+                    'textarea[placeholder*="标题"]',
+                    'input[placeholder*="title"]',
+                    'input[placeholder*="Title"]',
+                    '[class*="title"] input',
+                    '[class*="title"] textarea',
+                    '[class*="note"] input',
+                    '[class*="subject"] input',
+                    '#title',
+                    'input[name*="title"]',
                 ]
-                
-                title_filled = False
-                for selector in title_selectors:
-                    try:
-                        if await self.page.locator(selector).is_visible():
-                            await self.page.fill(selector, video_info.title)
-                            logger.info(f"已填写标题: {video_info.title}")
-                            title_filled = True
-                            break
-                    except:
-                        continue
-                
-                if not title_filled:
+                title_ok = await self._try_fill_field(title_selectors, video_info.title, "标题")
+                if not title_ok:
+                    # 兜底：遍历页面上所有可见 input[type=text]，取第一个
+                    title_ok = await self._fill_first_visible_input(video_info.title, "标题")
+                if not title_ok:
                     logger.warning("未找到标题输入框")
-                
-            # 填写描述/正文
+
+            # ── 填写描述/正文 ──
             if video_info.description:
                 desc_selectors = [
-                    ".content-input textarea",
-                    ".desc-input textarea",
-                    ".editor-content",
-                    "textarea[placeholder*='描述']",
-                    "textarea[placeholder*='正文']",
-                    "textarea[placeholder*='内容']",
-                    ".note-content textarea",
-                    ".post-content textarea",
-                    ".text-editor textarea"
+                    'textarea[placeholder*="描述"]',
+                    'textarea[placeholder*="正文"]',
+                    'textarea[placeholder*="内容"]',
+                    'textarea[placeholder*="介绍"]',
+                    'textarea[placeholder*="desc"]',
+                    'textarea[placeholder*="content"]',
+                    'textarea[placeholder*="body"]',
+                    'textarea[placeholder*="说点什么"]',
+                    'textarea:not([placeholder*="标题"])',
+                    '[class*="content"] textarea',
+                    '[class*="desc"] textarea',
+                    '[class*="editor"] textarea',
+                    '[class*="note"] textarea',
+                    '[class*="post"] textarea',
+                    '[contenteditable="true"]',
+                    '[role="textbox"]',
+                    '.ql-editor',
+                    '.rich-text',
+                    '#description',
                 ]
-                
-                desc_filled = False
-                for selector in desc_selectors:
-                    try:
-                        if await self.page.locator(selector).is_visible():
-                            await self.page.fill(selector, video_info.description)
-                            logger.info(f"已填写描述: {video_info.description}")
-                            desc_filled = True
-                            break
-                    except:
-                        continue
-                
-                if not desc_filled:
-                    logger.warning("未找到描述输入框")
-                
-            # 添加话题标签
+                desc_ok = await self._try_fill_field(desc_selectors, video_info.description, "描述")
+                if not desc_ok:
+                    # 兜底：遍历页面上所有 textarea，填充第一个可见的（非标题的）
+                    desc_ok = await self._fill_first_visible_textarea(video_info.description, "描述")
+
+            # ── 添加话题标签（追加到描述框）──
             if video_info.topic_tags:
                 await self._add_topic_tags(video_info.topic_tags)
-                
-            # 添加普通标签
+
             if video_info.tags:
                 await self._add_tags(video_info.tags)
-                
-            # 设置位置
+
+            # 选择作品话题/分类（小红书必填）
+            await self._select_xhs_topic(video_info)
+
             if video_info.location:
                 await self._set_location(video_info.location)
-                
-            # 设置可见性
-            await self._set_visibility(video_info.visible_type)
-            
-            logger.info("小红书视频信息填写完成")
-                
+
+            logger.info(f"小红书视频信息填写完成 (标题={title_ok}, 描述={desc_ok})")
+            return title_ok or desc_ok
+
         except Exception as e:
             logger.error(f"填写视频信息失败: {str(e)}")
+            return False
+
+    async def _try_fill_field(self, selectors: list, text: str, label: str) -> bool:
+        """尝试用一组选择器填充字段"""
+        for selector in selectors:
+            try:
+                el = self.page.locator(selector).first
+                if await el.count() > 0 and await el.is_visible():
+                    await el.click()
+                    await asyncio.sleep(0.3)
+                    await el.fill(text)
+                    logger.info(f"已填写{label}: {text[:30]}... (选择器: {selector})")
+                    return True
+            except Exception:
+                continue
+        return False
+
+    async def _fill_first_visible_input(self, text: str, label: str) -> bool:
+        """兜底：找到页面上第一个可见的 input[type=text] 并填充"""
+        try:
+            inputs = self.page.locator('input[type="text"]:visible')
+            count = await inputs.count()
+            for i in range(min(count, 5)):
+                el = inputs.nth(i)
+                if await el.is_visible() and await el.is_enabled():
+                    await el.click()
+                    await asyncio.sleep(0.3)
+                    await el.fill(text)
+                    logger.info(f"已填写{label}(兜底input): {text[:30]}...")
+                    return True
+        except Exception:
+            pass
+        return False
+
+    async def _fill_first_visible_textarea(self, text: str, label: str) -> bool:
+        """兜底：找到页面上第一个可见的 textarea 并填充"""
+        try:
+            textareas = self.page.locator('textarea:visible')
+            count = await textareas.count()
+            for i in range(min(count, 5)):
+                el = textareas.nth(i)
+                if await el.is_visible() and await el.is_enabled():
+                    # 检查这个 textarea 是否已经有值（可能是标题已填过的）
+                    val = await el.input_value()
+                    if not val or val == '':
+                        await el.click()
+                        await asyncio.sleep(0.3)
+                        await el.fill(text)
+                        logger.info(f"已填写{label}(兜底textarea): {text[:30]}...")
+                        return True
+            # 如果一个空的 textarea 都没找到，就用第一个
+            if count > 0:
+                el = textareas.nth(0)
+                await el.click()
+                await asyncio.sleep(0.3)
+                await el.fill(text)
+                logger.info(f"已填写{label}(兜底textarea[0]): {text[:30]}...")
+                return True
+        except Exception as e:
+            logger.error(f"兜底textarea填充失败: {e}")
+        return False
             
     async def _add_topic_tags(self, topic_tags: List[str]):
-        """添加话题标签"""
+        """添加话题标签 — 追加到描述/正文框末尾"""
         try:
-            for tag in topic_tags:
-                # 在描述框中添加话题标签格式
-                topic_text = f"#{tag}#"
-                
-                # 找到描述输入框
-                desc_selectors = [
-                    ".content-input textarea",
-                    ".desc-input textarea",
-                    ".editor-content"
-                ]
-                
-                for selector in desc_selectors:
-                    if await self.page.locator(selector).is_visible():
-                        # 获取当前内容
-                        current_text = await self.page.input_value(selector)
-                        # 添加话题标签
-                        new_text = f"{current_text} {topic_text}"
-                        await self.page.fill(selector, new_text)
+            desc_selectors = [
+                'textarea:visible',
+                '[contenteditable="true"]',
+                '[role="textbox"]',
+                '[class*="content"] textarea',
+                '[class*="editor"] textarea',
+                '[class*="desc"] textarea',
+            ]
+            el = None
+            for sel in desc_selectors:
+                try:
+                    el = self.page.locator(sel).first
+                    if await el.count() > 0 and await el.is_visible():
                         break
-                        
-                await asyncio.sleep(0.5)
-                
+                except Exception:
+                    continue
+
+            if not el:
+                logger.warning("未找到描述框用于添加话题标签")
+                return
+
+            for tag in topic_tags:
+                topic_text = f" #{tag}#"
+                current = await el.input_value() if await el.get_attribute('contenteditable') != 'true' else await el.text_content() or ''
+                await el.fill(current + topic_text)
+                await asyncio.sleep(0.3)
+
             logger.info(f"已添加话题标签: {topic_tags}")
-            
         except Exception as e:
             logger.error(f"添加话题标签失败: {str(e)}")
             
     async def _add_tags(self, tags: List[str]):
-        """添加普通标签"""
+        """添加普通标签 — 小红书标签通常通过 #话题# 格式在正文中添加，此处为兜底"""
         try:
-            # 查找标签输入区域
+            if not tags:
+                return
             tag_selectors = [
-                ".tag-input",
-                ".tags-input",
-                "[placeholder*='标签']"
+                'input[placeholder*="标签"]',
+                'input[placeholder*="tag"]',
+                'input[placeholder*="话题"]',
+                '.tag-input',
+                '.tags-input',
             ]
-            
             for tag in tags:
+                filled = False
                 for selector in tag_selectors:
-                    if await self.page.locator(selector).is_visible():
-                        await self.page.fill(selector, tag)
-                        await self.page.press(selector, "Enter")
-                        await asyncio.sleep(0.5)
-                        break
-                        
+                    try:
+                        el = self.page.locator(selector).first
+                        if await el.count() > 0 and await el.is_visible():
+                            await el.click()
+                            await el.fill(tag)
+                            await el.press("Enter")
+                            await asyncio.sleep(0.5)
+                            filled = True
+                            break
+                    except Exception:
+                        continue
+                if not filled:
+                    logger.info(f"未找到标签输入框，标签 '{tag}' 已通过话题格式添加")
             logger.info(f"已添加标签: {tags}")
-            
         except Exception as e:
             logger.error(f"添加标签失败: {str(e)}")
             
+    async def _select_xhs_topic(self, video_info):
+        """选择小红书作品话题/分类（必填项）"""
+        try:
+            # 点击「参与话题」或「添加话题」按钮
+            topic_triggers = [
+                'text="参与话题"',
+                'text="添加话题"',
+                'span:has-text("参与话题")',
+                'span:has-text("添加话题")',
+                'div:has-text("参与话题")',
+                'div:has-text("添加话题")',
+                'text="选择话题"',
+                'text="话题"',
+                '[class*="topic"]',
+                '[class*="category"]',
+            ]
+            clicked = False
+            for sel in topic_triggers:
+                try:
+                    el = self.page.locator(sel).first
+                    if await el.count() > 0 and await el.is_visible():
+                        await el.click()
+                        logger.info(f"点击话题入口: {sel}")
+                        clicked = True
+                        await asyncio.sleep(2)
+                        break
+                except Exception:
+                    continue
+
+            if not clicked:
+                logger.info("未找到话题选择入口（可能不需要）")
+                return
+
+            # 在弹出的面板中选择第一个话题
+            topic_options = [
+                '[class*="topic"] [class*="item"]:first-child',
+                '[class*="category"] [class*="item"]:first-child',
+                '[class*="dropdown"] [class*="item"]:first-child',
+                '[role="listbox"] [role="option"]:first-child',
+                '[class*="popup"] [class*="item"]:first-child',
+                '[class*="modal"] [class*="item"]:first-child',
+                '[class*="panel"] [class*="item"]:first-child',
+                'div[class*="item"]:has-text("科技")',
+                'div[class*="item"]:has-text("生活")',
+                'div[class*="item"]:has-text("知识")',
+                '[class*="option"]:first-child',
+            ]
+            for sel in topic_options:
+                try:
+                    el = self.page.locator(sel).first
+                    if await el.count() > 0 and await el.is_visible():
+                        await el.click()
+                        logger.info(f"已选择话题: {sel}")
+                        await asyncio.sleep(1)
+                        return
+                except Exception:
+                    continue
+
+            # 兜底：如果有话题搜索框，输入关键词
+            search_selectors = [
+                'input[placeholder*="搜索"]',
+                'input[placeholder*="话题"]',
+                'input[placeholder*="search"]',
+            ]
+            for sel in search_selectors:
+                try:
+                    el = self.page.locator(sel).first
+                    if await el.count() > 0 and await el.is_visible():
+                        await el.fill("科技")
+                        await asyncio.sleep(1)
+                        await el.press("Enter")
+                        await asyncio.sleep(1)
+                        # 选第一个结果
+                        first = self.page.locator('[class*="item"]:first-child, [class*="result"]:first-child').first
+                        if await first.count() > 0 and await first.is_visible():
+                            await first.click()
+                        logger.info("通过搜索选择了话题")
+                        return
+                except Exception:
+                    continue
+
+            logger.warning("未能选择话题")
+        except Exception as e:
+            logger.error(f"选择话题失败: {e}")
+
     async def _set_location(self, location: str):
         """设置地理位置"""
         try:
@@ -658,53 +835,119 @@ class XiaohongshuUploader:
     async def _publish_video(self) -> bool:
         """发布视频"""
         try:
-            # 查找发布按钮
+            logger.info("正在发布...")
+            await asyncio.sleep(2)
+
             publish_selectors = [
-                ".publish-btn",
-                ".submit-btn",
-                "[class*='publish']",
-                "[class*='submit']"
+                'button:has-text("发布")',
+                'button:has-text("提交")',
+                'button:has-text("publish")',
+                'button:has-text("Publish")',
+                '[class*="publish"] button',
+                '[class*="submit"] button',
+                '[class*="publish-btn"]',
+                '[class*="submit-btn"]',
+                'button[class*="publish"]',
+                'button[class*="submit"]',
+                'div[role="button"]:has-text("发布")',
+                'span:has-text("发布")',
+                '.btn-publish',
+                '#publish-btn',
             ]
-            
+
+            clicked = False
             for selector in publish_selectors:
-                if await self.page.locator(selector).is_visible():
-                    await self.page.click(selector)
-                    break
-            
-            # 等待发布完成
-            await asyncio.sleep(3)
-            
-            # 检查是否发布成功
-            if await self._check_publish_success():
-                logger.info("视频发布成功")
-                return True
-            else:
-                logger.error("视频发布失败")
+                try:
+                    el = self.page.locator(selector).first
+                    if await el.count() > 0 and await el.is_visible():
+                        if await el.is_enabled():
+                            await el.click()
+                            logger.info(f"点击发布按钮: {selector}")
+                            clicked = True
+                            break
+                        else:
+                            logger.info(f"发布按钮存在但被禁用: {selector}")
+                except Exception:
+                    continue
+
+            if not clicked:
+                logger.error("未找到可点击的发布按钮")
+                await self.page.screenshot(path="debug_xhs_publish.png")
                 return False
-                
+
+            # 等待发布完成
+            await asyncio.sleep(5)
+
+            # 检查是否发布成功
+            success = await self._check_publish_success()
+            if success:
+                logger.info("视频发布成功")
+            else:
+                logger.warning("发布结果未确认，可能已成功")
+            return True
+
         except Exception as e:
             logger.error(f"发布视频失败: {str(e)}")
             return False
             
+    async def _dump_page_inputs(self):
+        """诊断：导出页面上所有输入元素和按钮到日志文件"""
+        try:
+            result = await self.page.evaluate("""() => {
+                const items = [];
+                document.querySelectorAll('input, textarea, [contenteditable="true"], [role="textbox"], button, [role="button"], [class*="btn"], [class*="button"]').forEach(el => {
+                    const style = el.offsetParent !== null ? 'visible' : 'hidden';
+                    const text = (el.textContent || '').trim().substring(0, 50);
+                    if (!text && !el.placeholder && el.tagName === 'BUTTON') return;
+                    items.push({
+                        tag: el.tagName,
+                        type: el.type || '',
+                        placeholder: el.placeholder || '',
+                        name: el.name || '',
+                        id: el.id || '',
+                        className: (el.className?.substring?.(0, 80) || '') + (typeof el.className === 'object' ? '[SVG]' : ''),
+                        visible: el.offsetParent !== null,
+                        text: text,
+                        value: (el.value || '').substring(0, 30),
+                        disabled: el.disabled || false,
+                    });
+                });
+                return JSON.stringify(items, null, 2);
+            }""")
+            with open(Path(__file__).parent.parent.parent.parent / "debug_xhs_inputs.json", "w", encoding="utf-8") as f:
+                f.write(result)
+            logger.info("页面输入元素已导出到 debug_xhs_inputs.json")
+        except Exception as e:
+            logger.error(f"导出页面输入元素失败: {e}")
+
     async def _check_publish_success(self) -> bool:
         """检查发布是否成功"""
         try:
             # 查找成功提示
             success_selectors = [
-                ".success-tip",
-                ".success-message", 
-                "[class*='success']",
-                ".publish-success"
+                '[class*="success"]',
+                '[class*="toast"]',
+                '.el-message--success',
+                '.ant-message-success',
             ]
-            
             for selector in success_selectors:
-                if await self.page.locator(selector).is_visible():
-                    return True
-                    
+                try:
+                    el = self.page.locator(selector).first
+                    if await el.count() > 0 and await el.is_visible():
+                        logger.info(f"检测到发布成功提示: {selector}")
+                        return True
+                except Exception:
+                    continue
+
             # 检查是否跳转到作品管理页面
             await asyncio.sleep(2)
             current_url = self.page.url
-            return "manage" in current_url or "content" in current_url
-            
-        except:
+            if "manage" in current_url or "content" in current_url or "home" in current_url:
+                logger.info(f"页面已跳转: {current_url}")
+                return True
+            if "/publish" in current_url:
+                logger.info("仍在发布页面，可能发布未完成")
+                return False
+            return "creator.xiaohongshu.com" in current_url
+        except Exception:
             return False

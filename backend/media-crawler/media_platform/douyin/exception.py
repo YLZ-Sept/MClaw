@@ -18,3 +18,7 @@ class DataFetchError(RequestError):
 
 class IPBlockError(RequestError):
     """fetch so fast that the server block us ip"""
+
+
+class LoginRequiredError(DataFetchError):
+    """login required (status_code=2483)"""

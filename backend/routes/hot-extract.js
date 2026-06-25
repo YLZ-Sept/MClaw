@@ -58,6 +58,19 @@ router.get('/history/:id', async (req, res) => {
   }
 });
 
+// 删除改写历史
+router.delete('/history/:id', async (req, res) => {
+  try {
+    const db = getDB();
+    const row = db.prepare('SELECT id FROM rewrite_history WHERE id = ?').get(req.params.id);
+    if (!row) return res.status(404).json({ code: 404, message: '记录不存在' });
+    db.prepare('DELETE FROM rewrite_history WHERE id = ?').run(req.params.id);
+    res.json({ code: 200, data: { status: 'deleted' } });
+  } catch (err) {
+    res.status(500).json({ code: 500, message: err.message });
+  }
+});
+
 // TTS 试听
 router.get('/tts-preview', async (req, res) => {
   try {

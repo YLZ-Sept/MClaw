@@ -314,6 +314,49 @@ router.get('/:id/video', (req, res) => {
   fs.createReadStream(videoPath).pipe(res);
 });
 
+// ─── 发布图片上传 ───
+
+const imageUpload = multer({
+  dest: VIDEOS_DIR,
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB per image
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error('仅支持 JPG/PNG/WebP/GIF 图片格式'));
+    }
+  }
+});
+
+router.post('/:id/publish-images', imageUpload.array('images', 12), (req, res) => {
+  const cur = db.prepare('SELECT * FROM hot_contents WHERE id=?').get(req.params.id);
+  if (!cur) return res.status(404).json({ code: 404, message: '内容不存在' });
+
+  const files = req.files || [];
+  const images = files.map((f, i) => {
+    const ext = path.extname(f.originalname) || '.jpg';
+    const dest = path.join(VIDEOS_DIR, `pubimg_${req.params.id}_${Date.now()}_${i}${ext}`);
+    fs.renameSync(f.path, dest);
+    return { id: `img_${i}`, path: dest, url: `/api/hot-contents/${req.params.id}/publish-image/${i}` };
+  });
+
+  res.json({ code: 200, data: images });
+});
+
+router.get('/:id/publish-image/:idx', (req, res) => {
+  const prefix = `pubimg_${req.params.id}_`;
+  const suffix = `_${req.params.idx}.`;
+  const files = fs.readdirSync(VIDEOS_DIR).filter(f => f.startsWith(prefix) && f.includes(suffix));
+  if (!files.length) return res.status(404).json({ code: 404, message: '图片不存在' });
+  const filePath = path.join(VIDEOS_DIR, files[0]);
+  const ext = path.extname(filePath).toLowerCase();
+  const mime = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif' }[ext] || 'image/jpeg';
+  res.setHeader('Content-Type', mime);
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  fs.createReadStream(filePath).pipe(res);
+});
+
 // ─── 删除视频 ───
 
 router.delete('/:id/video', (req, res) => {

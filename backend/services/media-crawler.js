@@ -32,7 +32,7 @@ const PLATFORM_DIR_MAP = {
   tieba: 'tieba',
 };
 
-async function extract({ platform, keyword, limit = 10, loginType = 'qrcode' }) {
+async function extract({ platform, keyword, limit = 10, loginType = 'qrcode', publishTime = '0' }) {
   const mcPlatform = PLATFORM_MAP[platform] || platform;
   if (!mcPlatform) throw new Error(`不支持的平台: ${platform}`);
 
@@ -49,7 +49,7 @@ async function extract({ platform, keyword, limit = 10, loginType = 'qrcode' }) 
     LOGIN_TYPE: `"${loginType}"`,
     COOKIES: '""',
     SORT_TYPE: `"popularity_descending"`,
-    PUBLISH_TIME_TYPE: '0',
+    PUBLISH_TIME_TYPE: String(publishTime),
     CRAWLER_TYPE: `"search"`,
     ENABLE_IP_PROXY: 'False',
     CRAWLER_MAX_NOTES_COUNT: String(limit),
@@ -57,14 +57,14 @@ async function extract({ platform, keyword, limit = 10, loginType = 'qrcode' }) 
     ENABLE_GET_SUB_COMMENTS: 'True',
     CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES: '30',
     SAVE_DATA_OPTION: `"json"`,
-    SAVE_LOGIN_STATE: 'False',
+    SAVE_LOGIN_STATE: 'True',
     HEADLESS: 'False',
   };
 
   for (const [key, val] of Object.entries(patches)) {
     // Skip CRAWLER_TYPE — it's multi-line with parens in comment, default is already "search"
     if (key === 'CRAWLER_TYPE') continue;
-    const re = new RegExp(`^(${key}\\s*=\\s*).*`, 'm');
+    const re = new RegExp(`^(${key}[ \\t]*=[ \\t]*).*`, 'm');
     if (re.test(configContent)) {
       configContent = configContent.replace(re, `$1${val}`);
     } else {
@@ -99,19 +99,23 @@ async function extract({ platform, keyword, limit = 10, loginType = 'qrcode' }) 
         windowsHide: false,
         maxBuffer: 1024 * 1024
       }, (err, stdout, stderr) => {
+        const output = (stdout || '') + '\n' + (stderr || '');
+        // 写入日志文件方便回溯
+        const logFile = path.join(MC_DIR, 'last_run.log');
+        try { fs.writeFileSync(logFile, output, 'utf8'); } catch {}
+        console.log('[mcExtract] Python exit, code:', err?.code || 0, 'signal:', err?.signal);
+        console.log('[mcExtract] Full log saved to media-crawler/last_run.log, preview:', output.slice(-300));
         if (err && err.killed) {
           reject(new Error('爬取超时（5分钟），浏览器窗口是否已弹出？请确认已扫码登录'));
           return;
         }
         if (err) {
-          // MediaCrawler sometimes exits non-zero even on success
-          const output = stdout + stderr;
           if (output.includes('Error') && !output.includes('success')) {
             reject(new Error(stderr?.slice(-500) || err.message));
             return;
           }
         }
-        resolve(stdout + stderr);
+        resolve(output);
       });
     });
 
@@ -328,7 +332,7 @@ async function detailExtractFromUrl({ url, platform, loginType = 'qrcode' }) {
 
   for (const [key, val] of Object.entries(patches)) {
     if (key === 'CRAWLER_TYPE') continue;
-    const re = new RegExp(`^(${key}\\s*=\\s*).*`, 'm');
+    const re = new RegExp(`^(${key}[ \\t]*=[ \\t]*).*`, 'm');
     if (re.test(configContent)) {
       configContent = configContent.replace(re, `$1${val}`);
     } else {
@@ -349,7 +353,7 @@ async function detailExtractFromUrl({ url, platform, loginType = 'qrcode' }) {
   const listKey = listMap[mcPlatform];
   if (listKey) {
     const value = mcPlatform === 'zhihu' ? `"${url}"` : `"${postId}"`;
-    const re = new RegExp(`^(${listKey}\\s*=\\s*\\[)[^\\]]*\\]`, 'm');
+    const re = new RegExp(`^(${listKey}[ \\t]*=[ \\t]*\\[)[^\\]]*\\]`, 'm');
     if (re.test(configContent)) {
       configContent = configContent.replace(re, `$1${value}]`);
     } else {
@@ -383,17 +387,17 @@ async function detailExtractFromUrl({ url, platform, loginType = 'qrcode' }) {
         maxBuffer: 1024 * 1024
       }, (err, stdout, stderr) => {
         pythonOutput = (stdout || '') + '\n' + (stderr || '');
-        console.log('[detailExtract] Python exit, err.code:', err?.code, 'stdout_len:', stdout?.length || 0, 'stderr_len:', stderr?.length || 0);
-        if (stderr) console.log('[detailExtract] Python stderr:', stderr.slice(-600));
-        if (stdout) console.log('[detailExtract] Python stdout:', stdout.slice(-600));
+        console.log('[mcExtract] Python exit, code:', err?.code || 0, 'signal:', err?.signal, 'stdout:', (stdout || '').slice(-300));
+        if (stderr) console.log('[mcExtract] Python stderr:', stderr.slice(-500));
         if (err && err.killed) {
-          reject(new Error('爬取超时（5分钟）'));
+          reject(new Error('爬取超时（5分钟），浏览器窗口是否已弹出？请确认已扫码登录'));
           return;
         }
         if (err) {
+          // MediaCrawler sometimes exits non-zero even on success
           const output = (stdout || '') + (stderr || '');
           if (output.includes('Error') && !output.includes('success')) {
-            reject(new Error((stderr || err.message).slice(-500)));
+            reject(new Error(stderr?.slice(-500) || err.message));
             return;
           }
         }
@@ -401,7 +405,7 @@ async function detailExtractFromUrl({ url, platform, loginType = 'qrcode' }) {
       });
     });
 
-    // Parse output data — MediaCrawler stores posts and comments in separate files
+    // 3. Parse output data (JSON files under data/<platform>/json/)
     const results = [];
     const scanDirs = [dataPath, topDataPath];
     const allRaw = [];
@@ -485,23 +489,39 @@ async function detailExtractFromUrl({ url, platform, loginType = 'qrcode' }) {
   }
 }
 
-// 发布评论到抖音（需要已登录的 browser_data）
-async function postDouyinComment(awemeId, content, loginType = 'qrcode') {
-  // Patch config for dy platform
+// 发布评论（多平台支持，需要已登录的 browser_data）
+// platform: douyin | xiaohongshu | kuaishou (及其短码 dy | xhs | ks)
+async function postComment(platform, postId, content, loginType = 'qrcode') {
+  const mcPlatform = PLATFORM_MAP[platform] || platform;
+
+  const SCRIPT_MAP = {
+    douyin: 'post_comment.py',
+    dy: 'post_comment.py',
+    xiaohongshu: 'post_comment_xhs.py',
+    xhs: 'post_comment_xhs.py',
+    kuaishou: 'post_comment_ks.py',
+    ks: 'post_comment_ks.py',
+  };
+  const script = SCRIPT_MAP[mcPlatform] || SCRIPT_MAP[platform];
+  if (!script) throw new Error(`不支持的发布平台: ${platform}`);
+
+  // Patch config for target platform
   const backupPath = CONFIG_FILE + '.bak';
   if (!fs.existsSync(backupPath)) {
     fs.copyFileSync(CONFIG_FILE, backupPath);
   }
   let configContent = fs.readFileSync(CONFIG_FILE, 'utf8');
 
-  // Set CRAWLER_TYPE to avoid any conflict (not used by post_comment.py)
   configContent = configContent.replace(
     /^CRAWLER_TYPE\s*=\s*\([\s\S]*?\n\s*\)/m,
     'CRAWLER_TYPE = "detail"'
   );
 
+  // Map mcPlatform to config PLATFORM value
+  const configPlatform = { douyin: 'dy', dy: 'dy', xiaohongshu: 'xhs', xhs: 'xhs', kuaishou: 'ks', ks: 'ks' }[mcPlatform] || mcPlatform;
+
   const patches = {
-    PLATFORM: '"dy"',
+    PLATFORM: `"${configPlatform}"`,
     LOGIN_TYPE: `"${loginType}"`,
     COOKIES: '""',
     SAVE_LOGIN_STATE: 'True',
@@ -510,7 +530,7 @@ async function postDouyinComment(awemeId, content, loginType = 'qrcode') {
     ENABLE_CDP_MODE: 'False',
   };
   for (const [key, val] of Object.entries(patches)) {
-    const re = new RegExp(`^(${key}\\s*=\\s*).*`, 'm');
+    const re = new RegExp(`^(${key}[ \\t]*=[ \\t]*).*`, 'm');
     if (re.test(configContent)) {
       configContent = configContent.replace(re, `$1${val}`);
     } else {
@@ -519,17 +539,18 @@ async function postDouyinComment(awemeId, content, loginType = 'qrcode') {
   }
   fs.writeFileSync(CONFIG_FILE, configContent, 'utf8');
 
+  const tag = `[postComment:${mcPlatform}]`;
   try {
     const result = await new Promise((resolve, reject) => {
       const python = process.platform === 'win32' ? 'python' : 'python3';
-      const child = execFile(python, ['post_comment.py', awemeId, content], {
+      const child = execFile(python, [script, postId, content], {
         cwd: MC_DIR,
         timeout: 300000,
         windowsHide: false,
         maxBuffer: 1024 * 1024
       }, (err, stdout, stderr) => {
-        console.log('[postDouyinComment] stdout:', (stdout || '').slice(-500));
-        if (stderr) console.log('[postDouyinComment] stderr:', stderr.slice(-600));
+        console.log(`${tag} stdout:`, (stdout || '').slice(-500));
+        if (stderr) console.log(`${tag} stderr:`, stderr.slice(-600));
         if (err && err.killed) {
           reject(new Error('发布超时（5分钟）'));
           return;
@@ -538,7 +559,6 @@ async function postDouyinComment(awemeId, content, loginType = 'qrcode') {
           reject(new Error((stderr || err.message).slice(-500)));
           return;
         }
-        // Parse result from stdout
         const match = (stdout || '').match(/POST_COMMENT_RESULT:\s*(.+)/);
         if (match) {
           try { resolve(JSON.parse(match[1])); } catch { resolve(match[1]); }
@@ -555,4 +575,9 @@ async function postDouyinComment(awemeId, content, loginType = 'qrcode') {
   }
 }
 
-module.exports = { extract, extractFromUrl, detailExtractFromUrl, postDouyinComment, PLATFORM_MAP, PLATFORM_DIR_MAP };
+// 向后兼容
+async function postDouyinComment(awemeId, content, loginType = 'qrcode') {
+  return postComment('douyin', awemeId, content, loginType);
+}
+
+module.exports = { extract, extractFromUrl, detailExtractFromUrl, postComment, postDouyinComment, PLATFORM_MAP, PLATFORM_DIR_MAP };

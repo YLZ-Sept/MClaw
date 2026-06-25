@@ -186,6 +186,41 @@ class DouyinUploader:
             self.logger.error(f"上传视频时发生错误: {str(e)}")
             return False
 
+    async def upload_images(self,
+                            images: List[str],
+                            title: str,
+                            tags: List[str],
+                            description: str = None,
+                            publish_date: datetime = None,
+                            location: str = "北京市",
+                            music_path: str = None,
+                            music_query: str = None) -> bool:
+        """
+        上传图文到抖音
+
+        Args:
+            images: 图片文件路径列表
+            title: 作品标题
+            tags: 话题标签列表
+            description: 作品描述
+            publish_date: 发布时间(None表示立即发布)
+            location: 地理位置
+            music_path: 背景音乐文件路径（用于提取搜索词）
+            music_query: 音乐搜索关键词（抖音曲库）
+
+        Returns:
+            bool: 上传是否成功
+        """
+        try:
+            async with async_playwright() as playwright:
+                return await self._upload_images_impl(
+                    playwright, images, title, tags, description,
+                    publish_date, location, music_path, music_query
+                )
+        except Exception as e:
+            self.logger.error(f"上传图文时发生错误: {str(e)}")
+            return False
+
     async def _upload_video_impl(self,
                                  playwright: Playwright,
                                  video_path: str,
@@ -277,12 +312,303 @@ class DouyinUploader:
             await context.close()
             await browser.close()
 
+    async def _upload_images_impl(self,
+                                   playwright: Playwright,
+                                   images: List[str],
+                                   title: str,
+                                   tags: List[str],
+                                   description: str = None,
+                                   publish_date: datetime = None,
+                                   location: str = "北京市",
+                                   music_path: str = None,
+                                   music_query: str = None) -> bool:
+        """上传图文的具体实现"""
+
+        if self.config.chrome_path:
+            browser = await playwright.chromium.launch(
+                headless=False,
+                executable_path=self.config.chrome_path
+            )
+        else:
+            browser = await self._launch_browser(playwright, headless=False)
+
+        context = await browser.new_context(
+            storage_state=self.cookie_file,
+            permissions=['geolocation'],
+            geolocation={'latitude': 39.9042, 'longitude': 116.4074}
+        )
+        await self._set_init_script(context)
+
+        page = await context.new_page()
+        await self._setup_page_permissions(page)
+
+        try:
+            # 访问上传页面
+            await page.goto("https://creator.douyin.com/creator-micro/content/upload")
+            self.logger.info(f'[+]正在上传图文-------{title}')
+
+            await page.wait_for_url("https://creator.douyin.com/creator-micro/content/upload")
+
+            # 点击"发布图文"标签
+            await self._click_image_tab(page)
+
+            # 上传图片
+            await self._upload_image_files(page, images)
+
+            # 等待进入发布页面
+            await self._wait_for_publish_page(page)
+
+            # 填充标题、描述和话题
+            await self._fill_title_and_tags(page, title, tags, description)
+
+            # 等待图片上传完成
+            await self._wait_for_image_upload_complete(page)
+
+            # 设置背景音乐
+            if music_query or (music_path and os.path.exists(music_path)):
+                await self._set_music(page, music_path, music_query)
+
+            # 设置地理位置
+            await self._set_location(page, location)
+
+            # 设置第三方平台同步
+            await self._set_third_party_sync(page)
+
+            # 设置定时发布
+            if publish_date:
+                await self._set_schedule_time(page, publish_date)
+
+            # 发布
+            await self._publish_video(page)
+
+            await context.storage_state(path=self.cookie_file)
+            self.logger.info('Cookie已更新')
+
+            await asyncio.sleep(2)
+            return True
+
+        except Exception as e:
+            self.logger.error(f"上传图文过程中发生错误: {str(e)}")
+            await page.screenshot(path=f"error_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
+            return False
+
+        finally:
+            await context.close()
+            await browser.close()
+
+    async def _click_image_tab(self, page: Page):
+        """点击'发布图文'标签页"""
+        self.logger.info("正在切换到'发布图文'标签...")
+        await asyncio.sleep(2)  # 等待页面完全加载
+
+        tab_selectors = [
+            'text="发布图文"',
+            'div:has-text("发布图文")',
+            'span:has-text("发布图文")',
+            '[class*="tab"]:has-text("发布图文")',
+            'div[class*="tab"]:has-text("图文")',
+            'span[class*="tab"]:has-text("图文")',
+        ]
+
+        for selector in tab_selectors:
+            try:
+                el = page.locator(selector).first
+                if await el.count() > 0:
+                    await el.click()
+                    self.logger.info(f"成功点击'发布图文'标签: {selector}")
+                    await asyncio.sleep(2)
+                    return
+            except Exception as e:
+                self.logger.debug(f"尝试选择器 {selector} 失败: {str(e)}")
+                continue
+
+        self.logger.warning("未找到'发布图文'标签，尝试继续上传")
+
+    async def _upload_image_files(self, page: Page, images: List[str]):
+        """上传图片文件"""
+        self.logger.info(f"正在上传 {len(images)} 张图片...")
+
+        # 图文模式下的文件上传input
+        image_input_selectors = [
+            "div[class^='container'] input[type='file']",
+            "input[type='file'][accept*='image']",
+            "input[type='file']",
+        ]
+
+        uploaded = False
+        for selector in image_input_selectors:
+            try:
+                file_input = page.locator(selector).first
+                if await file_input.count() > 0:
+                    await file_input.set_input_files(images)
+                    self.logger.info(f"成功上传图片: {selector}")
+                    uploaded = True
+                    break
+            except Exception as e:
+                self.logger.debug(f"尝试上传选择器 {selector} 失败: {str(e)}")
+                continue
+
+        if not uploaded:
+            raise Exception("无法找到图片上传输入框")
+
+    async def _wait_for_image_upload_complete(self, page: Page):
+        """等待图片上传完成"""
+        self.logger.info("等待图片上传完成...")
+        await asyncio.sleep(2)  # 图片通常上传较快
+
+        # 检查是否有上传进度或重新上传按钮
+        max_wait = 60
+        waited = 0
+        while waited < max_wait:
+            try:
+                # 检查是否有"重新上传"按钮（表示上传完成）
+                number = await page.locator('[class^="long-card"] div:has-text("重新上传")').count()
+                if number > 0:
+                    self.logger.info("图片上传完毕")
+                    return
+
+                # 检查是否有上传失败
+                if await page.locator('div:has-text("上传失败")').count():
+                    self.logger.error("图片上传失败")
+                    raise Exception("图片上传失败")
+
+                self.logger.info("图片上传中...")
+                await asyncio.sleep(2)
+                waited += 2
+            except Exception as e:
+                if "图片上传失败" in str(e):
+                    raise
+                self.logger.info("图片上传中...")
+                await asyncio.sleep(2)
+                waited += 2
+
+        self.logger.warning("图片上传等待超时，继续后续流程")
+
+    async def _set_music(self, page: Page, music_path: str = None, music_query: str = None):
+        """图文模式 — 选择热门榜单第一首音乐"""
+        self.logger.info("正在选择背景音乐...")
+
+        # 先看看是否需要展开"扩展信息"区域
+        expand_selectors = [
+            'text="扩展信息"',
+            'span:has-text("扩展信息")',
+            'div:has-text("扩展信息")',
+        ]
+        for selector in expand_selectors:
+            try:
+                expand_btn = page.locator(selector).first
+                if await expand_btn.count() > 0:
+                    await expand_btn.click()
+                    self.logger.info("展开扩展信息区域")
+                    await asyncio.sleep(1)
+                    break
+            except Exception:
+                continue
+
+        # 点击"选择音乐"打开音乐面板
+        music_btn_selectors = [
+            'text="选择音乐"',
+            'span:has-text("选择音乐")',
+            'div:has-text("选择音乐")',
+        ]
+
+        clicked = False
+        for selector in music_btn_selectors:
+            try:
+                btn = page.locator(selector).first
+                if await btn.count() > 0:
+                    await btn.click()
+                    self.logger.info(f"成功点击音乐按钮: {selector}")
+                    clicked = True
+                    await asyncio.sleep(3)
+                    break
+            except Exception as e:
+                self.logger.debug(f"尝试音乐选择器 {selector} 失败: {str(e)}")
+                continue
+
+        if not clicked:
+            self.logger.warning("未找到音乐选择按钮，跳过BGM设置")
+            return
+
+        # 点击"热门榜单"标签
+        hot_tab_selectors = [
+            'text="热门榜单"',
+            'span:has-text("热门榜单")',
+            'div:has-text("热门榜单")',
+            'text="热歌榜"',
+            'span:has-text("热歌榜")',
+            'div[class*="tab"]:has-text("热门")',
+            'div[class*="tab"]:has-text("热歌")',
+            'div[role="tab"]:has-text("热门")',
+        ]
+
+        for selector in hot_tab_selectors:
+            try:
+                tab = page.locator(selector).first
+                if await tab.count() > 0:
+                    await tab.click()
+                    self.logger.info(f"点击热门榜单: {selector}")
+                    await asyncio.sleep(2)
+                    break
+            except Exception:
+                continue
+
+        # 点击第一个音乐项
+        music_item_selectors = [
+            '[class*="music"] [class*="item"]',
+            '[class*="song"] [class*="item"]',
+            'div[class*="list"] div[class*="item"]',
+            'div[role="listitem"]',
+            'div[class*="card"]',
+        ]
+
+        item_clicked = False
+        for selector in music_item_selectors:
+            try:
+                await page.wait_for_selector(selector, timeout=5000)
+                items = page.locator(selector)
+                count = await items.count()
+                self.logger.info(f"音乐列表 [{selector}]: 找到 {count} 个")
+                if count > 0:
+                    await items.first.click()
+                    self.logger.info("已选择第一首音乐")
+                    item_clicked = True
+                    await asyncio.sleep(1)
+                    break
+            except Exception:
+                continue
+
+        if not item_clicked:
+            self.logger.warning("未找到音乐列表，跳过BGM设置")
+            await page.keyboard.press("Escape")
+            return
+
+        # 点击"使用"确认
+        use_selectors = [
+            'button:has-text("使用")',
+            'text="使用"',
+            'button:has-text("确定")',
+            'button:has-text("完成")',
+        ]
+
+        for selector in use_selectors:
+            try:
+                btn = page.locator(selector).first
+                if await btn.count() > 0:
+                    await btn.click()
+                    self.logger.info(f"BGM确认: {selector}")
+                    await asyncio.sleep(1)
+                    return
+            except Exception:
+                continue
+
+        self.logger.info("BGM设置流程完成")
+
     async def _wait_for_publish_page(self, page: Page):
         """等待进入发布页面"""
         self.logger.info("等待进入发布页面...")
         while True:
             try:
-                # 尝试等待第一个版本的URL
                 await page.wait_for_url(
                     "https://creator.douyin.com/creator-micro/content/publish?enter_from=publish_page",
                     timeout=3000
@@ -291,7 +617,6 @@ class DouyinUploader:
                 break
             except Exception:
                 try:
-                    # 尝试等待第二个版本的URL
                     await page.wait_for_url(
                         "https://creator.douyin.com/creator-micro/content/post/video?enter_from=publish_page",
                         timeout=3000
@@ -299,8 +624,17 @@ class DouyinUploader:
                     self.logger.info("成功进入version_2发布页面!")
                     break
                 except:
-                    self.logger.info("超时未进入视频发布页面，重新尝试...")
-                    await asyncio.sleep(0.5)
+                    try:
+                        # 图文发布页面 URL
+                        await page.wait_for_url(
+                            "https://creator.douyin.com/creator-micro/content/post/image**",
+                            timeout=3000
+                        )
+                        self.logger.info("成功进入图文发布页面!")
+                        break
+                    except:
+                        self.logger.info("超时未进入发布页面，重新尝试...")
+                        await asyncio.sleep(0.5)
 
     async def _fill_title_and_tags(self, page: Page, title: str, tags: List[str], description: str = None):
         """填充标题、描述和话题 — 使用 keyboard.insertText 正确处理中文"""

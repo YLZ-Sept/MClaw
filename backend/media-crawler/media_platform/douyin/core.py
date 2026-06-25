@@ -10,8 +10,10 @@
 
 
 import asyncio
+import json
 import os
 import random
+import urllib.parse
 from asyncio import Task
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -27,7 +29,7 @@ from tools.cdp_browser import CDPBrowserManager
 from var import crawler_type_var, source_keyword_var
 
 from .client import DOUYINClient
-from .exception import DataFetchError
+from .exception import DataFetchError, LoginRequiredError
 from .field import PublishTimeType
 from .login import DouYinLogin
 
@@ -70,7 +72,8 @@ class DouYinCrawler(AbstractCrawler):
             # stealth.min.js is a js script to prevent the website from detecting the crawler.
             await self.browser_context.add_init_script(path="libs/stealth.min.js")
             self.context_page = await self.browser_context.new_page()
-            await self.context_page.goto(self.index_url)
+            await self.context_page.goto(self.index_url, wait_until="domcontentloaded")
+            await asyncio.sleep(3)  # 等待可能的 JS 重定向完成
 
             self.dy_client = await self.create_douyin_client(httpx_proxy_format)
             if not await self.dy_client.pong(browser_context=self.browser_context):
@@ -96,12 +99,85 @@ class DouYinCrawler(AbstractCrawler):
 
             utils.logger.info("[DouYinCrawler.start] Douyin Crawler finished ...")
 
+    async def _browser_search(self, keyword: str) -> Dict:
+        """模拟用户在首页搜索框输入关键词，拦截真实 API 响应"""
+        utils.logger.info(f"[DouYinCrawler._browser_search] 浏览器搜索: {keyword}")
+
+        captured = {}
+        done = asyncio.Event()
+
+        async def on_response(response):
+            if done.is_set():
+                return
+            if "/aweme/v1/web/general/search/single/" in response.url:
+                try:
+                    data = await response.json()
+                    if data.get("status_code") == 0:
+                        captured["data"] = data
+                        done.set()
+                        utils.logger.info(f"[DouYinCrawler._browser_search] 截获响应, data_len={len(data.get('data', []))}")
+                except Exception:
+                    pass
+
+        self.context_page.on("response", on_response)
+        try:
+            # 确保在首页
+            await self.context_page.goto(self.index_url, wait_until="domcontentloaded", timeout=30000)
+            await asyncio.sleep(3)
+
+            # 在页面上找搜索框并模拟输入
+            search_input = None
+            input_selectors = [
+                '[contenteditable="true"]',
+                'input[placeholder*="搜索"]',
+                'input[type="search"]',
+                'input[placeholder*="search" i]',
+                'textarea[placeholder*="搜索"]',
+            ]
+            for sel in input_selectors:
+                try:
+                    el = self.context_page.locator(sel).first
+                    if await el.count() > 0 and await el.is_visible():
+                        search_input = el
+                        utils.logger.info(f"[DouYinCrawler._browser_search] 找到搜索框: {sel}")
+                        break
+                except Exception:
+                    continue
+
+            if not search_input:
+                utils.logger.error("[DouYinCrawler._browser_search] 未找到搜索框")
+                return {}
+
+            # 点击搜索框，清空，输入关键词
+            await search_input.click()
+            await asyncio.sleep(0.5)
+            await search_input.press("Control+a")
+            await asyncio.sleep(0.1)
+            await search_input.press("Backspace")
+            await asyncio.sleep(0.3)
+            await search_input.type(keyword, delay=80)
+            await asyncio.sleep(0.5)
+            await search_input.press("Enter")
+            utils.logger.info(f"[DouYinCrawler._browser_search] 已输入关键词并按下回车")
+
+            # 等待 API 响应
+            try:
+                await asyncio.wait_for(done.wait(), timeout=30)
+            except asyncio.TimeoutError:
+                utils.logger.error("[DouYinCrawler._browser_search] 超时未截获搜索 API 响应")
+                return {}
+
+            return captured.get("data", {})
+        finally:
+            self.context_page.remove_listener("response", on_response)
+
     async def search(self) -> None:
         utils.logger.info("[DouYinCrawler.search] Begin search douyin keywords")
         dy_limit_count = 10  # douyin limit page fixed value
         if config.CRAWLER_MAX_NOTES_COUNT < dy_limit_count:
             config.CRAWLER_MAX_NOTES_COUNT = dy_limit_count
         start_page = config.START_PAGE  # start page number
+        use_browser_mode = False  # API verify_check → 切浏览器模式
         for keyword in config.KEYWORDS.split(","):
             source_keyword_var.set(keyword)
             utils.logger.info(f"[DouYinCrawler.search] Current keyword: {keyword}")
@@ -114,15 +190,43 @@ class DouYinCrawler(AbstractCrawler):
                     page += 1
                     continue
                 try:
-                    utils.logger.info(f"[DouYinCrawler.search] search douyin keyword: {keyword}, page: {page}")
-                    posts_res = await self.dy_client.search_info_by_keyword(keyword=keyword,
-                                                                            offset=page * dy_limit_count - dy_limit_count,
-                                                                            publish_time=PublishTimeType(config.PUBLISH_TIME_TYPE),
-                                                                            search_id=dy_search_id
-                                                                            )
-                    if posts_res.get("data") is None or posts_res.get("data") == []:
-                        utils.logger.info(f"[DouYinCrawler.search] search douyin keyword: {keyword}, page: {page} is empty,{posts_res.get('data')}`")
-                        break
+                    if use_browser_mode:
+                        # 浏览器模式：截获 API 响应
+                        posts_res = await self._browser_search(keyword)
+                        if not posts_res or not posts_res.get("data"):
+                            utils.logger.info(f"[DouYinCrawler.search] 浏览器模式也空了，停止搜索 {keyword}")
+                            break
+                    else:
+                        utils.logger.info(f"[DouYinCrawler.search] search douyin keyword: {keyword}, page: {page}")
+                        posts_res = await self.dy_client.search_info_by_keyword(keyword=keyword,
+                                                                                offset=page * dy_limit_count - dy_limit_count,
+                                                                                publish_time=PublishTimeType(config.PUBLISH_TIME_TYPE),
+                                                                                search_id=dy_search_id
+                                                                                )
+                        nil_info = posts_res.get("search_nil_info", {})
+                        if isinstance(nil_info, dict) and nil_info.get("search_nil_type") == "verify_check":
+                            utils.logger.info("[DouYinCrawler.search] API 触发 verify_check，切换到浏览器模式...")
+                            use_browser_mode = True
+                            posts_res = await self._browser_search(keyword)
+                            if not posts_res or not posts_res.get("data"):
+                                utils.logger.info(f"[DouYinCrawler.search] 浏览器模式也未获取到数据")
+                                break
+                        elif posts_res.get("data") is None or posts_res.get("data") == []:
+                            utils.logger.info(f"[DouYinCrawler.search] search douyin keyword: {keyword}, page: {page} is empty,{posts_res.get('data')}`")
+                            break
+                except LoginRequiredError:
+                    utils.logger.error(f"[DouYinCrawler.search] Login required, re-logging in...")
+                    login_obj = DouYinLogin(
+                        login_type=config.LOGIN_TYPE,
+                        login_phone="",
+                        browser_context=self.browser_context,
+                        context_page=self.context_page,
+                        cookie_str=config.COOKIES
+                    )
+                    await login_obj.begin()
+                    await self.dy_client.update_cookies(browser_context=self.browser_context)
+                    utils.logger.info("[DouYinCrawler.search] Re-login done, retrying search...")
+                    continue
                 except DataFetchError:
                     utils.logger.error(f"[DouYinCrawler.search] search douyin keyword: {keyword} failed")
                     break

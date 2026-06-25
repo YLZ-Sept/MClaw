@@ -374,21 +374,38 @@ class PlatformManager:
                 self.uploaders["douyin"] = douyin_uploader
             else:
                 douyin_uploader = self.uploaders["douyin"]
-            
-            # 执行上传（参数展开为 upload_video 接受的独立参数）
-            success = await douyin_uploader.upload_video(
-                video_path=str(video_info.video_path) if video_info.video_path else '',
-                title=video_info.title or '',
-                tags=video_info.tags or [],
-                description=video_info.description or '',
-                thumbnail_path=str(video_info.thumbnail_path) if video_info.thumbnail_path else None,
-                publish_date=publish_date,
-                location=video_info.location or '北京市',
-                cover_orientation=getattr(video_info, 'cover_orientation', 'portrait') or 'portrait',
-            )
-            
+
+            content_type = getattr(video_info, 'content_type', 'video') or 'video'
+
+            if content_type == 'image':
+                images = getattr(video_info, 'images', []) or []
+                if not images:
+                    logger.error("图文模式但未提供图片列表")
+                    return False
+                success = await douyin_uploader.upload_images(
+                    images=images,
+                    title=video_info.title or '',
+                    tags=video_info.tags or [],
+                    description=video_info.description or '',
+                    publish_date=publish_date,
+                    location=video_info.location or '北京市',
+                    music_path=getattr(video_info, 'music_path', None) or None,
+                    music_query=getattr(video_info, 'music_query', None) or None,
+                )
+            else:
+                success = await douyin_uploader.upload_video(
+                    video_path=str(video_info.video_path) if video_info.video_path else '',
+                    title=video_info.title or '',
+                    tags=video_info.tags or [],
+                    description=video_info.description or '',
+                    thumbnail_path=str(video_info.thumbnail_path) if video_info.thumbnail_path else None,
+                    publish_date=publish_date,
+                    location=video_info.location or '北京市',
+                    cover_orientation=getattr(video_info, 'cover_orientation', 'portrait') or 'portrait',
+                )
+
             return success
-            
+
         except Exception as e:
             logger.error(f"抖音上传适配失败: {str(e)}")
             return False

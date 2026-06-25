@@ -70,6 +70,28 @@ function uploadVideo({ accountName = 'default', platform = 'douyin', videoPath, 
   });
 }
 
+function uploadImages({ accountName = 'default', platform = 'xiaohongshu', images = [], title, tags = [], description, publishDate, location = '', musicPath = null, musicQuery = null }) {
+  return _fetch('/upload', {
+    method: 'POST',
+    body: JSON.stringify({
+      account_name: accountName,
+      platform,
+      video_info: {
+        content_type: 'image',
+        video_path: images[0] || '', // 首图作为主图兼容
+        images,
+        title,
+        tags: Array.isArray(tags) ? tags : tags.split(',').map(t => t.trim()).filter(Boolean),
+        description: description || '',
+        location,
+        music_path: musicPath || null,
+        music_query: musicQuery || null,
+      },
+      publish_date: publishDate || null,
+    }),
+  });
+}
+
 function batchUpload({ accountName = 'default', platform = 'douyin', videoList, config }) {
   return _fetch('/batch-upload', {
     method: 'POST',
@@ -87,4 +109,4 @@ function getPlatformLabel(platform) {
   return PLATFORM_LABELS[platform] || platform;
 }
 
-module.exports = { health, getAccountStatus, login, uploadVideo, batchUpload, getPlatformLabel };
+module.exports = { health, getAccountStatus, login, uploadVideo, uploadImages, batchUpload, getPlatformLabel };

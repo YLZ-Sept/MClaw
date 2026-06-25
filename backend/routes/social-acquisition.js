@@ -128,7 +128,7 @@ function extractCommentsFromRaw(platform) {
 // POST /search — 创建搜索任务，异步执行
 router.post('/search', async (req, res) => {
   try {
-    const { platform, keyword, name, limit = 10 } = req.body;
+    const { platform, keyword, name, limit = 10, publish_time = '0' } = req.body;
     if (!platform || !keyword) {
       return res.status(400).json({ code: 400, message: 'platform 和 keyword 必填' });
     }
@@ -141,7 +141,7 @@ router.post('/search', async (req, res) => {
     res.json({ code: 200, data: { id, name: taskName, status: 'running' } });
 
     // 异步执行爬取
-    runCrawlTask(id, platform, keyword, limit).catch(err => {
+    runCrawlTask(id, platform, keyword, limit, publish_time).catch(err => {
       console.error('[social-acquisition] task error:', err.message);
       db.prepare(`UPDATE social_tasks SET status='failed', error_msg=?, updated_at=datetime('now','localtime') WHERE id=?`)
         .run(err.message.slice(0, 500), id);
@@ -151,9 +151,13 @@ router.post('/search', async (req, res) => {
   }
 });
 
-async function runCrawlTask(taskId, platform, keyword, limit) {
+async function runCrawlTask(taskId, platform, keyword, limit, publishTime) {
+  console.log('[runCrawlTask] 开始爬取 taskId:', taskId, 'platform:', platform, 'limit:', limit, 'publishTime:', publishTime);
+  console.log('[runCrawlTask] keyword hex:', Buffer.from(keyword, 'utf8').toString('hex'));
+  console.log('[runCrawlTask] keyword chars:', [...keyword].map(c => c.codePointAt(0).toString(16)).join(' '));
   // 执行爬取
-  const result = await mcExtract({ platform, keyword, limit, loginType: 'qrcode' });
+  const result = await mcExtract({ platform, keyword, limit, loginType: 'qrcode', publishTime });
+  console.log('[runCrawlTask] mcExtract 返回 results:', result?.results?.length, 'raw_output:', (result?.raw_output || '').slice(-200));
 
   // 提取评论
   const comments = extractCommentsFromRaw(platform);
@@ -203,15 +207,31 @@ router.get('/tasks/:id', (req, res) => {
   }
 });
 
-// GET /tasks/:id/comments — 分页评论
+// GET /tasks/:id/comments — 分页评论（支持 location 后过滤）
 router.get('/tasks/:id/comments', (req, res) => {
   try {
-    const { page = 1, pageSize = 30, sort = 'comment_likes' } = req.query;
+    const { page = 1, pageSize = 30, sort = 'comment_likes', location } = req.query;
     const offset = (Number(page) - 1) * Number(pageSize);
     const limit = Number(pageSize);
     const orderBy = sort === 'time' ? 'comment_time DESC' : 'comment_likes DESC';
-    const comments = db.prepare(`SELECT * FROM social_comments WHERE task_id=? ORDER BY ${orderBy} LIMIT ? OFFSET ?`).all(req.params.id, limit, offset);
-    const total = db.prepare('SELECT COUNT(*) as c FROM social_comments WHERE task_id=?').get(req.params.id);
+
+    let sql, params;
+    if (location) {
+      // 从 raw_json 中 LIKE 匹配 ip_location
+      sql = `SELECT * FROM social_comments WHERE task_id=? AND raw_json LIKE ? ORDER BY ${orderBy} LIMIT ? OFFSET ?`;
+      params = [req.params.id, `%"ip_location":"%${location}%"%`, limit, offset];
+    } else {
+      sql = `SELECT * FROM social_comments WHERE task_id=? ORDER BY ${orderBy} LIMIT ? OFFSET ?`;
+      params = [req.params.id, limit, offset];
+    }
+    const comments = db.prepare(sql).all(...params);
+
+    let total;
+    if (location) {
+      total = db.prepare('SELECT COUNT(*) as c FROM social_comments WHERE task_id=? AND raw_json LIKE ?').get(req.params.id, `%"ip_location":"%${location}%"%`);
+    } else {
+      total = db.prepare('SELECT COUNT(*) as c FROM social_comments WHERE task_id=?').get(req.params.id);
+    }
     res.json({ code: 200, data: { list: comments, total: total?.c || 0 } });
   } catch (err) {
     res.status(500).json({ code: 500, message: err.message });
@@ -358,13 +378,14 @@ router.put('/replies/:id', (req, res) => {
   }
 });
 
-// POST /replies/:id/send — 发布已批准的回复到平台
+// POST /replies/:id/send — 发布已批准的回复到平台（多平台支持）
 router.post('/replies/:id/send', async (req, res) => {
   try {
     const reply = db.prepare(`
-      SELECT r.*, c.raw_json, c.post_url, c.comment_content
+      SELECT r.*, c.raw_json, c.post_url, c.comment_content, t.platform
       FROM social_replies r
       JOIN social_comments c ON r.comment_id = c.id
+      LEFT JOIN social_tasks t ON c.task_id = t.id
       WHERE r.id = ?
     `).get(req.params.id);
     if (!reply) return res.status(404).json({ code: 404, message: '回复不存在' });
@@ -373,26 +394,29 @@ router.post('/replies/:id/send', async (req, res) => {
       return res.status(400).json({ code: 400, message: '只有已批准的回复才能发布' });
     }
 
-    // 从 raw_json 中提取 aweme_id
-    let awemeId = '';
+    // 优先从 task 表取 platform，监控评论则从 URL 推断
+    const platform = reply.platform || inferPlatformFromUrl(reply.post_url) || 'douyin';
+
+    // 从 raw_json / post_url 中提取帖子 ID
+    let postId = '';
     try {
       const raw = JSON.parse(reply.raw_json || '{}');
-      awemeId = raw.aweme_id || '';
+      postId = raw.aweme_id || raw.note_id || raw.photo_id || raw.video_id || '';
     } catch {}
-    if (!awemeId && reply.post_url) {
-      awemeId = reply.post_url.match(/video\/(\d+)/)?.[1] || '';
+    if (!postId && reply.post_url) {
+      postId = extractPostIdFromUrl(reply.post_url, platform);
     }
 
-    if (!awemeId) {
-      return res.status(400).json({ code: 400, message: '无法提取视频ID' });
+    if (!postId) {
+      return res.status(400).json({ code: 400, message: `无法从帖子链接中提取 ${platform} 内容 ID` });
     }
 
     // 异步发布
-    res.json({ code: 200, message: '正在发布回复...' });
+    res.json({ code: 200, message: `正在发布回复到 ${platform}...` });
 
     try {
-      const { postDouyinComment } = require('../services/media-crawler');
-      const result = await postDouyinComment(awemeId, reply.content);
+      const { postComment } = require('../services/media-crawler');
+      const result = await postComment(platform, postId, reply.content);
       console.log('[send-reply] 发布结果:', JSON.stringify(result).slice(0, 300));
       db.prepare(`UPDATE social_replies SET status='sent', reviewed_at=datetime('now','localtime') WHERE id=?`).run(reply.id);
     } catch (e) {
@@ -405,6 +429,43 @@ router.post('/replies/:id/send', async (req, res) => {
     }
   }
 });
+
+// 从平台帖子 URL 中提取内容 ID
+function extractPostIdFromUrl(url, platform) {
+  switch (platform) {
+    case 'douyin': case 'dy':
+      return url.match(/video\/(\d+)/)?.[1] || '';
+    case 'xiaohongshu': case 'xhs':
+      return url.match(/explore\/([a-zA-Z0-9]+)/)?.[1] || '';
+    case 'kuaishou': case 'ks':
+      return url.match(/short-video\/(\w+)/)?.[1] || url.match(/photo\/(\w+)/)?.[1] || '';
+    case 'bilibili': case 'bili':
+      return url.match(/video\/(BV\w+)/)?.[1] || '';
+    case 'weibo': case 'wb':
+      return url.match(/\/(\d{16})/)?.[1] || '';
+    default:
+      return '';
+  }
+}
+
+// 从 URL 域名推断平台
+function inferPlatformFromUrl(url) {
+  if (!url) return '';
+  const domainMap = {
+    'douyin.com': 'douyin',
+    'xiaohongshu.com': 'xiaohongshu',
+    'xhs.com': 'xiaohongshu',
+    'kuaishou.com': 'kuaishou',
+    'bilibili.com': 'bilibili',
+    'weibo.com': 'weibo',
+    'zhihu.com': 'zhihu',
+    'tieba.baidu.com': 'tieba',
+  };
+  for (const [domain, platform] of Object.entries(domainMap)) {
+    if (url.includes(domain)) return platform;
+  }
+  return '';
+}
 
 // DELETE /replies/:id — 删除回复草稿
 router.delete('/replies/:id', (req, res) => {
