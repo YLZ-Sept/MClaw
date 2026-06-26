@@ -423,6 +423,180 @@
         <HistoryTable :data="publishHistory" :step="3" @go-step="goStep" @go-video="goToVideo" @publish="publishContent" @approve="approveContent" @reject="rejectContent" @delete="deleteContent" @retry-video="retryVideo" @republish="republishContent" @view-publish="viewPublishContent"/>
       </el-card>
     </div>
+
+    <!-- === Step 4: 发布监控 === -->
+    <div v-show="step === 4">
+      <!-- Post-publish prompt -->
+      <el-alert v-if="showPostPublishPrompt" type="success" :closable="true" @close="showPostPublishPrompt=false;postPublishResults=[]"
+        title="发布成功！添加帖子监控，AI 自动帮您回复评论" style="margin-bottom:16px">
+        <template #default>
+          <div style="margin-top:6px">
+            <span style="font-size:13px">已发布到：</span>
+            <el-tag v-for="r in postPublishResults" :key="r.label" size="small" style="margin-right:8px">{{ r.label }}</el-tag>
+          </div>
+          <div style="margin-top:8px">
+            <el-button v-for="r in postPublishResults" :key="r.platform" size="small" type="primary"
+              @click="addMonitorFromPublish(r)">
+              + 监控 {{ r.label }} 的评论
+            </el-button>
+          </div>
+        </template>
+      </el-alert>
+
+      <!-- Stats bar -->
+      <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+        <el-card shadow="hover" style="flex:1;min-width:130px;text-align:center">
+          <div style="font-size:24px;font-weight:600;color:#7c3aed">{{ monitors.length }}</div>
+          <div style="font-size:12px;color:#909399">监控帖子</div>
+        </el-card>
+        <el-card shadow="hover" style="flex:1;min-width:130px;text-align:center">
+          <div style="font-size:24px;font-weight:600;color:#67c23a">{{ monitors.filter(m => !!m.enabled).length }}</div>
+          <div style="font-size:12px;color:#909399">已启用</div>
+        </el-card>
+        <el-card shadow="hover" style="flex:1;min-width:130px;text-align:center">
+          <div style="font-size:24px;font-weight:600;color:#e6a23c">{{ monitors.reduce((sum,m) => sum + (m.total_replied||0), 0) }}</div>
+          <div style="font-size:12px;color:#909399">累计回复</div>
+        </el-card>
+      </div>
+
+      <el-card class="step-card">
+        <template #header>
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span style="font-weight:600;color:#4a3f5e">监控管理</span>
+            <el-button size="small" @click="checkAllMonitors" :loading="checkingAll">检查全部</el-button>
+          </div>
+        </template>
+
+        <el-tabs v-model="monitorTab" type="card">
+          <!-- 监控列表 -->
+          <el-tab-pane label="监控列表" name="monitors">
+            <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
+              <div style="flex:0 0 320px">
+                <el-card shadow="never" size="small" header="添加监控帖子">
+                  <el-form label-position="top" size="small" @submit.prevent>
+                    <el-form-item label="平台">
+                      <el-select v-model="monForm.platform" style="width:100%">
+                        <el-option label="抖音" value="douyin" />
+                        <el-option label="小红书" value="xiaohongshu" />
+                        <el-option label="视频号" value="wechat_channel" />
+                        <el-option label="快手" value="kuaishou" />
+                        <el-option label="B站" value="bilibili" />
+                        <el-option label="微博" value="weibo" />
+                        <el-option label="知乎" value="zhihu" />
+                      </el-select>
+                    </el-form-item>
+                    <el-form-item label="帖子链接（必填）">
+                      <el-input v-model="monForm.post_url" placeholder="粘贴已发布帖子的链接" />
+                    </el-form-item>
+                    <el-form-item label="品牌/产品背景（AI回复用）">
+                      <el-input v-model="monForm.reply_prompt" type="textarea" :rows="2"
+                        placeholder="例：我们是做企业培训的，主要产品是..." />
+                    </el-form-item>
+                    <el-form-item label="触发关键词（逗号分隔，留空匹配所有评论）">
+                      <el-input v-model="monForm.trigger_keywords" placeholder="例：价格,怎么买,多少钱,了解" />
+                    </el-form-item>
+                    <el-form-item label="检查频率">
+                      <el-select v-model="monForm.check_interval" style="width:100%">
+                        <el-option :value="300" label="每5分钟" />
+                        <el-option :value="900" label="每15分钟" />
+                        <el-option :value="1800" label="每30分钟" />
+                        <el-option :value="3600" label="每小时" />
+                      </el-select>
+                    </el-form-item>
+                    <el-button type="primary" @click="addNewMonitor" :loading="addingMon" style="width:100%">添加监控</el-button>
+                  </el-form>
+                </el-card>
+              </div>
+
+              <div style="flex:2;min-width:500px">
+                <el-table :data="monitors" stripe size="small">
+                  <el-table-column prop="platform" label="平台" width="80" />
+                  <el-table-column label="帖子" min-width="200" show-overflow-tooltip>
+                    <template #default="{row}">
+                      <a :href="row.post_url" target="_blank" style="color:#7c3aed;font-size:12px">{{ row.post_url?.slice(0,60) }}...</a>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="trigger_keywords" label="触发词" width="100">
+                    <template #default="{row}">
+                      <span style="font-size:12px;color:#8b7aaf">{{ row.trigger_keywords || '全部评论' }}</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="enabled" label="启用" width="60">
+                    <template #default="{row}">
+                      <el-switch :model-value="!!row.enabled" @change="v => toggleMon(row.id, v)" size="small" />
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="total_replied" label="已回复" width="70" />
+                  <el-table-column prop="last_checked_at" label="上次检查" width="140">
+                    <template #default="{row}">{{ row.last_checked_at || '未检查' }}</template>
+                  </el-table-column>
+                  <el-table-column label="操作" width="140">
+                    <template #default="{row}">
+                      <el-button link size="small" type="primary" @click="checkMon(row.id)" :loading="row._checking">检查</el-button>
+                      <el-button link size="small" type="danger" @click="delMon(row.id)">删除</el-button>
+                    </template>
+                  </el-table-column>
+                </el-table>
+                <el-empty v-if="!monitors.length" description="暂无监控帖子，添加一条开始自动监控评论" />
+              </div>
+            </div>
+          </el-tab-pane>
+
+          <!-- 回复管理 -->
+          <el-tab-pane label="回复管理" name="replies">
+            <div style="margin-bottom:12px">
+              <el-radio-group v-model="replyFilter" size="small" @change="loadReplies">
+                <el-radio-button value="">全部</el-radio-button>
+                <el-radio-button value="draft">草稿</el-radio-button>
+                <el-radio-button value="approved">已批准</el-radio-button>
+                <el-radio-button value="rejected">已拒绝</el-radio-button>
+              </el-radio-group>
+            </div>
+            <el-table :data="replyList" stripe size="small" max-height="400">
+              <el-table-column prop="post_title" label="原帖" min-width="150" show-overflow-tooltip />
+              <el-table-column prop="comment_author" label="评论者" width="90" />
+              <el-table-column prop="comment_content" label="原始评论" min-width="180" show-overflow-tooltip />
+              <el-table-column prop="content" label="AI回复" min-width="200" show-overflow-tooltip />
+              <el-table-column prop="status" label="状态" width="80">
+                <template #default="{row}">
+                  <el-tag :type="row.status==='approved'?'success':row.status==='rejected'?'danger':row.status==='sent'?'primary':'info'" size="small">
+                    {{ {draft:'草稿',approved:'已批准',rejected:'已拒绝',sent:'已发送',send_failed:'发送失败'}[row.status]||row.status }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="360">
+                <template #default="{row}">
+                  <el-button link type="success" size="small" @click="approveReply(row)"
+                    :disabled="row.status==='approved'||row.status==='sent'">批准</el-button>
+                  <el-button link type="danger" size="small" @click="rejectReply(row)"
+                    :disabled="row.status==='rejected'">拒绝</el-button>
+                  <el-button link type="primary" size="small" @click="handleSendReply(row)" :loading="row._sending"
+                    :disabled="row.status==='sent'||row.status==='draft'||row.status==='rejected'">
+                    {{ row.status==='send_failed'?'重发':'发送' }}
+                  </el-button>
+                  <el-button link type="primary" size="small" @click="copyAndOpen(row)" :disabled="!row.post_url">复制跳转</el-button>
+                  <el-button link size="small" @click="Object.assign(editDlg, {visible:true,id:row.id,content:row.content,comment_author:row.comment_author,comment_content:row.comment_content})">编辑</el-button>
+                  <el-button link type="danger" size="small" @click="delReply(row)">删除</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+            <el-empty v-if="!replyList.length" description="暂无回复，添加监控后 AI 会自动生成回复草稿" />
+          </el-tab-pane>
+        </el-tabs>
+      </el-card>
+
+      <!-- 编辑回复对话框 -->
+      <el-dialog v-model="editDlg.visible" title="编辑回复" width="500px" :close-on-click-modal="false">
+        <div style="margin-bottom:8px;font-size:13px;color:#8b7aaf">
+          原评论者：{{ editDlg.comment_author }} | 评论内容：{{ editDlg.comment_content }}
+        </div>
+        <el-input v-model="editDlg.content" type="textarea" :rows="4" />
+        <template #footer>
+          <el-button @click="editDlg.visible=false">取消</el-button>
+          <el-button type="primary" @click="saveEditReply">保存</el-button>
+        </template>
+      </el-dialog>
+    </div>
   </div>
 </template>
 
@@ -430,7 +604,7 @@
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Check, ArrowRight, CircleCheckFilled, VideoCamera } from '@element-plus/icons-vue'
-import { hotContentApi, hotExtractApi, hotChanjingApi, publishApi } from '../../api/hot-video'
+import { hotContentApi, hotExtractApi, hotChanjingApi, publishApi, monitorApi } from '../../api/hot-video'
 import HistoryTable from './HistoryTable.vue'
 
 const step = ref(0)
@@ -439,6 +613,7 @@ const steps = [
   { title: '编辑', desc: '上传素材' },
   { title: '视频', desc: 'AI生成' },
   { title: '发布', desc: '多渠道发布' },
+  { title: '发布监控', desc: '评论监控和AI回复' },
 ]
 
 // ─── Content list ───
@@ -460,6 +635,7 @@ function stepStat(i) {
     case 1: return list.some(c => c.status === 'draft' || c.status === 'approved' || c.status === 'published') ? 'done' : 'process'
     case 2: return list.some(c => c.video_status === 'done') ? 'done' : 'process'
     case 3: return list.some(c => c.status === 'published') ? 'done' : 'process'
+    case 4: return monitors.value.length > 0 ? 'done' : 'process'
     default: return 'wait'
   }
 }
@@ -893,6 +1069,18 @@ const platformConfig = reactive({
   wechat_channel: { contentType: 'video', images: [] },
 })
 
+// ─── Step 4: 发布监控 ───
+const monitorTab = ref('monitors')
+const monForm = reactive({ platform: 'douyin', post_url: '', reply_prompt: '', trigger_keywords: '', check_interval: 900 })
+const monitors = ref([])
+const addingMon = ref(false)
+const checkingAll = ref(false)
+const replyFilter = ref('')
+const replyList = ref([])
+const editDlg = reactive({ visible: false, id: '', content: '', comment_author: '', comment_content: '' })
+const postPublishResults = ref([])
+const showPostPublishPrompt = ref(false)
+
 // 图片拖拽 + 上传
 const dragPlatform = ref(null), dragOverIdx = ref(-1), dragSrcIdx = ref(-1)
 const imageUploadInput = ref(null), imageUploadTarget = ref(null)
@@ -1047,6 +1235,135 @@ async function doLogin(platform, acc) {
   acc.loggingIn = false
 }
 
+// ─── Step 4: Monitor API helpers ───
+async function loadMonitors() {
+  try {
+    const { data } = await monitorApi.getMonitors()
+    monitors.value = (data.data || []).map(m => ({ ...m, _checking: false }))
+  } catch { monitors.value = [] }
+}
+
+async function addNewMonitor() {
+  if (!monForm.post_url) { ElMessage.warning('请输入帖子链接'); return }
+  addingMon.value = true
+  try {
+    await monitorApi.addMonitor({ ...monForm })
+    ElMessage.success('已添加监控，AI 将定时检查新评论并生成回复')
+    monForm.post_url = ''; monForm.reply_prompt = ''; monForm.trigger_keywords = ''
+    loadMonitors()
+  } catch (e) { ElMessage.error(e.response?.data?.message || '添加失败') }
+  finally { addingMon.value = false }
+}
+
+async function toggleMon(id, v) {
+  try { await monitorApi.updateMonitor(id, { enabled: v }); loadMonitors() } catch { ElMessage.error('操作失败') }
+}
+
+async function delMon(id) {
+  try {
+    await ElMessageBox.confirm('删除此监控？', '确认', { type: 'warning' })
+    await monitorApi.deleteMonitor(id)
+    loadMonitors()
+    ElMessage.success('已删除')
+  } catch {}
+}
+
+async function checkMon(id) {
+  const m = monitors.value.find(x => x.id === id)
+  if (!m) return; m._checking = true
+  try {
+    await monitorApi.checkMonitor(id)
+    ElMessage.success('检查完成，如有新评论已自动生成回复草稿')
+    loadMonitors()
+  } catch (e) { ElMessage.error(e.response?.data?.message || '检查失败') }
+  finally { m._checking = false }
+}
+
+async function checkAllMonitors() {
+  checkingAll.value = true
+  try {
+    await monitorApi.checkAllMonitors()
+    ElMessage.success('检查完成')
+    loadMonitors()
+  } catch (e) { ElMessage.error(e.response?.data?.message || '检查失败') }
+  finally { checkingAll.value = false }
+}
+
+async function loadReplies() {
+  try {
+    const params = {}
+    if (replyFilter.value) params.status = replyFilter.value
+    const { data } = await monitorApi.getReplies(params)
+    replyList.value = data.data?.list || []
+  } catch { replyList.value = [] }
+}
+
+async function approveReply(row) {
+  try { await monitorApi.updateReply(row.id, { status: 'approved' }); ElMessage.success('已批准'); loadReplies() }
+  catch { ElMessage.error('操作失败') }
+}
+
+async function rejectReply(row) {
+  try { await monitorApi.updateReply(row.id, { status: 'rejected' }); ElMessage.success('已拒绝'); loadReplies() }
+  catch { ElMessage.error('操作失败') }
+}
+
+async function handleSendReply(row) {
+  try {
+    await ElMessageBox.confirm(`确定要将此回复发布到平台吗？\n\n回复内容：${row.content?.slice(0, 80)}...`, '确认发布', { type: 'warning', confirmButtonText: '发布' })
+    row._sending = true
+    await monitorApi.sendReply(row.id)
+    ElMessage.success('发布请求已提交')
+    loadReplies()
+  } catch { /* cancel */ }
+  finally { row._sending = false }
+}
+
+async function copyAndOpen(row) {
+  try {
+    await navigator.clipboard.writeText(row.content)
+    const url = row.post_url ? row.post_url.replace(/\/+$/, '') + '#comment' : ''
+    if (url) window.open(url)
+    ElMessage.success('已复制回复内容，可在打开的页面粘贴发送')
+  } catch {
+    const ta = document.createElement('textarea')
+    ta.value = row.content
+    ta.style.position = 'fixed'; ta.style.left = '-9999px'
+    document.body.appendChild(ta)
+    ta.select()
+    document.execCommand('copy')
+    document.body.removeChild(ta)
+    const url = row.post_url ? row.post_url.replace(/\/+$/, '') + '#comment' : ''
+    if (url) window.open(url)
+    ElMessage.success('已复制回复内容')
+  }
+}
+
+async function delReply(row) {
+  try {
+    await ElMessageBox.confirm('删除这条回复草稿？', '确认', { type: 'warning' })
+    await monitorApi.deleteReply(row.id)
+    ElMessage.success('已删除')
+    loadReplies()
+  } catch {}
+}
+
+async function saveEditReply() {
+  try {
+    await monitorApi.updateReply(editDlg.id, { content: editDlg.content })
+    editDlg.visible = false
+    ElMessage.success('已保存')
+    loadReplies()
+  } catch { ElMessage.error('保存失败') }
+}
+
+function addMonitorFromPublish(entry) {
+  monForm.platform = entry.platform
+  monForm.post_url = ''
+  step.value = 4
+  ElMessage.info(`请在"发布监控"卡片中粘贴 ${entry.label} 的帖子链接`)
+}
+
 function getAccountById(id) {
   for (const p of PLATFORMS) {
     const found = platformAccounts[p.key].find(a => a.id === id)
@@ -1095,7 +1412,17 @@ async function doPublish() {
   }
   const ok = results.filter(r => r.success)
   const fail = results.filter(r => !r.success)
-  if (ok.length) ElMessage.success('发布成功: ' + ok.map(r => r.label).join(', '))
+  if (ok.length) {
+    // Save successful publishes for step 5 monitoring prompt
+    postPublishResults.value = ok.map(r => {
+      const parts = r.label.split('@')
+      const label = parts[0]
+      const platformKey = PLATFORMS.find(p => label.includes(p.label))?.key || 'douyin'
+      return { platform: platformKey, label: r.label }
+    })
+    showPostPublishPrompt.value = true
+    ElMessage.success('发布成功: ' + ok.map(r => r.label).join(', '))
+  }
   if (fail.length) ElMessage.error(fail.map(r => `${r.label}: ${r.message}`).join('; '))
   await loadContents()
   publishing.value = false
@@ -1123,6 +1450,10 @@ watch(step, async (s) => {
       }
     }
     if (!coverUrl.value) generateCover()
+  }
+  if (s === 4) {
+    loadMonitors()
+    loadReplies()
   }
 })
 

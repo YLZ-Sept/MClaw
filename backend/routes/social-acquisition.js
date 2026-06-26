@@ -1,277 +1,9 @@
-// 社媒拓客 — 关键词搜索 + 评论抓取 + 词云分析 + AI回复草稿
+// 社媒拓客 — 评论监控 + AI回复管理
 const { Router } = require('express');
 const db = require('../db');
 const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
-const { wordFreq } = require('../services/wordcloud');
-const { extract: mcExtract, detailExtractFromUrl } = require('../services/media-crawler');
 
 const router = Router();
-
-const MC_DIR = path.join(__dirname, '..', 'media-crawler');
-const BROWSER_DATA_DIR = path.join(MC_DIR, 'browser_data');
-const PLATFORM_DIR_MAP = {
-  xiaohongshu: 'xhs_user_data_dir', xhs: 'xhs_user_data_dir',
-  douyin: 'dy_user_data_dir', dy: 'dy_user_data_dir',
-  kuaishou: 'ks_user_data_dir', ks: 'ks_user_data_dir',
-  bilibili: 'bili_user_data_dir', bili: 'bili_user_data_dir',
-  weibo: 'wb_user_data_dir', wb: 'wb_user_data_dir',
-  zhihu: 'zhihu_user_data_dir',
-  tieba: 'tieba_user_data_dir',
-};
-
-// 从 MediaCrawler 原始 JSON 文件中提取评论
-// MediaCrawler 将帖子和评论存在分开的 JSON 文件中：
-//   data/<platform>/json/<crawler_type>_contents_DATE.json — 帖子数据
-//   data/<platform>/json/<crawler_type>_comments_DATE.json — 评论数据
-function extractCommentsFromRaw(platform) {
-  const mcPlatform = { xiaohongshu: 'xhs', douyin: 'dy', kuaishou: 'ks', bilibili: 'bili', weibo: 'wb', zhihu: 'zhihu', tieba: 'tieba' }[platform] || platform;
-  const platformDir = { xhs: 'xhs', dy: 'douyin', ks: 'kuaishou', bili: 'bilibili', wb: 'weibo', zhihu: 'zhihu', tieba: 'tieba' }[mcPlatform] || mcPlatform;
-  const basePath = path.join(__dirname, '..', 'media-crawler', 'data', platformDir);
-  const scanDirs = [path.join(basePath, 'json'), basePath];
-
-  const commentItems = []; // raw comment objects from comment files
-  const postMap = new Map(); // aweme_id → post metadata
-
-  for (const scanDir of scanDirs) {
-    if (!fs.existsSync(scanDir)) continue;
-    for (const f of fs.readdirSync(scanDir)) {
-      if (!f.endsWith('.json')) continue;
-      try {
-        const content = JSON.parse(fs.readFileSync(path.join(scanDir, f), 'utf8'));
-        const items = Array.isArray(content) ? content : [content];
-        const isCommentsFile = f.includes('_comments_');
-        const isContentsFile = f.includes('_contents_');
-
-        for (const item of items) {
-          if (isCommentsFile) {
-            commentItems.push(item);
-          } else if (isContentsFile) {
-            const pid = item.aweme_id || item.note_id || '';
-            if (pid) postMap.set(pid, item);
-          } else {
-            // Fallback: detect by fields
-            if (item.comment_id) {
-              commentItems.push(item);
-            } else {
-              const pid = item.aweme_id || item.note_id || '';
-              if (pid) postMap.set(pid, item);
-            }
-          }
-        }
-      } catch {}
-    }
-  }
-
-  // Build output: match comments to posts by aweme_id
-  const comments = [];
-  for (const c of commentItems) {
-    const awemeId = c.aweme_id || '';
-    const post = postMap.get(awemeId) || {};
-    comments.push({
-      post_title: (post.title || post.desc || post.note_title || '').slice(0, 200),
-      post_url: post.share_url || post.share_link || post.short_link || post.aweme_url || post.url || '',
-      post_author: (post.nickname || post.author?.nickname || post.owner?.name || post.user?.nickname || ''),
-      post_body: (post.desc || post.content || post.text || '').slice(0, 500),
-      post_likes: post.liked_count || post.digg_count || (post.stat?.like) || post.attitudes_count || post.voteup_count || 0,
-      post_comments_count: post.comment_count || post.comments || (post.stat?.reply) || post.comments_count || 0,
-      comment_content: (c.content || c.text || c.comment || '').slice(0, 1000),
-      comment_author: c.nickname || c.user_name || c.author || (c.user?.nickname) || '',
-      comment_likes: c.like_count || c.liked_count || c.likes || c.digg_count || 0,
-      comment_time: c.create_time || c.created_at || c.time || c.created_time || '',
-      raw_json: JSON.stringify(c).slice(0, 4000),
-    });
-  }
-
-  // If no comments found via two-file model, try legacy single-file model (comments nested in posts)
-  if (comments.length === 0) {
-    for (const scanDir of scanDirs) {
-      if (!fs.existsSync(scanDir)) continue;
-      for (const f of fs.readdirSync(scanDir)) {
-        if (!f.endsWith('.json')) continue;
-        try {
-          const content = JSON.parse(fs.readFileSync(path.join(scanDir, f), 'utf8'));
-          const items = Array.isArray(content) ? content : [content];
-          for (const item of items) {
-            const postTitle = item.title || item.desc || item.note_title || '';
-            const postUrl = item.share_url || item.share_link || item.short_link || item.url || item.scheme || '';
-            const postAuthor = (item.user?.nickname || item.author?.nickname || item.owner?.name || item.user?.screen_name || item.author?.name || '');
-            const postBody = item.desc || item.content || item.text || item.description || item.excerpt || '';
-            const postLikes = item.liked_count || item.digg_count || (item.stat?.like) || item.attitudes_count || item.voteup_count || 0;
-            const postCommentsCount = item.comment_count || item.comments || (item.stat?.reply) || item.comments_count || 0;
-            const rawComments = item.comments || [];
-            for (const c of rawComments) {
-              comments.push({
-                post_title: postTitle.slice(0, 200),
-                post_url: postUrl,
-                post_author: postAuthor,
-                post_body: postBody.slice(0, 500),
-                post_likes: postLikes,
-                post_comments_count: postCommentsCount,
-                comment_content: (c.content || c.text || c.comment || '').slice(0, 1000),
-                comment_author: c.user?.nickname || c.author || c.user_name || c.nickname || '',
-                comment_likes: c.liked_count || c.likes || c.like_count || c.digg_count || 0,
-                comment_time: c.create_time || c.created_at || c.time || c.created_time || '',
-                raw_json: JSON.stringify(c).slice(0, 4000),
-              });
-            }
-          }
-        } catch {}
-      }
-    }
-  }
-
-  return comments;
-}
-
-// POST /search — 创建搜索任务，异步执行
-router.post('/search', async (req, res) => {
-  try {
-    const { platform, keyword, name, limit = 10, publish_time = '0' } = req.body;
-    if (!platform || !keyword) {
-      return res.status(400).json({ code: 400, message: 'platform 和 keyword 必填' });
-    }
-    const id = crypto.randomUUID();
-    const taskName = name || `${keyword} (${platform})`;
-
-    db.prepare(`INSERT INTO social_tasks (id, name, platform, keyword, status)
-      VALUES (?,?,?,?,'running')`).run(id, taskName, platform, keyword);
-
-    res.json({ code: 200, data: { id, name: taskName, status: 'running' } });
-
-    // 异步执行爬取
-    runCrawlTask(id, platform, keyword, limit, publish_time).catch(err => {
-      console.error('[social-acquisition] task error:', err.message);
-      db.prepare(`UPDATE social_tasks SET status='failed', error_msg=?, updated_at=datetime('now','localtime') WHERE id=?`)
-        .run(err.message.slice(0, 500), id);
-    });
-  } catch (err) {
-    res.status(500).json({ code: 500, message: err.message });
-  }
-});
-
-async function runCrawlTask(taskId, platform, keyword, limit, publishTime) {
-  console.log('[runCrawlTask] 开始爬取 taskId:', taskId, 'platform:', platform, 'limit:', limit, 'publishTime:', publishTime);
-  console.log('[runCrawlTask] keyword hex:', Buffer.from(keyword, 'utf8').toString('hex'));
-  console.log('[runCrawlTask] keyword chars:', [...keyword].map(c => c.codePointAt(0).toString(16)).join(' '));
-  // 执行爬取
-  const result = await mcExtract({ platform, keyword, limit, loginType: 'qrcode', publishTime });
-  console.log('[runCrawlTask] mcExtract 返回 results:', result?.results?.length, 'raw_output:', (result?.raw_output || '').slice(-200));
-
-  // 提取评论
-  const comments = extractCommentsFromRaw(platform);
-
-  // 保存评论到 DB
-  const insertCmt = db.prepare(`INSERT INTO social_comments
-    (id, task_id, post_title, post_url, comment_content, comment_author, comment_likes, comment_time, post_author, post_body, post_likes, post_comments_count, raw_json)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`);
-
-  const insertMany = db.transaction((cmts) => {
-    for (const c of cmts) {
-      insertCmt.run(crypto.randomUUID(), taskId,
-        c.post_title, c.post_url, c.comment_content, c.comment_author,
-        c.comment_likes, c.comment_time, c.post_author, c.post_body,
-        c.post_likes, c.post_comments_count, c.raw_json);
-    }
-  });
-
-  if (comments.length > 0) {
-    insertMany(comments);
-  }
-
-  // 更新任务状态
-  db.prepare(`UPDATE social_tasks SET status='done', total_posts=?, total_comments=?, updated_at=datetime('now','localtime') WHERE id=?`)
-    .run(result.results?.length || 0, comments.length, taskId);
-}
-
-// GET /tasks — 任务列表
-router.get('/tasks', (req, res) => {
-  try {
-    const rows = db.prepare('SELECT * FROM social_tasks ORDER BY created_at DESC LIMIT 50').all();
-    res.json({ code: 200, data: rows });
-  } catch (err) {
-    res.status(500).json({ code: 500, message: err.message });
-  }
-});
-
-// GET /tasks/:id — 任务详情
-router.get('/tasks/:id', (req, res) => {
-  try {
-    const task = db.prepare('SELECT * FROM social_tasks WHERE id=?').get(req.params.id);
-    if (!task) return res.status(404).json({ code: 404, message: '任务不存在' });
-    const commentCount = db.prepare('SELECT COUNT(*) as c FROM social_comments WHERE task_id=?').get(req.params.id);
-    res.json({ code: 200, data: { ...task, total_comments: commentCount?.c || task.total_comments } });
-  } catch (err) {
-    res.status(500).json({ code: 500, message: err.message });
-  }
-});
-
-// GET /tasks/:id/comments — 分页评论（支持 location 后过滤）
-router.get('/tasks/:id/comments', (req, res) => {
-  try {
-    const { page = 1, pageSize = 30, sort = 'comment_likes', location } = req.query;
-    const offset = (Number(page) - 1) * Number(pageSize);
-    const limit = Number(pageSize);
-    const orderBy = sort === 'time' ? 'comment_time DESC' : 'comment_likes DESC';
-
-    let sql, params;
-    if (location) {
-      // 从 raw_json 中 LIKE 匹配 ip_location
-      sql = `SELECT * FROM social_comments WHERE task_id=? AND raw_json LIKE ? ORDER BY ${orderBy} LIMIT ? OFFSET ?`;
-      params = [req.params.id, `%"ip_location":"%${location}%"%`, limit, offset];
-    } else {
-      sql = `SELECT * FROM social_comments WHERE task_id=? ORDER BY ${orderBy} LIMIT ? OFFSET ?`;
-      params = [req.params.id, limit, offset];
-    }
-    const comments = db.prepare(sql).all(...params);
-
-    let total;
-    if (location) {
-      total = db.prepare('SELECT COUNT(*) as c FROM social_comments WHERE task_id=? AND raw_json LIKE ?').get(req.params.id, `%"ip_location":"%${location}%"%`);
-    } else {
-      total = db.prepare('SELECT COUNT(*) as c FROM social_comments WHERE task_id=?').get(req.params.id);
-    }
-    res.json({ code: 200, data: { list: comments, total: total?.c || 0 } });
-  } catch (err) {
-    res.status(500).json({ code: 500, message: err.message });
-  }
-});
-
-// GET /tasks/:id/wordcloud — 词云数据
-router.get('/tasks/:id/wordcloud', (req, res) => {
-  try {
-    const comments = db.prepare('SELECT comment_content FROM social_comments WHERE task_id=?').all(req.params.id);
-    const texts = comments.map(c => c.comment_content).filter(Boolean);
-    const freq = wordFreq(texts);
-    res.json({ code: 200, data: freq });
-  } catch (err) {
-    res.status(500).json({ code: 500, message: err.message });
-  }
-});
-
-// DELETE /tasks/:id — 删除任务及关联评论
-router.delete('/tasks/:id', (req, res) => {
-  try {
-    db.prepare('DELETE FROM social_comments WHERE task_id=?').run(req.params.id);
-    db.prepare('DELETE FROM social_replies WHERE comment_id IN (SELECT id FROM social_comments WHERE task_id=?)').run(req.params.id);
-    db.prepare('DELETE FROM social_tasks WHERE id=?').run(req.params.id);
-    res.json({ code: 200, message: '已删除' });
-  } catch (err) {
-    res.status(500).json({ code: 500, message: err.message });
-  }
-});
-
-// DELETE /comments/:id — 删除单条评论及关联回复
-router.delete('/comments/:id', (req, res) => {
-  try {
-    db.prepare('DELETE FROM social_replies WHERE comment_id=?').run(req.params.id);
-    db.prepare('DELETE FROM social_comments WHERE id=?').run(req.params.id);
-    res.json({ code: 200, message: '已删除' });
-  } catch (err) {
-    res.status(500).json({ code: 500, message: err.message });
-  }
-});
 
 // POST /replies/generate — AI 生成回复草稿
 router.post('/replies/generate', async (req, res) => {
@@ -382,10 +114,9 @@ router.put('/replies/:id', (req, res) => {
 router.post('/replies/:id/send', async (req, res) => {
   try {
     const reply = db.prepare(`
-      SELECT r.*, c.raw_json, c.post_url, c.comment_content, t.platform
+      SELECT r.*, c.raw_json, c.post_url, c.comment_content, c.task_id
       FROM social_replies r
       JOIN social_comments c ON r.comment_id = c.id
-      LEFT JOIN social_tasks t ON c.task_id = t.id
       WHERE r.id = ?
     `).get(req.params.id);
     if (!reply) return res.status(404).json({ code: 404, message: '回复不存在' });
@@ -394,8 +125,13 @@ router.post('/replies/:id/send', async (req, res) => {
       return res.status(400).json({ code: 400, message: '只有已批准的回复才能发布' });
     }
 
-    // 优先从 task 表取 platform，监控评论则从 URL 推断
-    const platform = reply.platform || inferPlatformFromUrl(reply.post_url) || 'douyin';
+    // 优先从监控记录取 platform，否则从 URL 推断
+    let platform = inferPlatformFromUrl(reply.post_url) || 'douyin';
+    if (reply.task_id?.startsWith('monitor-')) {
+      const monitorId = reply.task_id.replace('monitor-', '');
+      const monitor = db.prepare('SELECT platform FROM social_monitors WHERE id=?').get(monitorId);
+      if (monitor) platform = monitor.platform;
+    }
 
     // 从 raw_json / post_url 中提取帖子 ID
     let postId = '';
@@ -499,49 +235,18 @@ router.get('/replies', (req, res) => {
   }
 });
 
-// POST /switch-account — 清除平台登录状态
-router.post('/switch-account', (req, res) => {
-  try {
-    const { platform } = req.body;
-    if (!platform) return res.status(400).json({ code: 400, message: 'platform 必填' });
-
-    const dirName = PLATFORM_DIR_MAP[platform] || `${platform}_user_data_dir`;
-    const targetDir = path.join(BROWSER_DATA_DIR, dirName);
-    if (fs.existsSync(targetDir)) {
-      fs.rmSync(targetDir, { recursive: true, force: true });
-    }
-    res.json({ code: 200, message: `已清除 ${platform} 登录状态，下次搜索将需要重新扫码` });
-  } catch (err) {
-    res.status(500).json({ code: 500, message: err.message });
-  }
-});
-
-// GET /account-status — 检查平台是否有缓存的登录态
-router.get('/account-status', (req, res) => {
-  try {
-    const status = {};
-    for (const [platform, dirName] of Object.entries(PLATFORM_DIR_MAP)) {
-      const targetDir = path.join(BROWSER_DATA_DIR, dirName);
-      status[platform] = fs.existsSync(targetDir);
-    }
-    res.json({ code: 200, data: status });
-  } catch (err) {
-    res.status(500).json({ code: 500, message: err.message });
-  }
-});
-
 // ── 自动回复：监控自己帖子 ──
 
 // POST /monitors — 添加要监控的帖子
 router.post('/monitors', (req, res) => {
   try {
-    const { platform, post_url, name, reply_prompt, trigger_keywords, check_interval } = req.body;
+    const { platform, post_url, name, reply_prompt, trigger_keywords, check_interval, auto_send } = req.body;
     if (!platform || !post_url) {
       return res.status(400).json({ code: 400, message: 'platform 和 post_url 必填' });
     }
     const id = crypto.randomUUID();
-    db.prepare(`INSERT INTO social_monitors (id, platform, post_url, name, reply_prompt, trigger_keywords, check_interval)
-      VALUES (?,?,?,?,?,?,?)`).run(id, platform, post_url, name || post_url.slice(0, 50), reply_prompt || '', trigger_keywords || '', check_interval || 900);
+    db.prepare(`INSERT INTO social_monitors (id, platform, post_url, name, reply_prompt, trigger_keywords, check_interval, auto_send)
+      VALUES (?,?,?,?,?,?,?,?)`).run(id, platform, post_url, name || post_url.slice(0, 50), reply_prompt || '', trigger_keywords || '', check_interval || 900, auto_send ? 1 : 0);
     res.json({ code: 200, data: { id } });
   } catch (err) {
     res.status(500).json({ code: 500, message: err.message });
@@ -561,7 +266,7 @@ router.get('/monitors', (req, res) => {
 // PUT /monitors/:id — 更新监控（启用/禁用/修改关键词等）
 router.put('/monitors/:id', (req, res) => {
   try {
-    const { name, reply_prompt, trigger_keywords, enabled, check_interval } = req.body;
+    const { name, reply_prompt, trigger_keywords, enabled, check_interval, auto_send } = req.body;
     const existing = db.prepare('SELECT * FROM social_monitors WHERE id=?').get(req.params.id);
     if (!existing) return res.status(404).json({ code: 404, message: '不存在' });
 
@@ -571,6 +276,7 @@ router.put('/monitors/:id', (req, res) => {
     if (trigger_keywords !== undefined) { fields.push('trigger_keywords=?'); params.push(trigger_keywords); }
     if (enabled !== undefined) { fields.push('enabled=?'); params.push(enabled ? 1 : 0); }
     if (check_interval !== undefined) { fields.push('check_interval=?'); params.push(check_interval); }
+    if (auto_send !== undefined) { fields.push('auto_send=?'); params.push(auto_send ? 1 : 0); }
     if (fields.length) {
       params.push(req.params.id);
       db.prepare(`UPDATE social_monitors SET ${fields.join(',')} WHERE id=?`).run(...params);
@@ -626,24 +332,23 @@ async function checkMonitor(monitor) {
   if (!modelConfig) { console.error('[auto-reply] 无活跃模型配置'); return; }
   console.log('[auto-reply] 模型:', modelConfig.model);
 
-  // 1. 爬取帖子的最新评论（使用 detail 模式）
+  // 1. 通过 auto_douyin Playwright 浏览器采集最新评论
   let newComments = [];
   try {
-    const mcResult = await detailExtractFromUrl({
-      url: monitor.post_url,
-      platform: monitor.platform,
-      loginType: 'qrcode',
-    });
-    console.log('[auto-reply] detailExtractFromUrl 完成, results:', mcResult?.results?.length || 0);
-    if (mcResult?.results?.[0]) {
-      console.log('[auto-reply] results preview:', JSON.stringify(mcResult.results[0]).slice(0, 300));
-    }
+    const { scrapeComments } = require('../services/multi-publish');
+    const scrapeResult = await scrapeComments(monitor.platform, monitor.post_url);
+    console.log('[auto-reply] scrapeComments 返回:', JSON.stringify({ count: scrapeResult.count, platform: scrapeResult.platform }));
 
-    newComments = extractCommentsFromRaw(monitor.platform);
-    console.log('[auto-reply] extractCommentsFromRaw 提取到评论数:', newComments.length);
-    if (newComments.length > 0) {
-      console.log('[auto-reply] 第一条评论:', JSON.stringify(newComments[0]).slice(0, 300));
-    }
+    // 补齐字段以兼容后续流程
+    newComments = (scrapeResult.comments || []).map(c => ({
+      ...c,
+      post_author: c.post_author || '',
+      post_body: c.post_body || '',
+      post_likes: c.post_likes || 0,
+      post_comments_count: c.post_comments_count || 0,
+      raw_json: c.raw_json || '{}',
+    }));
+    console.log('[auto-reply] 采集到评论数:', newComments.length);
   } catch (e) {
     console.error('[auto-reply] crawl error:', e.message);
     return;
@@ -655,11 +360,11 @@ async function checkMonitor(monitor) {
     return;
   }
 
-  // 2. 筛选新评论（对比已有记录，包含搜索任务和监控产生的评论）
+  // 2. 筛选新评论（按 monitor task_id 去重，避免短链接/直链 URL 不匹配）
+  const taskId = 'monitor-' + monitor.id;
   const existingContents = new Set(
-    db.prepare(`SELECT comment_content FROM social_comments WHERE post_url=? AND (
-      task_id IN (SELECT id FROM social_tasks) OR task_id LIKE 'monitor-%'
-    )`).all(monitor.post_url).map(r => r.comment_content?.slice(0, 50))
+    db.prepare(`SELECT comment_content FROM social_comments WHERE task_id=?`)
+      .all(taskId).map(r => r.comment_content?.slice(0, 50))
   );
   console.log('[auto-reply] 已有评论数:', existingContents.size);
   const fresh = newComments.filter(c => !existingContents.has(c.comment_content?.slice(0, 50)));
@@ -689,7 +394,6 @@ async function checkMonitor(monitor) {
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`);
 
   let replied = 0;
-  const taskId = 'monitor-' + monitor.id;
   for (const c of matched) {
     try {
       const prompt = `你是品牌社媒运营。${monitor.reply_prompt ? '品牌背景：' + monitor.reply_prompt : ''}

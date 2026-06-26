@@ -54,9 +54,7 @@
           <router-link v-if="hasPerm('trending')" to="/trending" class="nav-item" active-class="active">
             <el-icon><TrendCharts /></el-icon><span>一键追爆款</span>
           </router-link>
-          <router-link v-if="hasPerm('social_acquisition')" to="/social-acquisition" class="nav-item" active-class="active">
-            <el-icon><Aim /></el-icon><span>社媒拓客</span>
-          </router-link>
+
           <router-link v-if="hasPerm('digital')" to="/digital" class="nav-item" active-class="active">
             <el-icon><DataAnalysis /></el-icon><span>应用智能体管理</span>
           </router-link>
@@ -181,7 +179,7 @@ import { ElMessageBox, ElMessage } from 'element-plus'
 import {
   ChatDotSquare, DataAnalysis, List,
   Cpu, Setting, ChatLineSquare, Lock, UserFilled, Avatar,
-  ArrowDown, ArrowUp, Close, Plus, MoreFilled, TrendCharts, Aim, Collection, MagicStick, Phone, Service
+  ArrowDown, ArrowUp, Close, Plus, MoreFilled, TrendCharts, Collection, MagicStick, Phone, Service
 } from '@element-plus/icons-vue'
 import request, { logout } from '../api/index.js'
 

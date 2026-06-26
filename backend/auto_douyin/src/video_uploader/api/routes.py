@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Query
 from fastapi.responses import JSONResponse
 from typing import List, Optional
 
+from pydantic import BaseModel, Field
 from ..models.platforms import (
     LoginRequest,
     LoginResponse,
@@ -19,6 +20,12 @@ from ..models.platforms import (
 )
 from ..services.platform_manager import PlatformManager
 from ..utils.logger import get_logger
+
+
+class ScrapeCommentsRequest(BaseModel):
+    platform: str = Field(description="平台: douyin / xiaohongshu")
+    post_url: str = Field(description="帖子链接")
+    cookie_file: str | None = Field(default=None, description="Cookie 文件路径，不传则自动查找")
 
 logger = get_logger(__name__)
 
@@ -196,3 +203,28 @@ async def upload_file(
     except Exception as e:
         logger.error(f"文件上传异常: {str(e)}")
         raise HTTPException(status_code=500, detail=f"文件上传失败: {str(e)}")
+
+
+@router.post("/scrape-comments", summary="采集帖子评论")
+async def scrape_comments(request: Request, body: ScrapeCommentsRequest):
+    """
+    从帖子页面采集评论（使用 auto_douyin 的登录 Cookie）
+
+    - **platform**: 平台 (douyin / xiaohongshu)
+    - **post_url**: 帖子链接
+    - **cookie_file**: Cookie 文件路径，不传则自动查找
+
+    返回评论列表，每条包含：comment_content, comment_author, comment_likes, comment_time
+    """
+    try:
+        from ..core.comment_scraper import scrape_comments as do_scrape
+        comments = await do_scrape(body.platform, body.post_url, body.cookie_file)
+        return {
+            "success": True,
+            "platform": body.platform,
+            "count": len(comments),
+            "comments": comments,
+        }
+    except Exception as e:
+        logger.error(f"评论采集异常: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"评论采集失败: {str(e)}")

@@ -679,30 +679,6 @@ async function exec(toolName, args, context) {
       case 'list_bid_keywords':
         return db.prepare('SELECT * FROM bid_keywords ORDER BY keyword').all();
 
-      // ─── 社媒拓客 ───
-      case 'list_social_tasks':
-        return db.prepare('SELECT * FROM social_tasks ORDER BY created_at DESC LIMIT 50').all();
-      case 'list_social_comments': {
-        const { task_id, page = 1, pageSize = 30 } = args || {};
-        let sql = 'SELECT * FROM social_comments';
-        const params = [];
-        if (task_id) { sql += ' WHERE task_id=?'; params.push(task_id); }
-        sql += ' ORDER BY comment_likes DESC LIMIT ? OFFSET ?';
-        const offset = (Number(page) - 1) * Number(pageSize);
-        params.push(Number(pageSize), offset);
-        return db.prepare(sql).all(...params);
-      }
-      case 'list_social_replies': {
-        const { status } = args || {};
-        let sql = 'SELECT r.*, c.comment_content, c.comment_author, c.post_title, c.post_url FROM social_replies r LEFT JOIN social_comments c ON r.comment_id = c.id';
-        const params = [];
-        if (status) { sql += ' WHERE r.status=?'; params.push(status); }
-        sql += ' ORDER BY r.created_at DESC LIMIT 50';
-        return db.prepare(sql).all(...params);
-      }
-      case 'list_social_monitors':
-        return db.prepare('SELECT * FROM social_monitors ORDER BY created_at DESC').all();
-
       default:
         return { error: `未知工具: ${toolName}` };
     }

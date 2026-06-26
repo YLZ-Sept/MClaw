@@ -630,6 +630,26 @@ try {
   console.log('[db] social_comments 迁移完成');
 }
 
+// 迁移：删除社媒拓客旧功能 — 搜索任务表及关联数据，保留监控评论
+try {
+  db.exec(`
+    DELETE FROM social_replies WHERE comment_id IN (
+      SELECT id FROM social_comments WHERE task_id NOT LIKE 'monitor-%'
+    );
+    DELETE FROM social_comments WHERE task_id NOT LIKE 'monitor-%';
+    DROP TABLE IF EXISTS social_tasks;
+  `);
+  console.log('[db] 已清理 social_tasks 及关联的搜索数据');
+} catch (e) {
+  console.log('[db] social_tasks 清理跳过:', e.message);
+}
+
+// 迁移：social_monitors 加 auto_send 字段（预留，暂不上线）
+try { db.exec('ALTER TABLE social_monitors ADD COLUMN auto_send INTEGER DEFAULT 0'); } catch {}
+
+// 迁移：social_comments.post_url 加索引加速去重
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_social_comments_post_url ON social_comments(post_url)'); } catch {}
+
 // ===== 安全 =====
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
@@ -638,7 +658,7 @@ db.exec(`
     password_hash TEXT NOT NULL,
     name TEXT NOT NULL,
     role TEXT DEFAULT 'admin',
-    permissions TEXT DEFAULT '["chat","digital","trending","social_acquisition","knowledge","skills","crm","inventory","hr","docs","channels","publish","model","security"]',
+    permissions TEXT DEFAULT '["chat","digital","trending","knowledge","skills","crm","inventory","hr","docs","channels","publish","model","security"]',
     created_at TEXT DEFAULT (datetime('now','localtime'))
   );
 
@@ -651,6 +671,9 @@ db.exec(`
 
 // 迁移：补 permissions 字段
 try { db.exec('ALTER TABLE users ADD COLUMN permissions TEXT DEFAULT \'["chat","digital","trending","knowledge","skills","crm","inventory","hr","docs","channels","publish","model","security"]\''); } catch {}
+// 清理旧 social_acquisition 权限
+try { db.prepare(`UPDATE users SET permissions = REPLACE(permissions, '"social_acquisition",', '') WHERE permissions LIKE '%"social_acquisition"%'`).run(); } catch {}
+try { db.prepare(`UPDATE users SET permissions = REPLACE(permissions, ',"social_acquisition"', '') WHERE permissions LIKE '%"social_acquisition"%'`).run(); } catch {}
 // 迁移：角色表
 try { db.exec(`CREATE TABLE IF NOT EXISTS roles (
   id          TEXT PRIMARY KEY,
@@ -673,7 +696,7 @@ try { db.exec(`CREATE TABLE IF NOT EXISTS logs (
   created_at TEXT DEFAULT (datetime('now','localtime'))
 )`); } catch {}
 
-const ALL_PERMS = ["chat","tasks","digital","trending","social_acquisition","knowledge","skills","channels","model","security","security_config","security_sessions","security_maintain","security_logs","security_users","security_roles","security_permissions","crm","inventory","hr","docs","finance","publish"];
+const ALL_PERMS = ["chat","tasks","digital","trending","knowledge","skills","channels","model","security","security_config","security_sessions","security_maintain","security_logs","security_users","security_roles","security_permissions","crm","inventory","hr","docs","finance","publish"];
 const ALL_SUB_PERMS = ["security_config","security_sessions","security_maintain","security_logs","security_roles","security_permissions"];
 
 // 种子角色

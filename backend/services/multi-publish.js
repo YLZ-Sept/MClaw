@@ -109,4 +109,11 @@ function getPlatformLabel(platform) {
   return PLATFORM_LABELS[platform] || platform;
 }
 
-module.exports = { health, getAccountStatus, login, uploadVideo, uploadImages, batchUpload, getPlatformLabel };
+function scrapeComments(platform, postUrl) {
+  return _fetch('/scrape-comments', {
+    method: 'POST',
+    body: JSON.stringify({ platform, post_url: postUrl }),
+  });
+}
+
+module.exports = { health, getAccountStatus, login, uploadVideo, uploadImages, batchUpload, scrapeComments, getPlatformLabel };

@@ -68,7 +68,7 @@ const routePermMap = [
   { prefix: '/api/hot-quick-reply', perm: 'trending' },
   { prefix: '/api/hot-leads', perm: 'trending' },
   { prefix: '/api/hot-chanjing', perm: 'trending' },
-  { prefix: '/api/social-acquisition', perm: 'social_acquisition' },
+  { prefix: '/api/social-acquisition', perm: 'trending' },
   { prefix: '/api/faq', perm: 'knowledge' },
   { prefix: '/api/knowledge-base', perm: 'knowledge' },
   { prefix: '/api/doc-import', perm: 'knowledge' },

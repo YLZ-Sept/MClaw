@@ -92,3 +92,18 @@ export const publishApi = {
   login: (name, platform = 'douyin') => POST(`/publish/account/${name || 'default'}/login`, { platform }),
   publish: (contentId, d) => POST(`/publish/contents/${contentId}/publish`, d),
 }
+
+// 发布监控（原社媒拓客模块）
+export const monitorApi = {
+  addMonitor: (d) => POST('/social-acquisition/monitors', d),
+  getMonitors: () => GET('/social-acquisition/monitors'),
+  updateMonitor: (id, d) => PUT(`/social-acquisition/monitors/${id}`, d),
+  deleteMonitor: (id) => DEL(`/social-acquisition/monitors/${id}`),
+  checkMonitor: (id) => POST(`/social-acquisition/monitors/${id}/check`),
+  checkAllMonitors: () => POST('/social-acquisition/monitors/check-all'),
+  generateReplies: (d) => POST('/social-acquisition/replies/generate', d),
+  updateReply: (id, d) => PUT(`/social-acquisition/replies/${id}`, d),
+  deleteReply: (id) => DEL(`/social-acquisition/replies/${id}`),
+  sendReply: (id) => POST(`/social-acquisition/replies/${id}/send`),
+  getReplies: (params) => GET('/social-acquisition/replies', { params }),
+}

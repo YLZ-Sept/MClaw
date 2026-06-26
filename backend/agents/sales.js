@@ -294,50 +294,6 @@ const tools = [
       }
     }
   },
-  // ─── 社媒拓客 ───
-  {
-    type: 'function',
-    function: {
-      name: 'list_social_tasks',
-      description: '查询社媒拓客搜索任务列表',
-      parameters: { type: 'object', properties: {}, required: [] }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'list_social_comments',
-      description: '查询采集到的社媒评论，可按任务ID筛选',
-      parameters: {
-        type: 'object',
-        properties: {
-          task_id: { type: 'string', description: '任务ID，不传返回全部' },
-          page: { type: 'integer', description: '页码，默认1' }
-        },
-        required: []
-      }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'list_social_replies',
-      description: '查询AI生成的回复草稿，可按状态筛选（draft/approved/rejected/sent）',
-      parameters: {
-        type: 'object',
-        properties: { status: { type: 'string', description: '状态筛选' } },
-        required: []
-      }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'list_social_monitors',
-      description: '查询自动回复监控列表',
-      parameters: { type: 'object', properties: {}, required: [] }
-    }
-  },
   {
     type: 'function',
     function: {
