@@ -159,6 +159,9 @@ class PlatformManager:
             if request.platform == "douyin":
                 # 抖音上传器需要特殊处理
                 success = await self._upload_douyin(account, request.video_info, request.publish_date)
+            elif request.platform == "xiaohongshu":
+                # 小红书需要区分视频/图文
+                success = await self._upload_xiaohongshu(account, request.video_info, request.publish_date)
             else:
                 # 获取对应的上传器
                 uploader = await self._get_uploader(request.platform)
@@ -183,16 +186,19 @@ class PlatformManager:
                 # 执行上传
                 success = await uploader.upload_video(platform_video_info)
             
+            content_type = getattr(request.video_info, 'content_type', 'video') or 'video'
+            type_label = '图文' if content_type == 'image' else '视频'
+
             if success:
                 return UploadResponse(
                     success=True,
-                    message="视频上传成功",
+                    message=f"{type_label}上传成功",
                     title=request.video_info.title
                 )
             else:
                 return UploadResponse(
                     success=False,
-                    message="视频上传失败"
+                    message=f"{type_label}上传失败"
                 )
                 
         except Exception as e:
@@ -388,7 +394,7 @@ class PlatformManager:
                     tags=video_info.tags or [],
                     description=video_info.description or '',
                     publish_date=publish_date,
-                    location=video_info.location or '北京市',
+                    location=video_info.location or '',
                     music_path=getattr(video_info, 'music_path', None) or None,
                     music_query=getattr(video_info, 'music_query', None) or None,
                 )
@@ -400,7 +406,7 @@ class PlatformManager:
                     description=video_info.description or '',
                     thumbnail_path=str(video_info.thumbnail_path) if video_info.thumbnail_path else None,
                     publish_date=publish_date,
-                    location=video_info.location or '北京市',
+                    location=video_info.location or '',
                     cover_orientation=getattr(video_info, 'cover_orientation', 'portrait') or 'portrait',
                 )
 
@@ -409,7 +415,70 @@ class PlatformManager:
         except Exception as e:
             logger.error(f"抖音上传适配失败: {str(e)}")
             return False
-    
+
+    async def _upload_xiaohongshu(self, account, video_info, publish_date=None) -> bool:
+        """小红书上传统配方法（区分视频/图文）"""
+        uploader = None
+        try:
+            if "xiaohongshu" not in self.uploaders or self.uploaders["xiaohongshu"] is None:
+                from ..core.xiaohongshu_uploader import XiaohongshuUploader
+                uploader = XiaohongshuUploader()
+                self.uploaders["xiaohongshu"] = uploader
+            else:
+                uploader = self.uploaders["xiaohongshu"]
+
+            # 检测浏览器是否存活（用实际操作验证）
+            browser_alive = False
+            if hasattr(uploader, 'browser') and uploader.browser and hasattr(uploader, 'page') and uploader.page:
+                try:
+                    await uploader.page.evaluate('1')
+                    browser_alive = True
+                except Exception:
+                    pass
+
+            if not browser_alive:
+                logger.info("浏览器未启动或已断开，重新启动...")
+                try:
+                    if hasattr(uploader, 'browser') and uploader.browser:
+                        await uploader.browser.close()
+                except Exception:
+                    pass
+                uploader.browser = None
+                uploader.page = None
+                uploader.is_logged_in = False
+                await uploader.start_browser()
+
+            # 加载cookies
+            if account.cookie_file:
+                await uploader._load_cookies(account)
+                if not uploader.is_logged_in:
+                    uploader.is_logged_in = True
+
+            content_type = getattr(video_info, 'content_type', 'video') or 'video'
+
+            if content_type == 'image':
+                images = getattr(video_info, 'images', []) or []
+                if not images:
+                    logger.error("小红书图文模式但未提供图片列表")
+                    return False
+                success = await uploader.upload_images(
+                    images=images,
+                    title=video_info.title or '',
+                    tags=video_info.tags or [],
+                    description=video_info.description or '',
+                    publish_date=publish_date,
+                    location=video_info.location or '',
+                    topic_tags=getattr(video_info, 'topic_tags', []) or [],
+                )
+            else:
+                success = await uploader.upload_video(video_info)
+
+            return success
+
+        except Exception as e:
+            logger.error(f"小红书上传统配失败: {str(e)}")
+            return False
+
     def _load_existing_accounts(self):
         """加载已存在的账号信息"""
         try:

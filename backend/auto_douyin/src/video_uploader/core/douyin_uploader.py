@@ -158,7 +158,7 @@ class DouyinUploader:
                            description: str = None,
                            thumbnail_path: str = None,
                            publish_date: datetime = None,
-                           location: str = "北京市",
+                           location: str = "",
                            cover_orientation: str = "portrait") -> bool:
         """
         上传视频到抖音
@@ -192,7 +192,7 @@ class DouyinUploader:
                             tags: List[str],
                             description: str = None,
                             publish_date: datetime = None,
-                            location: str = "北京市",
+                            location: str = "",
                             music_path: str = None,
                             music_query: str = None) -> bool:
         """
@@ -229,7 +229,7 @@ class DouyinUploader:
                                  description: str = None,
                                  thumbnail_path: str = None,
                                  publish_date: datetime = None,
-                                 location: str = "北京市",
+                                 location: str = "",
                                  cover_orientation: str = "portrait") -> bool:
         """上传视频的具体实现"""
 
@@ -242,11 +242,9 @@ class DouyinUploader:
         else:
             browser = await self._launch_browser(playwright, headless=False)
 
-        # 创建上下文并设置权限
+        # 创建上下文
         context = await browser.new_context(
-            storage_state=self.cookie_file,
-            permissions=['geolocation'],
-            geolocation={'latitude': 39.9042, 'longitude': 116.4074}
+            storage_state=self.cookie_file
         )
         await self._set_init_script(context)
 
@@ -319,7 +317,7 @@ class DouyinUploader:
                                    tags: List[str],
                                    description: str = None,
                                    publish_date: datetime = None,
-                                   location: str = "北京市",
+                                   location: str = "",
                                    music_path: str = None,
                                    music_query: str = None) -> bool:
         """上传图文的具体实现"""

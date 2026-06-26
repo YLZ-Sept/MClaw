@@ -26,7 +26,7 @@ class BaseVideoInfo(BaseModel):
     tags: List[str] = Field(default_factory=list, description="话题标签列表")
     description: Optional[str] = Field(default=None, description="作品描述/介绍")
     thumbnail_path: Optional[Path] = Field(default=None, description="缩略图路径")
-    location: str = Field(default="北京市", description="地理位置")
+    location: str = Field(default="", description="地理位置")
     cover_orientation: str = Field(default="portrait", description="封面方向: portrait | landscape")
     content_type: Literal["video", "image"] = Field(default="video", description="内容类型：video（视频）或 image（图文）")
     images: List[str] = Field(default_factory=list, description="图文内容的图片路径列表")
