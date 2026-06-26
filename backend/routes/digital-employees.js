@@ -37,7 +37,12 @@ router.use('/avatars', (req, res, next) => {
 
 // 列表
 router.get('/', (req, res) => {
-  const rows = db.prepare('SELECT * FROM digital_employees ORDER BY created_at DESC').all();
+  let rows = db.prepare('SELECT * FROM digital_employees ORDER BY created_at DESC').all();
+  // 资源级 scope 过滤：角色限制了数字员工范围时只返回授权 ID
+  const scope = req.user?.scope;
+  if (scope?.digital_employee_ids && Array.isArray(scope.digital_employee_ids) && scope.digital_employee_ids.length > 0) {
+    rows = rows.filter(r => scope.digital_employee_ids.includes(r.id));
+  }
   res.json({ code: 200, data: rows });
 });
 

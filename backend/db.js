@@ -684,6 +684,8 @@ try { db.exec(`CREATE TABLE IF NOT EXISTS roles (
 )`); } catch {}
 // 迁移：用户关联角色
 try { db.exec('ALTER TABLE users ADD COLUMN role_id TEXT REFERENCES roles(id)'); } catch {}
+// 迁移：角色资源级 scope（JSON: {"digital_employee_ids": ["id1"]}）
+try { db.exec('ALTER TABLE roles ADD COLUMN scope TEXT'); } catch {}
 
 // 迁移：操作日志表
 try { db.exec(`CREATE TABLE IF NOT EXISTS logs (

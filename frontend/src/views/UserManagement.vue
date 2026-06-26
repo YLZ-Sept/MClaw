@@ -201,6 +201,12 @@
             <el-checkbox v-else v-model="roleDlg.form.permissions" :label="mod.key">{{ mod.label }}</el-checkbox>
           </div>
         </el-form-item>
+        <el-form-item v-if="roleDlg.form.permissions.includes('digital')" label="数字员工范围">
+          <el-select v-model="roleDlg.form.digital_employee_ids" style="width:100%" multiple clearable placeholder="不选 = 全部可见，选中 = 仅授权选中项">
+            <el-option v-for="de in digitalEmployees" :key="de.id" :label="de.name" :value="de.id" />
+          </el-select>
+          <div style="color:#909399;font-size:12px;margin-top:4px">不选代表该角色可看到全部数字员工；选中后仅限指定数字员工</div>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="roleDlg.visible = false">取消</el-button>
@@ -228,6 +234,7 @@
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Avatar, Collection, List } from '@element-plus/icons-vue'
+import request from '../api/index.js'
 import {
   getUsers, createUser, updateUser, deleteUser, getPermissions,
   getRoles, createRole, updateRole, deleteRole, getPermissionGroups, getUserRoles,
@@ -482,10 +489,15 @@ async function loadPermGroups() {
   } catch { permModules.value = [] }
 }
 
+const digitalEmployees = ref([])
+async function loadDigitalEmployees() {
+  try { const { data } = await request.get('/digital-employees'); digitalEmployees.value = data.data || [] } catch { digitalEmployees.value = [] }
+}
+
 const roleFormRef = ref(null)
 const roleDlg = reactive({
   visible: false, loading: false, isEdit: false,
-  form: { id: '', name: '', description: '', permissions: [] },
+  form: { id: '', name: '', description: '', permissions: [], digital_employee_ids: [] },
   rules: {
     name: [{ required: true, message: '请输入角色名称', trigger: 'blur' }],
   },
@@ -493,14 +505,21 @@ const roleDlg = reactive({
 
 function openCreateRole() {
   roleDlg.isEdit = false
-  roleDlg.form = { id: '', name: '', description: '', permissions: [] }
+  roleDlg.form = { id: '', name: '', description: '', permissions: [], digital_employee_ids: [] }
   roleDlg.visible = true
+  loadDigitalEmployees()
 }
 
 function openEditRole(row) {
   roleDlg.isEdit = true
-  roleDlg.form = { id: row.id, name: row.name, description: row.description, permissions: [...(row.permissions || [])] }
+  const scope = row.scope || {}
+  roleDlg.form = {
+    id: row.id, name: row.name, description: row.description,
+    permissions: [...(row.permissions || [])],
+    digital_employee_ids: [...(scope.digital_employee_ids || [])],
+  }
   roleDlg.visible = true
+  loadDigitalEmployees()
 }
 
 async function doSaveRole() {
@@ -508,8 +527,14 @@ async function doSaveRole() {
   if (!valid) return
   roleDlg.loading = true
   try {
-    const { id, name, description, permissions } = roleDlg.form
+    const { id, name, description, permissions, digital_employee_ids } = roleDlg.form
     const body = { name, description, permissions }
+    // scope: 仅当勾选了 digital 且选了具体数字员工时才限制
+    if (permissions.includes('digital') && digital_employee_ids.length > 0) {
+      body.scope = { digital_employee_ids }
+    } else if (permissions.includes('digital')) {
+      body.scope = null  // 选了 digital 但没限制 → 全部可见
+    }
     let res
     if (roleDlg.isEdit) {
       res = await updateRole(id, body)

@@ -73,6 +73,17 @@ function getUserPermissions(user) {
   try { return JSON.parse(user.permissions || '[]'); } catch { return []; }
 }
 
+function getUserScope(user) {
+  if (user.role === 'superadmin' || user.role === 'admin') return null;
+  if (user.role_id) {
+    const role = db.prepare('SELECT scope FROM roles WHERE id=?').get(user.role_id);
+    if (role && role.scope) {
+      try { return JSON.parse(role.scope); } catch { return null; }
+    }
+  }
+  return null;
+}
+
 // 登录失败追踪（内存）
 const loginAttempts = new Map();
 
@@ -135,6 +146,7 @@ router.post('/login', (req, res) => {
 
   const token = crypto.randomUUID();
   const permissions = getUserPermissions(user);
+  const scope = getUserScope(user);
   const roleId = user.role_id || null;
   let roleName = null;
   if (roleId) {
@@ -147,13 +159,14 @@ router.post('/login', (req, res) => {
     name: user.name,
     role: user.role,
     permissions,
+    scope,
     roleId,
     createdAt: Date.now(),
   };
   addLog('success', 'login', `${user.username} 登录成功`, user.username, req.ip);
   res.json({
     code: 200,
-    data: { token, name: user.name, role: user.role, permissions, role_id: roleId, role_name: roleName },
+    data: { token, name: user.name, role: user.role, permissions, scope, role_id: roleId, role_name: roleName },
   });
 });
 
@@ -207,6 +220,7 @@ router.tokens = tokens;
 router.verifyPassword = verifyPassword;
 router.requireAuth = requireAuth;
 router.requirePermission = requirePermission;
+router.getUserScope = getUserScope;
 router.ALL_PERMISSIONS = ALL_PERMISSIONS;
 router.PERMISSION_MODULES = PERMISSION_MODULES;
 

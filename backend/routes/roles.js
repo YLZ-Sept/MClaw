@@ -23,6 +23,7 @@ router.get('/', canManageRoles, (req, res) => {
     data: roles.map(r => ({
       ...r,
       permissions: (() => { try { return JSON.parse(r.permissions); } catch { return []; } })(),
+      scope: (() => { try { return JSON.parse(r.scope || 'null'); } catch { return null; } })(),
       userCount: db.prepare('SELECT COUNT(*) AS c FROM users WHERE role_id=?').get(r.id).c,
     })),
   });
@@ -38,15 +39,16 @@ router.get('/:id', canManageRoles, (req, res) => {
 
 // 创建角色
 router.post('/', canManageRoles, (req, res) => {
-  let { name, description, permissions } = req.body || {};
+  let { name, description, permissions, scope } = req.body || {};
   if (!name) return res.json({ code: 400, message: '角色名称为必填' });
   if (db.prepare('SELECT id FROM roles WHERE name=?').get(name)) {
     return res.json({ code: 400, message: '角色名称已存在' });
   }
   permissions = (permissions || []).filter(p => req.user.role === 'superadmin' || p !== 'model');
   const id = crypto.randomUUID();
-  db.prepare('INSERT INTO roles (id, name, description, permissions) VALUES (?,?,?,?)')
-    .run(id, name, description || '', JSON.stringify(permissions));
+  const scopeStr = scope && typeof scope === 'object' ? JSON.stringify(scope) : (scope || null);
+  db.prepare('INSERT INTO roles (id, name, description, permissions, scope) VALUES (?,?,?,?,?)')
+    .run(id, name, description || '', JSON.stringify(permissions), scopeStr);
   addLog('success', 'create_role', `${req.user.username} 创建了角色 ${name}`, req.user.username, req.ip);
   res.json({ code: 200, data: { id }, message: '创建成功' });
 });
@@ -57,7 +59,7 @@ router.put('/:id', canManageRoles, (req, res) => {
   if (!role) return res.status(404).json({ code: 404, message: '角色不存在' });
   if (role.name === '超级管理员') return res.json({ code: 400, message: '不可编辑超级管理员角色' });
 
-  let { name, description, permissions } = req.body || {};
+  let { name, description, permissions, scope } = req.body || {};
   if (name) {
     const dup = db.prepare('SELECT id FROM roles WHERE name=? AND id!=?').get(name, req.params.id);
     if (dup) return res.json({ code: 400, message: '角色名称已存在' });
@@ -69,13 +71,19 @@ router.put('/:id', canManageRoles, (req, res) => {
   if (permissions !== undefined) {
     permissions = permissions.filter(p => req.user.role === 'superadmin' || p !== 'model');
     db.prepare('UPDATE roles SET permissions=? WHERE id=?').run(JSON.stringify(permissions), req.params.id);
-    // 清空该角色下所有用户的缓存权限 → 他们下次登录时重新从角色读取
+  }
+  if (scope !== undefined) {
+    const scopeStr = scope && typeof scope === 'object' ? JSON.stringify(scope) : null;
+    db.prepare('UPDATE roles SET scope=? WHERE id=?').run(scopeStr, req.params.id);
+  }
+  // 同步更新该角色下所有在线用户的 token 缓存
+  if (permissions !== undefined || scope !== undefined) {
     const { tokens } = require('./auth');
     const userIds = db.prepare('SELECT id FROM users WHERE role_id=?').all(req.params.id).map(u => u.id);
     for (const [k, v] of Object.entries(tokens)) {
       if (userIds.includes(v.id)) {
-        const rolePerms = JSON.parse(JSON.stringify(permissions));
-        v.permissions = rolePerms;
+        if (permissions !== undefined) v.permissions = JSON.parse(JSON.stringify(permissions));
+        if (scope !== undefined) v.scope = scope && typeof scope === 'object' ? JSON.parse(JSON.stringify(scope)) : null;
       }
     }
   }
