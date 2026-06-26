@@ -679,6 +679,24 @@ async function exec(toolName, args, context) {
       case 'list_bid_keywords':
         return db.prepare('SELECT * FROM bid_keywords ORDER BY keyword').all();
 
+      case 'list_local_files': {
+        const { listLocalFiles } = require('../channels/agent-bridge');
+        const ctx = getExecutionContext();
+        return listLocalFiles(ctx.agentId);
+      }
+
+      case 'search_local_files': {
+        const { searchLocalFiles } = require('../channels/agent-bridge');
+        const ctx = getExecutionContext();
+        return await searchLocalFiles(args.query, ctx.agentId);
+      }
+
+      case 'read_local_file': {
+        const { readLocalFile } = require('../channels/agent-bridge');
+        const ctx = getExecutionContext();
+        return await readLocalFile(args.filePath, ctx.agentId);
+      }
+
       default:
         return { error: `未知工具: ${toolName}` };
     }

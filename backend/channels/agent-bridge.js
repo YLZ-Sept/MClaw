@@ -7,17 +7,55 @@ const { exec: execTool } = require('../agents/executor');
 
 // 文件夹引用：可读文本扩展名
 const TEXT_EXTS = new Set(['txt','md','markdown','json','yaml','yml','xml','html','htm','css','js','ts','jsx','tsx','vue','py','go','rs','java','c','cpp','h','sh','bat','ps1','sql','csv','log','env','cfg','ini','toml','rst','tex']);
+// Office 文档扩展名（需解析器，非纯文本）
+const OFFICE_EXTS = new Set(['xlsx','xls','docx','pdf']);
 // 跳过目录
 const SKIP_DIRS = new Set(['node_modules','.git','.svn','dist','build','__pycache__','.venv','venv','.next','.nuxt','coverage','.cache','uploads','.idea','.vscode','target','out']);
 
 function readFileText(filePath) {
   try {
     const ext = path.extname(filePath).toLowerCase().replace('.', '');
-    if (!TEXT_EXTS.has(ext)) return null;
+    if (!TEXT_EXTS.has(ext) && !OFFICE_EXTS.has(ext)) return null;
     const stat = fs.statSync(filePath);
-    if (stat.size > 5 * 1024 * 1024) return `[文件过大，跳过: ${filePath}]`;
+    if (stat.size > 50 * 1024 * 1024) return `[文件过大，跳过: ${filePath}]`;
+    if (OFFICE_EXTS.has(ext)) {
+      // Office 文档在 scanFolder 中只列元数据，完整解析走 readFileContent
+      return `[${ext.toUpperCase()} 文件: ${path.basename(filePath)}, ${(stat.size / 1024).toFixed(1)}KB，使用 read_local_file 读取内容]`;
+    }
     return fs.readFileSync(filePath, 'utf-8');
   } catch { return null; }
+}
+
+// 异步解析 Office 文档内容
+async function readFileContent(filePath) {
+  try {
+    const ext = path.extname(filePath).toLowerCase().replace('.', '');
+    const buf = fs.readFileSync(filePath);
+    if (ext === 'xlsx' || ext === 'xls') {
+      const XLSX = require('xlsx');
+      const wb = XLSX.read(buf, { type: 'buffer' });
+      const texts = [];
+      for (const name of wb.SheetNames) {
+        const sheet = wb.Sheets[name];
+        const csv = XLSX.utils.sheet_to_csv(sheet);
+        texts.push(`## Sheet: ${name}\n${csv}`);
+      }
+      return texts.join('\n\n');
+    }
+    if (ext === 'docx') {
+      const mammoth = require('mammoth');
+      const result = await mammoth.extractRawText({ buffer: buf });
+      return result.value || '(空文档)';
+    }
+    if (ext === 'pdf') {
+      const { PDFParse } = require('pdf-parse');
+      const pdf = new PDFParse(new Uint8Array(buf));
+      await pdf.load();
+      const text = pdf.getText();
+      return (text?.pages || []).map(p => p.text).join('\n') || '(空PDF)';
+    }
+    return null;
+  } catch (err) { return `[解析失败: ${err.message}]`; }
 }
 
 function scanFolder(folderPath, maxChars = 50000) {
@@ -35,8 +73,12 @@ function scanFolder(folderPath, maxChars = 50000) {
           const fp = path.join(dir, e.name);
           const txt = readFileText(fp);
           if (txt !== null) {
-            results.push({ relPath: path.relative(folderPath, fp), text: txt });
-            total += txt.length;
+            const ext = path.extname(fp).toLowerCase().replace('.', '');
+            const isOffice = OFFICE_EXTS.has(ext);
+            let bytes = 0;
+            try { bytes = fs.statSync(fp).size; } catch {}
+            results.push({ relPath: path.relative(folderPath, fp), text: txt, bytes, isOffice });
+            total += isOffice ? 50 : txt.length;
           }
         }
       }
@@ -44,6 +86,175 @@ function scanFolder(folderPath, maxChars = 50000) {
   };
   walk(folderPath, 0);
   return results;
+}
+
+// 解析 Agent 引用的所有本地路径（穿透数字人 → agent_apps）
+function resolveLocalPaths(agentId) {
+  if (!agentId) return [];
+  let allDbRows = [];
+  try {
+    const de = db.prepare('SELECT * FROM digital_employees WHERE id=? AND status=?').get(agentId, 'active');
+    const agentIds = [];
+    if (de && de.agent_ids && de.agent_ids.trim()) {
+      const raw = de.agent_ids.trim();
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) agentIds.push(...parsed.filter(Boolean));
+        else agentIds.push(raw);
+      } catch {
+        agentIds.push(...raw.split(',').map(s => s.trim()).filter(Boolean));
+      }
+    }
+    if (!agentIds.length) agentIds.push(agentId);
+    for (const aid of agentIds) {
+      try {
+        const row = db.prepare('SELECT * FROM agent_apps WHERE id=? AND status=?').get(aid, 'active');
+        if (row) allDbRows.push(row);
+      } catch {}
+    }
+  } catch {}
+
+  return [...new Set(
+    allDbRows
+      .map(r => r.kb_folder_paths)
+      .filter(Boolean)
+      .flatMap(s => s.split(',').map(p => p.trim()).filter(Boolean))
+  )];
+}
+
+// 列出所有引用的本地文件
+function listLocalFiles(agentId) {
+  const paths = resolveLocalPaths(agentId);
+  if (!paths.length) return { error: '当前 Agent 未配置本地文件引用' };
+
+  const files = [];
+  for (const fp of paths) {
+    try {
+      const stat = fs.statSync(fp);
+      if (stat.isDirectory()) {
+        const scanned = scanFolder(fp, 500000);
+        for (const f of scanned) {
+          files.push({ file: f.relPath, path: path.join(fp, f.relPath), size: f.bytes || f.text.length, isOffice: f.isOffice || false });
+        }
+      } else if (stat.isFile()) {
+        const ext = path.extname(fp).toLowerCase().replace('.', '');
+        const txt = readFileText(fp);
+        files.push({ file: path.basename(fp), path: fp, size: stat.size, isOffice: OFFICE_EXTS.has(ext), content: txt || '' });
+      }
+    } catch (err) {
+      files.push({ file: fp, path: fp, error: err.message });
+    }
+  }
+  return { totalFiles: files.length, files };
+}
+
+// 搜索本地文件内容（返回完整文件内容，不只是片段）
+async function searchLocalFiles(query, agentId) {
+  if (!query || !agentId) return { error: '缺少查询参数或 Agent ID' };
+
+  const paths = resolveLocalPaths(agentId);
+  if (!paths.length) return { error: '当前 Agent 未配置本地文件引用' };
+
+  const results = [];
+  const qLower = query.toLowerCase();
+  const maxResults = 8;
+
+  for (const fp of paths) {
+    if (results.length >= maxResults) break;
+    try {
+      const stat = fs.statSync(fp);
+      if (stat.isDirectory()) {
+        const scanned = scanFolder(fp, 500000);
+        for (const f of scanned) {
+          if (results.length >= maxResults) break;
+          const ext = path.extname(f.relPath).toLowerCase().replace('.', '');
+          // Office 文件需要异步解析后再搜索
+          if (OFFICE_EXTS.has(ext)) {
+            const fullPath = path.join(fp, f.relPath);
+            const content = await readFileContent(fullPath);
+            if (content && content.toLowerCase().includes(qLower)) {
+              results.push({ file: f.relPath, path: fullPath, content, size: content.length });
+            }
+          } else {
+            const textLower = f.text.toLowerCase();
+            if (textLower.includes(qLower)) {
+              results.push({ file: f.relPath, path: path.join(fp, f.relPath), content: f.text, size: f.text.length });
+            }
+          }
+        }
+      } else if (stat.isFile()) {
+        const ext = path.extname(fp).toLowerCase().replace('.', '');
+        if (OFFICE_EXTS.has(ext)) {
+          const content = await readFileContent(fp);
+          if (content && content.toLowerCase().includes(qLower)) {
+            results.push({ file: path.basename(fp), path: fp, content, size: content.length });
+          }
+        } else {
+          const txt = readFileText(fp);
+          if (txt && txt.toLowerCase().includes(qLower)) {
+            results.push({ file: path.basename(fp), path: fp, content: txt, size: txt.length });
+          }
+        }
+      }
+    } catch {}
+  }
+
+  if (!results.length) return { message: `在 ${paths.length} 个路径中未找到匹配 "${query}" 的内容`, paths };
+
+  return { query, totalMatches: results.length, results: results.slice(0, maxResults) };
+}
+
+// 读取指定本地文件（支持相对路径或绝对路径匹配）
+async function readLocalFile(filePath, agentId) {
+  if (!filePath || !agentId) return { error: '缺少文件路径或 Agent ID' };
+
+  const paths = resolveLocalPaths(agentId);
+  if (!paths.length) return { error: '当前 Agent 未配置本地文件引用' };
+
+  // 尝试多种匹配方式
+  for (const fp of paths) {
+    try {
+      const stat = fs.statSync(fp);
+      if (stat.isDirectory()) {
+        const scanned = scanFolder(fp, 500000);
+        for (const f of scanned) {
+          const fullPath = path.join(fp, f.relPath);
+          if (
+            f.relPath === filePath ||
+            f.relPath.endsWith(filePath) ||
+            fullPath === filePath ||
+            path.basename(f.relPath) === filePath ||
+            path.basename(f.relPath) === path.basename(filePath)
+          ) {
+            const ext = path.extname(f.relPath).toLowerCase().replace('.', '');
+            if (OFFICE_EXTS.has(ext)) {
+              const content = await readFileContent(fullPath);
+              return { file: f.relPath, path: fullPath, content, size: content.length };
+            }
+            return { file: f.relPath, path: fullPath, content: f.text, size: f.text.length };
+          }
+        }
+      } else if (stat.isFile()) {
+        if (
+          fp === filePath ||
+          fp.endsWith(filePath) ||
+          path.basename(fp) === filePath ||
+          path.basename(fp) === path.basename(filePath)
+        ) {
+          const ext = path.extname(fp).toLowerCase().replace('.', '');
+          if (OFFICE_EXTS.has(ext)) {
+            const content = await readFileContent(fp);
+            if (content) return { file: path.basename(fp), path: fp, content, size: content.length };
+          } else {
+            const txt = readFileText(fp);
+            if (txt) return { file: path.basename(fp), path: fp, content: txt, size: txt.length };
+          }
+        }
+      }
+    } catch {}
+  }
+
+  return { error: `未找到文件: ${filePath}` };
 }
 
 // Built-in agent definitions (keep in sync with server.js)
@@ -262,34 +473,58 @@ function loadAgentConfig(agent) {
       .flatMap(s => s.split(',').map(p => p.trim()).filter(Boolean));
     const uniquePaths = [...new Set(allFolderPaths)];
     if (uniquePaths.length) {
-      const folderContents = [];
+      console.log('[agent-bridge] 开始加载本地引用，路径数: %d → %s', uniquePaths.length, uniquePaths.join(', '));
+      const fileList = [];
+      let totalFiles = 0;
       for (const fp of uniquePaths) {
         try {
           const stat = fs.statSync(fp);
           if (stat.isDirectory()) {
-            const files = scanFolder(fp);
+            const files = scanFolder(fp, 200000);
             if (files.length) {
-              const content = files.map(f => `### ${f.relPath}\n${f.text.slice(0, 3000)}`).join('\n\n');
-              folderContents.push(`## 📁 ${fp}\n${content.slice(0, 10000)}`);
+              totalFiles += files.length;
+              fileList.push(`## 📁 ${fp}（${files.length} 个文件）\n` + files.map(f => {
+                const sizeStr = f.isOffice ? `${(f.bytes / 1024).toFixed(1)}KB` : `${f.text.length} 字符`;
+                const tag = f.isOffice ? ` [${path.extname(f.relPath).toUpperCase().replace('.', '')}]` : '';
+                return `- ${f.relPath}${tag}（${sizeStr}）`;
+              }).join('\n'));
+              console.log('[agent-bridge] 📁 %s → %d 个文件', fp, files.length);
+            } else {
+              fileList.push(`## 📁 ${fp}\n（目录下未找到可读文件）`);
+              console.log('[agent-bridge] 📁 %s → 无可读文件', fp);
             }
           } else if (stat.isFile()) {
             const ext = path.extname(fp).toLowerCase().replace('.', '');
-            if (TEXT_EXTS.has(ext)) {
+            if (TEXT_EXTS.has(ext) || OFFICE_EXTS.has(ext)) {
               const txt = readFileText(fp);
               if (txt) {
-                folderContents.push(`## 📄 ${path.basename(fp)}\n${txt.slice(0, 5000)}`);
+                totalFiles++;
+                const sizeStr = OFFICE_EXTS.has(ext) ? `${(stat.size / 1024).toFixed(1)}KB` : `${txt.length} 字符`;
+                const tag = OFFICE_EXTS.has(ext) ? ` [${ext.toUpperCase()}]` : '';
+                fileList.push(`## 📄 ${path.basename(fp)}${tag}（${sizeStr}）`);
+                console.log('[agent-bridge] 📄 %s → %s', fp, sizeStr);
+              } else {
+                fileList.push(`## 📄 ${path.basename(fp)}（读取为空）`);
               }
             } else {
-              folderContents.push(`## 📄 ${path.basename(fp)}\n[非文本文件，格式: ${ext || '未知'}]`);
+              fileList.push(`## 📄 ${path.basename(fp)}（不支持的文件类型: .${ext || '未知'}）`);
+              console.log('[agent-bridge] 📄 %s → 跳过不支持类型 (.%s)', fp, ext || '未知');
             }
           }
-        } catch { folderContents.push(`## ❌ ${fp}\n[路径不存在或无法访问]`); }
+        } catch (err) {
+          console.log('[agent-bridge] ❌ %s → %s', fp, err.message);
+        }
       }
-      if (folderContents.length) {
-        systemPrompt += '\n\n---\n\n# 本地文件/文件夹引用\n以下内容来自智能体配置中引用的本地路径，实时读取于磁盘：\n\n' + folderContents.join('\n\n---\n\n');
+      if (fileList.length) {
+        systemPrompt += '\n\n---\n\n# 本地文件/文件夹引用\n'
+          + '你已绑定以下本地路径。如需查看某个文件的完整内容，请调用 read_local_file 工具。如需搜索特定关键词，请调用 search_local_files 工具。如需列出所有文件，请调用 list_local_files 工具。\n\n'
+          + fileList.join('\n\n');
+        console.log('[agent-bridge] 本地引用加载完成: %d 路径, %d 文件', uniquePaths.length, totalFiles);
       }
     }
-  } catch {}
+  } catch (err) {
+    console.error('[agent-bridge] 本地引用加载异常: %s', err.message);
+  }
 
   // 所有 Agent 自动注入 create_scheduled_task 工具
   if (!seenToolNames.has('create_scheduled_task')) {
@@ -308,6 +543,50 @@ function loadAgentConfig(agent) {
             description: { type: 'string', description: '任务描述或备注（可选）' }
           },
           required: ['name', 'schedule', 'message']
+        }
+      }
+    });
+  }
+
+  // 所有 Agent 自动注入本地文件工具（list / search / read）
+  if (!seenToolNames.has('list_local_files')) {
+    mergedTools.push({
+      type: 'function',
+      function: {
+        name: 'list_local_files',
+        description: '列出当前智能体绑定的所有本地文件夹/文件引用中的文件清单，包含文件路径和大小。用于了解有哪些本地文件可用。',
+        parameters: { type: 'object', properties: {}, required: [] }
+      }
+    });
+  }
+  if (!seenToolNames.has('search_local_files')) {
+    mergedTools.push({
+      type: 'function',
+      function: {
+        name: 'search_local_files',
+        description: '在当前智能体引用的本地文件夹/文件中搜索关键词，返回匹配文件的完整内容（不只是片段）。当用户询问本地文档中的信息、需要查找特定内容时使用此工具。',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: '要搜索的关键词或短语' }
+          },
+          required: ['query']
+        }
+      }
+    });
+  }
+  if (!seenToolNames.has('read_local_file')) {
+    mergedTools.push({
+      type: 'function',
+      function: {
+        name: 'read_local_file',
+        description: '读取当前智能体引用的本地文件夹中的指定文件，返回完整内容。支持传入文件名或相对路径。当用户要求查看某个具体文件的内容时使用此工具。',
+        parameters: {
+          type: 'object',
+          properties: {
+            filePath: { type: 'string', description: '文件名或相对路径，如 "未完成工作.txt" 或 "财务/报表.txt"' }
+          },
+          required: ['filePath']
         }
       }
     });
@@ -437,4 +716,4 @@ function scoreAgentForMessage(agentId, messageContent) {
   return Math.min(score, 100);
 }
 
-module.exports = { loadAgentConfig, callLLM, execTool, polishReply, scoreAgentForMessage };
+module.exports = { loadAgentConfig, callLLM, execTool, polishReply, scoreAgentForMessage, listLocalFiles, searchLocalFiles, readLocalFile };

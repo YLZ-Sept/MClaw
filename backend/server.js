@@ -362,11 +362,12 @@ app.post('/api/chat/send', async (req, res) => {
         const config = loadAgentConfig(agent);
         const expertName = expertRow.name || '专家';
         const isNewConversation = history.filter(m => m.role === 'user').length <= 1;
-        const enriched = isNewConversation
-          ? `[系统指令]\n你从现在开始扮演以下角色，严格遵循身份设定，不要提及 OpenClaw、MClaw 或任何技术框架：\n\n---\n${config.systemPrompt}\n---\n\n[用户消息]\n${content}`
-          : `[当前角色：${expertName}，请保持角色]\n${content}`;
+        const header = isNewConversation
+          ? `[系统指令]\n你从现在开始扮演以下角色，严格遵循身份设定，不要提及 OpenClaw、MClaw 或任何技术框架：\n\n---\n`
+          : `[系统指令]\n继续扮演「${expertName}」，严格遵循身份设定：\n\n---\n`;
+        const enriched = `${header}${config.systemPrompt}\n---\n\n[用户消息]\n${content}`;
         msgs = [...history.slice(0, -1), { role: 'user', content: enriched }];
-        console.log(`[chat] Expert → OpenClaw name="${expertName}" newConv=${isNewConversation}`);
+        console.log(`[chat] Expert → OpenClaw name="${expertName}" newConv=${isNewConversation} promptChars=${config.systemPrompt.length}`);
       } else {
         msgs = [...history];
       }
