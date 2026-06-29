@@ -687,6 +687,19 @@ try { db.exec('ALTER TABLE users ADD COLUMN role_id TEXT REFERENCES roles(id)');
 // 迁移：角色资源级 scope（JSON: {"digital_employee_ids": ["id1"]}）
 try { db.exec('ALTER TABLE roles ADD COLUMN scope TEXT'); } catch {}
 
+// 授权表
+try { db.exec(`CREATE TABLE IF NOT EXISTS license (
+  id TEXT PRIMARY KEY,
+  code TEXT NOT NULL,
+  customer TEXT,
+  fingerprint TEXT,
+  expires TEXT,
+  tier TEXT DEFAULT 'enterprise',
+  max_users INTEGER DEFAULT 99,
+  status TEXT DEFAULT 'active',
+  activated_at TEXT DEFAULT (datetime('now','localtime'))
+)`); } catch {}
+
 // 迁移：操作日志表
 try { db.exec(`CREATE TABLE IF NOT EXISTS logs (
   id         TEXT PRIMARY KEY,

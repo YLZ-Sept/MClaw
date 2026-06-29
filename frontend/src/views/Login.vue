@@ -55,6 +55,28 @@ async function handleLogin() {
     if (res.code === 200) {
       localStorage.setItem('token', res.data.token)
       localStorage.setItem('user', JSON.stringify({ name: res.data.name, role: res.data.role, permissions: res.data.permissions || [], scope: res.data.scope || null }))
+
+      // 授权检查
+      const license = res.data.license
+      if (license?.unactivated) {
+        localStorage.setItem('license_expired', 'true')
+        ElMessageBox.alert('系统尚未激活，请联系云南米贝科技获取授权码', '授权提示', {
+          confirmButtonText: '确定',
+          callback: () => router.push('/help')
+        })
+        return
+      }
+      if (license?.expired) {
+        localStorage.setItem('license_expired', 'true')
+        ElMessageBox.alert(
+          `授权已过期 ${Math.abs(license.daysLeft)} 天，请联系云南米贝科技续费`,
+          '授权已到期',
+          { confirmButtonText: '确定', callback: () => router.push('/help') }
+        )
+        return
+      }
+      localStorage.removeItem('license_expired')
+
       ElMessage.success(`欢迎回来，${res.data.name}`)
       const redirect = route.query.redirect || '/'
       router.push(redirect)

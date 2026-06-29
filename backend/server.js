@@ -19,6 +19,10 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 require('./db');
 
+// ── 授权校验（全局，白名单例外）──
+const { requireLicense } = require('./license');
+app.use(requireLicense);
+
 // 迁移：channel_accounts.agent_id 从单值转为 JSON 数组
 const db = require('./db');
 try {
@@ -142,6 +146,7 @@ app.get('/api/agents', (req, res) => {
 });
 
 app.use('/api/auth', require('./routes/auth'));
+app.use('/api/license', require('./routes/license'));
 app.use('/api/users', requireAuth, require('./routes/users'));
 app.use('/api/roles', requireAuth, require('./routes/roles'));
 app.use('/api/security', requirePermission('security'), require('./routes/security'));

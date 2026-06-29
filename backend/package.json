@@ -26,5 +26,8 @@
     "tesseract.js": "^5.1.1",
     "ws": "^8.21.0",
     "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "javascript-obfuscator": "^5.4.3"
   }
 }

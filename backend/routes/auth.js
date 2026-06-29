@@ -164,9 +164,28 @@ router.post('/login', (req, res) => {
     createdAt: Date.now(),
   };
   addLog('success', 'login', `${user.username} 登录成功`, user.username, req.ip);
+
+  // 检查授权状态
+  let licenseInfo = { expired: false };
+  try {
+    const { verifyLicense, getFingerprint } = require('../license');
+    const licenseRow = db.prepare("SELECT * FROM license WHERE status='active' ORDER BY activated_at DESC LIMIT 1").get();
+    if (!licenseRow) {
+      licenseInfo = { unactivated: true };
+    } else {
+      const lr = verifyLicense(licenseRow.code, getFingerprint());
+      licenseInfo = {
+        expired: lr.expired,
+        daysLeft: lr.daysLeft,
+        customer: lr.payload?.customer,
+        expires: lr.payload?.expires,
+      };
+    }
+  } catch {}
+
   res.json({
     code: 200,
-    data: { token, name: user.name, role: user.role, permissions, scope, role_id: roleId, role_name: roleName },
+    data: { token, name: user.name, role: user.role, permissions, scope, role_id: roleId, role_name: roleName, license: licenseInfo },
   });
 });
 

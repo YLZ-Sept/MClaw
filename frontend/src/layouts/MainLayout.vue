@@ -89,6 +89,9 @@
           <router-link v-if="hasAnyPerm('security','security_config','security_sessions','security_maintain','security_logs')" to="/security" class="nav-item" active-class="active">
             <el-icon><Lock /></el-icon><span>安全设置</span>
           </router-link>
+          <router-link v-if="userRole==='superadmin'" to="/help" class="nav-item" active-class="active">
+            <el-icon><Stamp /></el-icon><span>系统授权</span>
+          </router-link>
         </div>
       </nav>
       <div class="sidebar-footer">
@@ -178,7 +181,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import {
   ChatDotSquare, DataAnalysis, List,
-  Cpu, Setting, ChatLineSquare, Lock, UserFilled, Avatar,
+  Cpu, Setting, ChatLineSquare, Lock, UserFilled, Avatar, Stamp,
   ArrowDown, ArrowUp, Close, Plus, MoreFilled, TrendCharts, Collection, MagicStick, Phone, Service
 } from '@element-plus/icons-vue'
 import request, { logout } from '../api/index.js'

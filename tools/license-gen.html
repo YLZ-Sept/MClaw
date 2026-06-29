@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MClaw 授权码生成器</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, sans-serif; background: #f0f2f5; color: #333; }
+  .container { max-width: 540px; margin: 40px auto; padding: 0 16px; }
+  h2 { text-align: center; margin-bottom: 8px; color: #1e293b; }
+  .subtitle { text-align: center; color: #94a3b8; font-size: 13px; margin-bottom: 28px; }
+  .card { background: #fff; border-radius: 12px; padding: 32px; box-shadow: 0 1px 8px rgba(0,0,0,0.06); }
+  .form-group { margin-bottom: 16px; }
+  .form-group label { display: block; font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 4px; }
+  .form-group label .req { color: #ef4444; }
+  .form-group input, .form-group select, .form-group textarea {
+    width: 100%; padding: 8px 12px; font-size: 14px; border: 1px solid #d1d5db;
+    border-radius: 6px; outline: none; font-family: inherit;
+  }
+  .form-group input:focus, .form-group textarea:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.1); }
+  .form-row { display: flex; gap: 12px; }
+  .form-row .form-group { flex: 1; }
+  textarea { resize: vertical; font-family: monospace; font-size: 12px; }
+  button { width: 100%; padding: 10px 0; font-size: 15px; font-weight: 600; color: #fff;
+    background: #6366f1; border: none; border-radius: 8px; cursor: pointer; transition: background .2s; }
+  button:hover { background: #4f46e5; }
+  button:disabled { background: #a5b4fc; cursor: not-allowed; }
+  .output { margin-top: 24px; display: none; }
+  .output.show { display: block; }
+  .output .label { font-size: 13px; color: #475569; margin-bottom: 8px; font-weight: 600; }
+  .output .code { background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 8px;
+    padding: 14px 16px; font-family: monospace; font-size: 13px; word-break: break-all;
+    line-height: 1.6; user-select: all; max-height: 200px; overflow-y: auto; }
+  .output .copy-btn { margin-top: 8px; font-size: 13px; padding: 6px 16px; width: auto; }
+  .output .info { margin-top: 12px; font-size: 12px; color: #64748b; }
+  .error { margin-top: 12px; padding: 10px 14px; background: #fef2f2; border: 1px solid #fecaca;
+    border-radius: 6px; color: #dc2626; font-size: 13px; display: none; }
+  .error.show { display: block; }
+  .history { margin-top: 32px; }
+  .history h3 { font-size: 15px; color: #475569; margin-bottom: 12px; }
+  .history table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .history th, .history td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #e2e8f0; }
+  .history th { color: #94a3b8; font-weight: 500; }
+  .history td { color: #334155; }
+  .history .code-cell { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    cursor: pointer; color: #6366f1; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h2>MClaw 授权码生成器</h2>
+  <p class="subtitle">云南米贝科技 · 内部工具 · 离线使用</p>
+
+  <div class="card">
+    <div class="form-group">
+      <label><span class="req">*</span> 私钥 (mclaw-private.pem 内容)</label>
+      <textarea id="key" rows="5" placeholder="-----BEGIN PRIVATE KEY----- ..."></textarea>
+    </div>
+
+    <div class="form-group">
+      <label><span class="req">*</span> 客户名称</label>
+      <input id="customer" placeholder="例：云南某某建材有限公司">
+    </div>
+
+    <div class="form-group">
+      <label><span class="req">*</span> 机器指纹</label>
+      <input id="fp" placeholder="例：A8F3-E2B1-C9D4-E6F7-A3B2" maxlength="24">
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label><span class="req">*</span> 到期日期</label>
+        <input id="expires" type="date">
+      </div>
+      <div class="form-group">
+        <label>最大用户数</label>
+        <input id="users" type="number" value="20" min="1" max="999">
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label>版本</label>
+        <select id="tier">
+          <option value="enterprise">企业版 - 全部功能</option>
+          <option value="pro">专业版 - 无模型配置</option>
+          <option value="basic">基础版 - 仅聊天+知识库</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>流水号</label>
+        <input id="serial" placeholder="例：MB-2026-00042">
+      </div>
+    </div>
+
+    <button id="generateBtn" onclick="generate()">生成授权码</button>
+
+    <div class="error" id="err"></div>
+
+    <div class="output" id="out">
+      <div class="label">授权码（已自动复制到剪贴板）</div>
+      <div class="code" id="codeOut"></div>
+      <button class="copy-btn" onclick="copyAgain()">再次复制</button>
+      <div class="info" id="infoOut"></div>
+    </div>
+  </div>
+
+  <div class="history" id="historySection" style="display:none">
+    <h3>本次生成记录</h3>
+    <table id="historyTable">
+      <thead><tr><th>流水号</th><th>客户</th><th>到期</th><th>授权码</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+let lastCode = '';
+
+// 设置默认到期日为一年后
+document.addEventListener('DOMContentLoaded', () => {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() + 1);
+  document.getElementById('expires').value = d.toISOString().slice(0, 10);
+});
+
+function showError(msg) {
+  const el = document.getElementById('err');
+  el.textContent = msg;
+  el.classList.add('show');
+  document.getElementById('out').classList.remove('show');
+}
+
+function hideError() {
+  document.getElementById('err').classList.remove('show');
+}
+
+// PEM → CryptoKey (Web Crypto)
+async function importPrivateKey(pem) {
+  // 去掉头尾和空白
+  const body = pem
+    .replace('-----BEGIN PRIVATE KEY-----', '')
+    .replace('-----END PRIVATE KEY-----', '')
+    .replace(/\s/g, '');
+
+  const binaryStr = atob(body);
+  const bytes = new Uint8Array(binaryStr.length);
+  for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+
+  return crypto.subtle.importKey(
+    'pkcs8',
+    bytes.buffer,
+    { name: 'RSA-PSS', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+}
+
+async function generate() {
+  hideError();
+  document.getElementById('out').classList.remove('show');
+
+  const keyPem = document.getElementById('key').value.trim();
+  const customer = document.getElementById('customer').value.trim();
+  const fingerprint = document.getElementById('fp').value.trim();
+  const expires = document.getElementById('expires').value;
+  const tier = document.getElementById('tier').value;
+  const users = parseInt(document.getElementById('users').value) || 20;
+  const serial = document.getElementById('serial').value.trim();
+
+  if (!keyPem || !customer || !fingerprint || !expires) {
+    showError('请填写所有必填字段（私钥、客户名称、机器指纹、到期日期）');
+    return;
+  }
+
+  if (!fingerprint.match(/^[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}$/)) {
+    showError('机器指纹格式不正确，应为 5 段大写十六进制用 - 分隔');
+    return;
+  }
+
+  const btn = document.getElementById('generateBtn');
+  btn.disabled = true;
+  btn.textContent = '正在签名...';
+
+  try {
+    const privateKey = await importPrivateKey(keyPem);
+
+    const payload = {
+      customer,
+      fingerprint,
+      expires,
+      tier,
+      users,
+      issuedAt: new Date().toISOString().slice(0, 10),
+      serial: serial || '-'
+    };
+
+    // Base64 URL-safe 编码荷载
+    const header = 'V1';
+    const body = btoa(unescape(encodeURIComponent(JSON.stringify(payload))))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+    // RSA-PSS 签名
+    const encoder = new TextEncoder();
+    const data = encoder.encode(header + '.' + body);
+    const sigBuf = await crypto.subtle.sign(
+      { name: 'RSA-PSS', saltLength: 32 },
+      privateKey,
+      data
+    );
+    const sig = btoa(String.fromCharCode(...new Uint8Array(sigBuf)))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+    const licenseCode = header + '.' + body + '.' + sig;
+    lastCode = licenseCode;
+
+    // 显示
+    const out = document.getElementById('out');
+    document.getElementById('codeOut').textContent = licenseCode;
+    document.getElementById('infoOut').innerHTML =
+      `客户：${customer} &nbsp;|&nbsp; 到期：${expires} &nbsp;|&nbsp; 版本：${tier}`;
+    out.classList.add('show');
+
+    // 复制到剪贴板
+    await navigator.clipboard.writeText(licenseCode);
+
+    // 追加历史记录
+    addHistory(serial, customer, expires, licenseCode);
+
+  } catch (e) {
+    showError('签名失败：' + e.message);
+    console.error(e);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '生成授权码';
+  }
+}
+
+function copyAgain() {
+  if (lastCode) {
+    navigator.clipboard.writeText(lastCode);
+    const btn = event.target;
+    btn.textContent = '已复制';
+    setTimeout(() => btn.textContent = '再次复制', 1500);
+  }
+}
+
+function addHistory(serial, customer, expires, code) {
+  const section = document.getElementById('historySection');
+  section.style.display = 'block';
+  const tbody = document.getElementById('historyTable').querySelector('tbody');
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td>${escapeHtml(serial || '-')}</td>
+    <td>${escapeHtml(customer)}</td>
+    <td>${expires}</td>
+    <td class="code-cell" title="点击复制" onclick="copyHistory('${escapeAttr(code)}', this)">${escapeHtml(code.slice(0, 30))}...</td>
+  `;
+  tbody.prepend(tr);
+}
+
+function copyHistory(code, el) {
+  navigator.clipboard.writeText(code);
+  el.textContent = '已复制!';
+  setTimeout(() => el.textContent = code.slice(0, 30) + '...', 1200);
+}
+
+function escapeHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+function escapeAttr(s) {
+  return s.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+}
+</script>
+</body>
+</html>

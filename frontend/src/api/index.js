@@ -11,11 +11,20 @@ request.interceptors.request.use(config => {
   return config
 })
 
-// 401 自动跳转登录
+// 401 自动跳转登录，402 授权过期跳帮助页
 request.interceptors.response.use(
   res => res,
   err => {
-    if (err.response?.status === 401 || err.response?.data?.code === 401) {
+    const status = err.response?.status
+    const data = err.response?.data
+    if (status === 402) {
+      localStorage.setItem('license_expired', 'true')
+      if (window.location.hash !== '#/help') {
+        window.location.href = '/help'
+      }
+      return Promise.reject(err)
+    }
+    if (status === 401 || data?.code === 401) {
       localStorage.removeItem('token')
       localStorage.removeItem('user')
       window.location.href = '/login'

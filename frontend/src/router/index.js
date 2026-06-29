@@ -3,6 +3,12 @@ import MainLayout from '../layouts/MainLayout.vue'
 
 const routes = [
   {
+    path: '/help',
+    name: 'Help',
+    component: () => import('../views/Help.vue'),
+    meta: { public: true }
+  },
+  {
     path: '/login',
     name: 'Login',
     component: () => import('../views/Login.vue'),
@@ -60,11 +66,15 @@ function findFirstPermitted(perms) {
   return null
 }
 
-// 全局导航守卫：检查登录状态 + 路由权限
+// 全局导航守卫：检查登录状态 + 授权过期 + 路由权限
 router.beforeEach((to, from, next) => {
   const token = localStorage.getItem('token')
   if (to.meta.public) {
     return next()
+  }
+  // 授权过期 → 只能去帮助页
+  if (localStorage.getItem('license_expired') === 'true' && to.path !== '/help') {
+    return next('/help')
   }
   if (!token) {
     return next({ path: '/login', query: { redirect: to.fullPath } })

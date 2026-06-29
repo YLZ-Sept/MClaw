@@ -7,7 +7,8 @@ dist/
 *.db-shm
 *.ttf
 *.zip
-backend/data/
+backend/data/*
+!backend/data/license-public.pem
 
 backend/uploads/
 backend/backups/
@@ -24,3 +25,10 @@ backend/media-crawler/docs/static/
 backend/media-crawler/media_platform/tieba/test_data/
 backend/auto_douyin/uv.lock
 backend/auto_douyin/full_page.txt
+
+# 授权私钥（绝不上传）
+tools/mclaw-private.pem
+tools/dev-license.txt
+
+# 混淆构建输出
+dist-backend/
