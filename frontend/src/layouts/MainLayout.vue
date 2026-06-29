@@ -89,9 +89,6 @@
           <router-link v-if="hasAnyPerm('security','security_config','security_sessions','security_maintain','security_logs')" to="/security" class="nav-item" active-class="active">
             <el-icon><Lock /></el-icon><span>安全设置</span>
           </router-link>
-          <router-link v-if="userRole==='superadmin'" to="/help" class="nav-item" active-class="active">
-            <el-icon><Stamp /></el-icon><span>系统授权</span>
-          </router-link>
         </div>
       </nav>
       <div class="sidebar-footer">
@@ -169,6 +166,57 @@
             <el-icon><Service /></el-icon>
             <span>联系在线客服</span>
           </a>
+        </div>
+
+        <!-- 系统授权卡片 -->
+        <div class="help-card help-card-license">
+          <div class="help-card-title">
+            <el-icon><Stamp /></el-icon>
+            <span>系统授权</span>
+          </div>
+
+          <!-- 机器指纹 -->
+          <div class="license-fp">
+            <span class="license-fp-label">机器指纹</span>
+            <div class="license-fp-row">
+              <code>{{ licenseFP }}</code>
+              <el-button size="small" text @click="copyLicenseFP">复制</el-button>
+            </div>
+          </div>
+
+          <!-- 未激活 -->
+          <el-alert v-if="!licenseStatus.activated" title="系统尚未激活" type="warning" show-icon :closable="false"
+            style="margin-top:12px" />
+
+          <!-- 已激活 -->
+          <div v-if="licenseStatus.activated" class="license-status">
+            <div class="license-status-row">
+              <span>授权客户</span><span>{{ licenseStatus.customer }}</span>
+            </div>
+            <div class="license-status-row">
+              <span>到期日期</span><span>{{ licenseStatus.expires }}</span>
+            </div>
+            <div class="license-status-row">
+              <span>剩余天数</span>
+              <span :class="licenseStatus.daysLeft <= 30 ? 'text-warn' : 'text-ok'">
+                {{ licenseStatus.daysLeft > 0 ? licenseStatus.daysLeft + ' 天' : '已过期' }}
+              </span>
+            </div>
+          </div>
+
+          <!-- 到期提醒 -->
+          <el-alert v-if="licenseStatus.expired" title="授权已过期，系统功能受限" type="error" show-icon :closable="false"
+            style="margin-top:12px" />
+
+          <!-- 激活/续费（仅超管可见） -->
+          <div v-if="isSuperadmin" class="license-activate">
+            <el-input v-model="licenseCode" type="textarea" :rows="2" size="small"
+              placeholder="粘贴授权码" style="margin-top:8px" />
+            <el-button type="primary" size="small" :loading="licenseActivating"
+              style="margin-top:8px" @click="handleActivateLicense">
+              激 活
+            </el-button>
+          </div>
         </div>
       </div>
     </el-dialog>
@@ -267,6 +315,7 @@ watch(() => route.query.agent, () => {
 
 const userRole = ref('')
 const userPerms = ref([])
+const isSuperadmin = computed(() => userRole.value === 'superadmin')
 onMounted(() => {
   try {
     const user = JSON.parse(localStorage.getItem('user') || '{}')
@@ -275,6 +324,51 @@ onMounted(() => {
     userPerms.value = user.permissions || []
   } catch { userName.value = '管理员' }
 })
+
+// ── 授权状态 ──
+const licenseFP = ref('获取中...')
+const licenseStatus = ref({ activated: false })
+const licenseCode = ref('')
+const licenseActivating = ref(false)
+
+async function fetchLicenseStatus() {
+  try {
+    const { data } = await request.get('/license/status')
+    if (data.code === 200) {
+      licenseFP.value = data.data.fingerprint
+      licenseStatus.value = data.data
+    }
+  } catch {}
+}
+
+async function copyLicenseFP() {
+  try {
+    await navigator.clipboard.writeText(licenseFP.value)
+    ElMessage.success('已复制')
+  } catch {
+    ElMessage.success(licenseFP.value)
+  }
+}
+
+async function handleActivateLicense() {
+  if (!licenseCode.value.trim()) { ElMessage.warning('请输入授权码'); return }
+  licenseActivating.value = true
+  try {
+    const { data } = await request.post('/license/activate', { code: licenseCode.value.trim() })
+    if (data.code === 200) {
+      ElMessage.success('授权成功')
+      licenseCode.value = ''
+      localStorage.removeItem('license_expired')
+      await fetchLicenseStatus()
+    } else {
+      ElMessage.error(data.message || '激活失败')
+    }
+  } catch { ElMessage.error('网络错误') }
+  finally { licenseActivating.value = false }
+}
+
+// 打开帮助对话框时自动刷新授权状态
+watch(showAbout, (v) => { if (v) fetchLicenseStatus() })
 function hasPerm(p) {
   if (userRole.value === 'superadmin') return true
   return userPerms.value.includes(p)
