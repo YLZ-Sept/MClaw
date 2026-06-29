@@ -66,7 +66,13 @@ router.put('/categories/:id', (req, res) => {
 // 删除分类
 router.delete('/categories/:id', (req, res) => {
   const old = db.prepare('SELECT name FROM kb_categories WHERE id=?').get(req.params.id);
-  if (!old) return res.status(404).json({ code: 404 });
+  if (!old) return res.status(404).json({ code: 404, message: '分类不存在' });
+  if (old.name === '通用') return res.status(400).json({ code: 400, message: '不能删除"通用"分类' });
+  // 确保"通用"分类存在
+  const genCat = db.prepare("SELECT id FROM kb_categories WHERE name='通用'").get();
+  if (!genCat) {
+    db.prepare("INSERT INTO kb_categories (id,name,sort_order) VALUES (?,?,0)").run(randomUUID(), '通用');
+  }
   db.prepare('UPDATE kb_articles SET category=? WHERE category=?').run('通用', old.name);
   db.prepare('DELETE FROM kb_categories WHERE id=?').run(req.params.id);
   res.json({ code: 200 });
@@ -115,7 +121,8 @@ router.put('/:id', (req, res) => {
 
 // 删除
 router.delete('/:id', (req, res) => {
-  db.prepare('DELETE FROM kb_articles WHERE id=?').run(req.params.id);
+  const info = db.prepare('DELETE FROM kb_articles WHERE id=?').run(req.params.id);
+  if (info.changes === 0) return res.status(404).json({ code: 404, message: '文章不存在' });
   res.json({ code: 200 });
 });
 

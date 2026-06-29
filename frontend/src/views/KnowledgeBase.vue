@@ -108,20 +108,25 @@
                   ref="uploadRef"
                   class="upload-zone"
                   drag
+                  multiple
                   :auto-upload="false"
-                  :limit="1"
+                  :limit="50"
                   :on-change="onFileChange"
                   :on-remove="onFileRemove"
                   :accept="allFormats"
                 >
                   <el-icon class="upload-icon"><UploadFilled /></el-icon>
                   <div class="upload-text">点击或拖拽文件到此区域上传</div>
-                  <div class="upload-hint">支持 PDF/DOC/DOCX/PPT/PPTX/WPS/PPSX/MHTML/XLSX/XLS/CSV/MD/TXT/HTML/JSON/XML/LOG/XMind/Keynote/Pages/Numbers 及图片</div>
-                  <div class="upload-hint">PDF/DOC/DOCX/PPT/MHTML/PPTX/WPS/PPSX 最大 200MB；图片/Keynote/Pages 最大 50MB；表格/文本类 最大 20MB</div>
+                  <div class="upload-hint">支持 PDF/DOC/DOCX/PPT/PPTX/WPS/PPSX/MHTML/XLSX/XLS/CSV/MD/TXT/HTML/JSON/XML/LOG/XMind/Keynote/Pages/Numbers 及图片（含 OCR 识别）</div>
+                  <div class="upload-hint">可同时选择多个文件上传，无文件大小限制</div>
                 </el-upload>
-                <div v-if="uploadFile" class="upload-info">
-                  <el-tag type="success" size="small">{{ uploadFile.name }}</el-tag>
-                  <span style="font-size:12px;color:#b8aad0;margin-left:8px">{{ fmtSize(uploadFile.size) }}</span>
+                <div v-if="uploadFiles.length" class="upload-info">
+                  <div v-for="(entry, i) in uploadFiles" :key="i" class="upload-file-row">
+                    <el-tag :type="entry.result?.error ? 'danger' : entry.result ? 'success' : 'info'" size="small">{{ entry.file.name }}</el-tag>
+                    <span class="upload-file-size">{{ fmtSize(entry.file.size) }}</span>
+                    <el-icon v-if="entry.loading" class="is-loading" :size="14"><Loading /></el-icon>
+                    <span v-if="entry.result?.error" class="upload-file-err">{{ entry.result.error }}</span>
+                  </div>
                 </div>
               </el-form-item>
             </el-form>
@@ -165,7 +170,7 @@
               <el-tab-pane label="批量导入" name="batch">
                 <div class="batch-zone">
                   <div class="batch-info">
-                    <span>上传 .xlsx 文件（最多 500 条网址），单文件不超过 15MB</span>
+                    <span>上传 .xlsx 文件（最多 500 条网址）</span>
                     <el-button size="small" text type="primary" @click="downloadTemplate">下载模板</el-button>
                   </div>
                   <el-upload
@@ -256,9 +261,9 @@ const catDlg = ref({ visible: false, isEdit: false, id: '', name: '' })
 const importTab = ref('local')
 const webMode = ref('single')
 const webUrl = ref('')
-const uploadFile = ref(null)
+const uploadFiles = ref([])           // { file, result, loading }
 const importLoading = ref(false)
-const importResult = ref(null)
+const importResult = ref(null)      // 预览显示第一个文件的结果
 const importProgress = ref('')
 const batchUrls = ref([])
 const uploadRef = ref(null)
@@ -269,8 +274,8 @@ const allFormats = '.pdf,.doc,.docx,.ppt,.pptx,.wps,.ppsx,.mhtml,.xlsx,.xls,.csv
 const canSaveImport = computed(() => {
   if (!dlg.value.form.title) return false
   if (importTab.value === 'web') return importResult.value?.text || batchUrls.value.length
-  // 本地文件：有文件 + 文本提取成功（或至少没报错）
-  return uploadFile.value && importResult.value && !importResult.value.error
+  // 本地文件：有已解析成功的文件
+  return uploadFiles.value.length > 0 && uploadFiles.value.some(f => f.result && !f.result.error)
 })
 
 function fmtSize(bytes) {
@@ -302,7 +307,7 @@ function openImport() {
   importTab.value = 'local'
   webMode.value = 'single'
   webUrl.value = ''
-  uploadFile.value = null
+  uploadFiles.value = []
   importResult.value = null
   importLoading.value = false
   batchUrls.value = []
@@ -315,25 +320,37 @@ function closeDlg() {
 
 // 本地文件
 async function onFileChange(file) {
-  uploadFile.value = file
-  importResult.value = null
+  const entry = { file, result: null, loading: false }
+  uploadFiles.value.push(entry)
   if (!dlg.value.form.title) {
     dlg.value.form.title = file.name.replace(/\.[^.]+$/, '')
   }
+  // 解析当前文件
+  entry.loading = true
   importLoading.value = true
   try {
     const fd = new FormData()
     fd.append('file', file.raw)
     const { data } = await request.post('/doc-import/upload', fd)
-    importResult.value = data.data
+    entry.result = data.data
+    // 预览第一个成功的结果
+    if (!importResult.value) importResult.value = data.data
   } catch (e) {
-    ElMessage.error('文件解析失败: ' + (e.response?.data?.message || e.message))
+    ElMessage.error(file.name + ' 解析失败: ' + (e.response?.data?.message || e.message))
   }
-  importLoading.value = false
+  entry.loading = false
+  importLoading.value = uploadFiles.value.some(f => f.loading)
 }
-function onFileRemove() {
-  uploadFile.value = null
-  importResult.value = null
+function onFileRemove(removeFile) {
+  const idx = uploadFiles.value.findIndex(f => f.file.uid === removeFile.uid)
+  if (idx > -1) uploadFiles.value.splice(idx, 1)
+  if (uploadFiles.value.length === 0) {
+    importResult.value = null
+  } else {
+    // 预览第一个有结果的文件
+    const firstOk = uploadFiles.value.find(f => f.result && !f.result.error)
+    importResult.value = firstOk ? firstOk.result : (uploadFiles.value[0]?.result || null)
+  }
 }
 
 // 网页抓取
@@ -399,18 +416,42 @@ async function batchImport() {
 }
 
 async function saveImport() {
-  const f = dlg.value.form
-  await request.post('/knowledge-base', {
-    title: f.title,
-    content: importResult.value?.text || '',
-    category: f.category,
-    tags: f.tags || '',
-    source: f.source || (uploadFile.value?.name || '')
-  })
-  closeDlg()
-  await loadCategories()
-  await load()
-  ElMessage.success('已导入')
+  if (importTab.value === 'local') {
+    // 批量保存本地文件
+    const successFiles = uploadFiles.value.filter(f => f.result && !f.result.error)
+    if (!successFiles.length) return ElMessage.warning('没有可保存的解析结果')
+    let saved = 0
+    for (const entry of successFiles) {
+      try {
+        await request.post('/knowledge-base', {
+          title: entry.file.name.replace(/\.[^.]+$/, '') || dlg.value.form.title,
+          content: entry.result.text || '',
+          category: dlg.value.form.category,
+          tags: dlg.value.form.tags || '',
+          source: entry.file.name
+        })
+        saved++
+      } catch {}
+    }
+    closeDlg()
+    await loadCategories()
+    await load()
+    ElMessage.success(`已导入 ${saved} 篇`)
+  } else {
+    // 网页/批量 URL
+    const f = dlg.value.form
+    await request.post('/knowledge-base', {
+      title: f.title,
+      content: importResult.value?.text || '',
+      category: f.category,
+      tags: f.tags || '',
+      source: f.source || ''
+    })
+    closeDlg()
+    await loadCategories()
+    await load()
+    ElMessage.success('已导入')
+  }
 }
 
 // 文章 CRUD
@@ -431,7 +472,21 @@ async function saveArticle() {
   ElMessage.success('已保存')
 }
 async function delArticle(id) {
-  try { await ElMessageBox.confirm('确认删除？'); await request.delete('/knowledge-base/' + id); await loadCategories(); await load(); ElMessage.success('已删除') } catch {}
+  try {
+    await ElMessageBox.confirm('删除后不可恢复，确认删除该文章？', '删除确认', {
+      confirmButtonText: '确定删除',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    await request.delete('/knowledge-base/' + id)
+    await loadCategories()
+    await load()
+    ElMessage.success('已删除')
+  } catch (e) {
+    if (e !== 'cancel' && e?.action !== 'cancel') {
+      ElMessage.error(e.response?.data?.message || '删除失败')
+    }
+  }
 }
 
 // 分类管理
@@ -449,7 +504,21 @@ async function saveCat() {
   ElMessage.success('已保存')
 }
 async function delCat(c) {
-  try { await ElMessageBox.confirm(`删除"${c.name}"分类？文章将移至"通用"。`); await request.delete('/knowledge-base/categories/' + c.id); await loadCategories(); await load(); ElMessage.success('已删除') } catch {}
+  try {
+    await ElMessageBox.confirm(`删除"${c.name}"分类？文章将移至"通用"。`, '删除确认', {
+      confirmButtonText: '确定删除',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    await request.delete('/knowledge-base/categories/' + c.id)
+    await loadCategories()
+    await load()
+    ElMessage.success('已删除')
+  } catch (e) {
+    if (e !== 'cancel' && e?.action !== 'cancel') {
+      ElMessage.error(e.response?.data?.message || '删除失败')
+    }
+  }
 }
 
 onMounted(async () => { await loadCategories(); await load() })
@@ -538,7 +607,10 @@ onMounted(async () => { await loadCategories(); await load() })
 .upload-icon { font-size: 36px; color: #c4b5fd; }
 .upload-text { font-size: 14px; color: #4a3f5e; margin-top: 8px; }
 .upload-hint { font-size: 11px; color: #b8aad0; margin-top: 4px; }
-.upload-info { display: flex; align-items: center; margin-top: 8px; }
+.upload-info { margin-top: 8px; }
+.upload-file-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.upload-file-size { font-size: 12px; color: #b8aad0; }
+.upload-file-err { font-size: 11px; color: #f56c6c; }
 .import-preview { margin-top: 12px; background: #fafafe; border: 1px solid #f0ecfc; border-radius: 8px; padding: 12px; max-height: 200px; overflow-y: auto; }
 .ip-error { margin-bottom: 4px; }
 .ip-title { font-size: 12px; font-weight: 600; color: #4a3f5e; margin-bottom: 6px; display: flex; align-items: center; }
