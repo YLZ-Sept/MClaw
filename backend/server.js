@@ -131,17 +131,7 @@ app.get('/api/agents', (req, res) => {
   ];
   try {
     const custom = require('./db').prepare('SELECT id,name,desc,icon,color AS bg,emoji,base_agent,system_prompt,status,kb_article_ids,kb_folder_paths FROM agent_apps WHERE is_expert IS NULL OR is_expert=0 ORDER BY created_at DESC').all();
-    // 数字员工列表根据用户 scope 过滤
-    let digitalEmployees = require('./db').prepare('SELECT id,name,role,agent_ids,avatar_url,avatar_bg,avatar_emoji,status FROM digital_employees WHERE status=\'active\' ORDER BY created_at DESC').all();
-    const token = req.headers.authorization?.replace('Bearer ', '') || req.query.token;
-    if (token) {
-      const { tokens } = require('./routes/auth');
-      const user = tokens[token];
-      if (user?.scope?.digital_employee_ids && Array.isArray(user.scope.digital_employee_ids) && user.scope.digital_employee_ids.length > 0) {
-        digitalEmployees = digitalEmployees.filter(de => user.scope.digital_employee_ids.includes(de.id));
-      }
-    }
-    res.json({ code: 200, data: [...builtin, ...custom.map(c => ({ ...c, builtin: false })), ...digitalEmployees.map(de => ({ ...de, builtin: false, is_digital_employee: true }))] });
+    res.json({ code: 200, data: [...builtin, ...custom.map(c => ({ ...c, builtin: false }))] });
   } catch { res.json({ code: 200, data: builtin }); }
 });
 

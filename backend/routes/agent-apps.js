@@ -51,7 +51,8 @@ router.put('/:id', (req, res) => {
 
 // 删除
 router.delete('/:id', (req, res) => {
-  db.prepare('DELETE FROM agent_apps WHERE id=?').run(req.params.id);
+  const info = db.prepare('DELETE FROM agent_apps WHERE id=?').run(req.params.id);
+  if (info.changes === 0) return res.status(404).json({ code: 404, message: '智能体不存在' });
   res.json({ code: 200 });
 });
 

@@ -38,7 +38,7 @@
           <el-tag v-else size="small" type="warning" effect="plain">自定义</el-tag>
         </div>
         <div class="agent-name">{{ agent.name }}</div>
-        <div class="agent-desc">{{ agent.desc }}</div>
+        <div class="agent-desc" :title="agent.desc">{{ agent.desc }}</div>
         <div class="agent-meta">
           <span v-if="agent.base_agent" class="agent-base">基于 {{ agent.base_agent }}</span>
           <span class="agent-id">ID: {{ agent.id }}</span>
@@ -46,8 +46,8 @@
         <div class="agent-action">
           <el-button v-if="hasPanel(agent)" type="success" size="small" round @click="openManagement(agent)">管理面板</el-button>
           <el-button type="primary" size="small" round @click="manageSkills(agent)">技能</el-button>
-          <el-button v-if="!agent.builtin" size="small" round @click="openEdit(agent)">编辑</el-button>
-          <el-button v-if="!agent.builtin" size="small" round type="danger" @click="delAgent(agent.id)">删除</el-button>
+          <el-button v-if="!agent.builtin && !agent.is_digital_employee" size="small" round @click="openEdit(agent)">编辑</el-button>
+          <el-button v-if="!agent.builtin && !agent.is_digital_employee" size="small" round type="danger" @click="delAgent(agent.id)">删除</el-button>
         </div>
       </div>
     </div>
@@ -121,52 +121,96 @@
     </el-dialog>
 
     <!-- 添加/编辑智能体对话框 -->
-    <el-dialog v-model="dlg.visible" :title="dlg.isEdit ? '编辑智能体' : '添加智能体'" width="560px">
-      <el-form :model="dlg.form" label-width="90px">
-        <el-form-item label="名称"><el-input v-model="dlg.form.name" placeholder="如：智能客服"/></el-form-item>
-        <el-form-item label="描述"><el-input v-model="dlg.form.desc" type="textarea" :rows="2"/></el-form-item>
-        <el-row :gutter="12">
-          <el-col :span="12"><el-form-item label="图标"><el-select v-model="dlg.form.icon" style="width:100%"><el-option v-for="ic in icons" :key="ic" :label="ic" :value="ic"/></el-select></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="Emoji"><el-select v-model="dlg.form.emoji" style="width:100%"><el-option v-for="em in emojis" :key="em" :label="em" :value="em"/></el-select></el-form-item></el-col>
-        </el-row>
-        <el-form-item label="背景色"><el-color-picker v-model="dlg.form.color"/></el-form-item>
-        <el-form-item label="基础 Agent">
-          <el-select v-model="dlg.form.base_agent" multiple style="width:100%" clearable placeholder="不继承（纯自定义提示词）">
-            <el-option label="企业经营管理 Agent (完整工具集)" value="internal-agent"/>
-            <el-option label="售后管理 Agent (客服工具集)" value="support-agent"/>
-            <el-option label="销售管理 Agent (CRM 工具集)" value="sales-agent"/>
-          </el-select>
-        </el-form-item>
-        <el-form-item>
-          <template #label>
-            <span>系统提示词</span>
-            <el-button size="small" type="primary" text :loading="promptGenerating" @click="generatePrompt" style="margin-left:8px">
-              AI 生成
-            </el-button>
-          </template>
-          <el-input v-model="dlg.form.system_prompt" type="textarea" :rows="5" placeholder="自定义系统提示词（留空继承基础Agent，或点击 AI 生成自动填写）..."/>
-        </el-form-item>
-        <el-form-item label="知识库引用">
-          <el-select v-model="dlg.form.kb_article_ids" multiple filterable placeholder="选择知识库文章" style="width:100%">
-            <el-option v-for="a in kbArticles" :key="a.id" :label="a.title" :value="a.id">
-              <span>{{ a.title }}</span>
-              <span style="float:right;color:#b8aad0;font-size:11px">{{ a.category }}</span>
-            </el-option>
-          </el-select>
-        </el-form-item>
-        <el-form-item label="本地引用">
-          <div style="width:100%">
-            <div v-for="(fp, idx) in dlg.form.kb_folder_paths" :key="idx" style="display:flex;gap:6px;margin-bottom:6px;align-items:center">
-              <el-input v-model="dlg.form.kb_folder_paths[idx]" placeholder="文件夹或文件路径，如 E:\docs\产品" size="small" style="flex:1" />
-              <el-button size="small" @click="openBrowse(idx)">浏览</el-button>
-              <el-button size="small" type="danger" :icon="Delete" circle @click="dlg.form.kb_folder_paths.splice(idx,1)" />
+    <el-dialog v-model="dlg.visible" :title="dlg.isEdit ? '编辑智能体' : '添加智能体'" width="820px" :close-on-click-modal="false">
+      <div class="agent-dlg">
+        <!-- 左侧表单 -->
+        <div class="agent-dlg-form">
+          <el-form :model="dlg.form" label-width="85px" size="default">
+            <el-form-item label="名称"><el-input v-model="dlg.form.name" placeholder="如：智能客服"/></el-form-item>
+            <el-form-item label="描述"><el-input v-model="dlg.form.desc" type="textarea" :rows="2" placeholder="简要描述智能体的用途..."/></el-form-item>
+
+            <!-- 外观设置 -->
+            <el-form-item label="外观">
+              <div class="look-row">
+                <div class="look-col">
+                  <div class="look-label">图标</div>
+                  <div class="icon-grid">
+                    <div v-for="ic in icons" :key="ic" class="icon-cell" :class="{ sel: dlg.form.icon === ic }" @click="dlg.form.icon = ic" :title="ic">
+                      <el-icon :size="18"><component :is="ic" /></el-icon>
+                    </div>
+                  </div>
+                </div>
+                <div class="look-col">
+                  <div class="look-label">Emoji</div>
+                  <div class="emoji-grid">
+                    <span v-for="em in emojis" :key="em" class="emoji-cell" :class="{ sel: dlg.form.emoji === em }" @click="dlg.form.emoji = em">{{ em }}</span>
+                  </div>
+                </div>
+              </div>
+              <div class="look-label" style="margin-top:8px">背景色</div>
+              <el-color-picker v-model="dlg.form.color" size="default" style="margin-top:4px"/>
+            </el-form-item>
+
+            <el-form-item label="基础 Agent">
+              <el-select v-model="dlg.form.base_agent" multiple style="width:100%" clearable placeholder="不继承（纯自定义提示词）">
+                <el-option label="企业经营管理 Agent (完整工具集)" value="internal-agent"/>
+                <el-option label="售后管理 Agent (客服工具集)" value="support-agent"/>
+                <el-option label="销售管理 Agent (CRM 工具集)" value="sales-agent"/>
+              </el-select>
+            </el-form-item>
+
+            <el-form-item label="系统提示词">
+              <el-input v-model="dlg.form.system_prompt" type="textarea" :rows="4" placeholder="留空继承基础Agent，或点击右侧 AI 生成自动填写..."/>
+              <div style="display:flex;justify-content:flex-end;margin-top:6px">
+                <el-button size="small" type="primary" :loading="promptGenerating" @click="generatePrompt">
+                  <el-icon style="margin-right:4px"><MagicStick /></el-icon>AI 生成提示词
+                </el-button>
+              </div>
+            </el-form-item>
+
+            <el-form-item label="知识库">
+              <el-select v-model="dlg.form.kb_article_ids" multiple filterable placeholder="选择知识库文章" style="width:100%">
+                <el-option v-for="a in kbArticles" :key="a.id" :label="a.title" :value="a.id">
+                  <span>{{ a.title }}</span>
+                  <span style="float:right;color:#b8aad0;font-size:11px">{{ a.category }}</span>
+                </el-option>
+              </el-select>
+            </el-form-item>
+
+            <el-form-item label="本地引用">
+              <div class="folder-list">
+                <div v-for="(fp, idx) in dlg.form.kb_folder_paths" :key="idx" class="folder-row">
+                  <el-input v-model="dlg.form.kb_folder_paths[idx]" placeholder="文件夹或文件路径，如 E:\docs\产品" size="small" style="flex:1" />
+                  <el-button size="small" @click="openBrowse(idx)">浏览</el-button>
+                  <el-button size="small" type="danger" :icon="Delete" circle @click="dlg.form.kb_folder_paths.splice(idx,1)" />
+                </div>
+                <el-button size="small" type="primary" text @click="dlg.form.kb_folder_paths.push('')">
+                  <el-icon><Plus /></el-icon> 添加
+                </el-button>
+              </div>
+            </el-form-item>
+          </el-form>
+        </div>
+
+        <!-- 右侧预览卡片 -->
+        <div class="agent-dlg-preview">
+          <div class="preview-label">实时预览</div>
+          <div class="agent-card mini" :style="{ '--card-bg': dlg.form.color || '#7c3aed' }">
+            <div class="agent-header">
+              <div class="agent-icon" :style="{ background: dlg.form.color || '#7c3aed' }">
+                <span v-if="dlg.form.emoji" class="agent-emoji">{{ dlg.form.emoji }}</span>
+                <el-icon v-else :size="22"><component :is="dlg.form.icon || 'Avatar'" /></el-icon>
+              </div>
+              <el-tag size="small" type="warning" effect="plain">自定义</el-tag>
             </div>
-            <el-button size="small" type="primary" text @click="dlg.form.kb_folder_paths.push('')">
-              <el-icon><Plus /></el-icon> 添加本地文件夹/文件引用
-            </el-button>
+            <div class="agent-name">{{ dlg.form.name || '智能体名称' }}</div>
+            <div class="agent-desc">{{ dlg.form.desc || '智能体描述预览...' }}</div>
+            <div class="agent-meta" v-if="dlg.form.base_agent?.length">
+              <span class="agent-base">基于 {{ dlg.form.base_agent.join(', ') }}</span>
+            </div>
           </div>
-        </el-form-item>
-      </el-form>
+        </div>
+      </div>
       <template #footer>
         <el-button @click="dlg.visible=false">取消</el-button>
         <el-button type="primary" @click="saveAgent">保存</el-button>
@@ -179,7 +223,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Avatar, Cpu, Check, Setting, Plus, Delete, FolderOpened, Document, Loading } from '@element-plus/icons-vue'
+import { Avatar, Cpu, Check, Setting, Plus, Delete, FolderOpened, Document, Loading, MagicStick } from '@element-plus/icons-vue'
 import request from '../api/index.js'
 const router = useRouter()
 
@@ -345,7 +389,20 @@ async function generatePrompt() {
 }
 
 async function delAgent(id) {
-  try { await ElMessageBox.confirm('确认删除？'); await request.delete('/agent-apps/' + id); await loadAgents() } catch {}
+  try {
+    await ElMessageBox.confirm('删除后不可恢复，确认删除该智能体？', '删除确认', {
+      confirmButtonText: '确定删除',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    await request.delete('/agent-apps/' + id)
+    await loadAgents()
+    ElMessage.success('已删除')
+  } catch (e) {
+    if (e !== 'cancel' && e?.action !== 'cancel') {
+      ElMessage.error(e.response?.data?.message || '删除失败')
+    }
+  }
 }
 
 onMounted(() => { loadAgents(); loadKB() })
@@ -401,7 +458,7 @@ onMounted(() => { loadAgents(); loadKB() })
 .agent-icon { width: 52px; height: 52px; border-radius: 14px; display: flex; align-items: center; justify-content: center; color: #fff; }
 .agent-emoji { font-size: 28px; }
 .agent-name { font-size: 17px; font-weight: 600; color: #4a3f5e; margin-bottom: 8px; }
-.agent-desc { font-size: 13px; color: #b8aad0; line-height: 1.5; margin-bottom: 12px; flex: 1; }
+.agent-desc { font-size: 13px; color: #b8aad0; line-height: 1.5; margin-bottom: 12px; flex: 1; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .agent-meta { margin-bottom: 16px; display: flex; flex-direction: column; gap: 2px; }
 .agent-id { font-size: 11px; color: #d0c8e0; font-family: monospace; }
 .agent-base { font-size: 11px; color: #b8aad0; }
@@ -425,4 +482,42 @@ onMounted(() => { loadAgents(); loadKB() })
   padding: 8px 14px; transition: background .15s;
 }
 .browse-item:hover { background: #f5f3ff; }
+
+/* ── 添加/编辑对话框 ── */
+.agent-dlg { display: flex; gap: 24px; }
+.agent-dlg-form { flex: 1; min-width: 0; overflow-y: auto; max-height: 65vh; padding-right: 4px; }
+.agent-dlg-preview { width: 220px; flex-shrink: 0; }
+.preview-label { font-size: 11px; color: #b8aad0; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; text-align: center; }
+
+/* 预览卡片（缩小版） */
+.agent-card.mini { padding: 16px; border-radius: 12px; }
+.agent-card.mini .agent-icon { width: 40px; height: 40px; border-radius: 10px; }
+.agent-card.mini .agent-emoji { font-size: 22px; }
+.agent-card.mini .agent-name { font-size: 14px; margin-bottom: 4px; }
+.agent-card.mini .agent-desc { font-size: 11px; margin-bottom: 8px; -webkit-line-clamp: 2; }
+.agent-card.mini .agent-meta { margin-bottom: 0; }
+.agent-card.mini .agent-header { margin-bottom: 10px; }
+
+/* 外观设置 */
+.look-row { display: flex; gap: 12px; }
+.look-col { flex: 1; min-width: 0; }
+.look-label { font-size: 11px; color: #909399; margin-bottom: 4px; }
+.icon-grid { display: flex; flex-wrap: wrap; gap: 4px; }
+.icon-cell {
+  width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+  border-radius: 6px; cursor: pointer; color: #909399; border: 1px solid transparent;
+  transition: all .15s;
+}
+.icon-cell:hover { color: #7c3aed; background: #f5f3ff; }
+.icon-cell.sel { color: #7c3aed; background: #ede9fe; border-color: #7c3aed; }
+.emoji-grid { display: flex; flex-wrap: wrap; gap: 4px; }
+.emoji-cell {
+  width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+  border-radius: 6px; cursor: pointer; font-size: 18px; border: 1px solid transparent;
+  transition: all .15s;
+}
+.emoji-cell:hover { background: #f5f3ff; }
+.emoji-cell.sel { background: #ede9fe; border-color: #7c3aed; }
+.folder-list { width: 100%; }
+.folder-row { display: flex; gap: 6px; margin-bottom: 6px; align-items: center; }
 </style>
