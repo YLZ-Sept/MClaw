@@ -2,7 +2,7 @@
   <div class="sl-page">
     <div class="pg-hd">
       <span class="pg-title">任务调度</span>
-      <span class="pg-sub">OpenClaw 定时任务管理</span>
+      <span class="pg-sub">定时任务管理</span>
       <div style="float:right">
         <el-button type="primary" @click="openCreate">+ 新建任务</el-button>
       </div>
