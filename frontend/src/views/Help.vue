@@ -54,7 +54,7 @@
           <div class="contact-card">
             <el-icon :size="20"><Phone /></el-icon>
             <span class="contact-label">电话</span>
-            <span class="contact-value">0871-XXXXXXXX</span>
+            <span class="contact-value">0871-63820616</span>
           </div>
           <div class="contact-card">
             <el-icon :size="20"><Message /></el-icon>
@@ -78,12 +78,9 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Phone, Message, Service } from '@element-plus/icons-vue'
 import request from '../api'
-
-const router = useRouter()
 
 const status = ref({ activated: false, fingerprint: '获取中...' })
 const code = ref('')
@@ -137,7 +134,7 @@ async function handleActivate() {
 }
 
 function openChat() {
-  router.push('/chat')
+  window.open('https://work.weixin.qq.com/kfid/kfc6ea1e452c2944b7f')
 }
 
 async function copyFp() {
