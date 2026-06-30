@@ -47,11 +47,30 @@
       </div>
 
       <el-divider />
-      <div class="contact-info">
-        <p>如需获取授权或续费，请联系</p>
-        <p class="company">云南米贝科技有限公司</p>
-        <p>电话：0871-XXXXXXXX</p>
-        <p>邮箱：license@mibei.com</p>
+      <div class="contact-section">
+        <h3>如需获取授权或续费，请联系</h3>
+        <p class="company-name">云南米贝科技有限公司</p>
+        <div class="contact-cards">
+          <div class="contact-card">
+            <el-icon :size="20"><Phone /></el-icon>
+            <span class="contact-label">电话</span>
+            <span class="contact-value">0871-XXXXXXXX</span>
+          </div>
+          <div class="contact-card">
+            <el-icon :size="20"><Message /></el-icon>
+            <span class="contact-label">邮箱</span>
+            <span class="contact-value">license@mibei.com</span>
+          </div>
+          <div class="contact-card clickable" @click="openChat">
+            <el-icon :size="20"><Service /></el-icon>
+            <span class="contact-label">在线客服</span>
+            <span class="contact-value link">点击联系在线客服</span>
+          </div>
+        </div>
+        <div class="qrcode-box">
+          <img src="/kefu-qrcode.png" alt="在线客服二维码" class="qrcode-img" />
+          <span class="qrcode-tip">微信扫码联系在线客服</span>
+        </div>
       </div>
     </div>
   </div>
@@ -59,8 +78,12 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Phone, Message, Service } from '@element-plus/icons-vue'
 import request from '../api'
+
+const router = useRouter()
 
 const status = ref({ activated: false, fingerprint: '获取中...' })
 const code = ref('')
@@ -111,6 +134,10 @@ async function handleActivate() {
   } finally {
     activating.value = false
   }
+}
+
+function openChat() {
+  router.push('/chat')
 }
 
 async function copyFp() {
@@ -184,15 +211,70 @@ onMounted(fetchStatus)
 }
 .text-ok { color: #67c23a; font-weight: 600; }
 .text-warn { color: #e6a23c; font-weight: 600; }
-.contact-info {
+.contact-section {
   text-align: center;
-  color: #909399;
-  font-size: 14px;
-  line-height: 1.8;
 }
-.contact-info .company {
-  font-size: 16px;
+.contact-section h3 {
+  font-size: 15px;
+  color: #606266;
+  font-weight: 500;
+  margin: 0 0 8px;
+}
+.company-name {
+  font-size: 17px;
   font-weight: 600;
   color: #303133;
+  margin: 0 0 20px;
+}
+.contact-cards {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.contact-card {
+  flex: 1;
+  background: #f5f7fa;
+  border-radius: 8px;
+  padding: 14px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  transition: box-shadow 0.2s;
+}
+.contact-card.clickable {
+  cursor: pointer;
+}
+.contact-card.clickable:hover {
+  box-shadow: 0 2px 12px rgba(64, 158, 255, 0.15);
+  background: #ecf5ff;
+}
+.contact-label {
+  font-size: 12px;
+  color: #909399;
+}
+.contact-value {
+  font-size: 13px;
+  color: #303133;
+  font-weight: 500;
+}
+.contact-value.link {
+  color: #409eff;
+}
+.qrcode-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.qrcode-img {
+  width: 140px;
+  height: 140px;
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+}
+.qrcode-tip {
+  font-size: 12px;
+  color: #909399;
 }
 </style>
