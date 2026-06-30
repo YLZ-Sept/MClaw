@@ -247,12 +247,16 @@ async function sendReply(conversationId, content, replyMode) {
   if (conv.platform === 'wecom') {
     try {
       const account = db.prepare('SELECT * FROM channel_accounts WHERE id=?').get(conv.account_id);
-      if (account) await require('./wecom').sendMessage(account, conv.contact_name, content);
+      // 企微 API touser 必须是成员 UserID，优先用 contact_external_id（不会被重命名覆盖）
+      const wecomUserId = conv.contact_external_id || conv.contact_name;
+      if (account) await require('./wecom').sendMessage(account, wecomUserId, content);
     } catch (e) { console.error('[channels] 企微发送失败:', e.message); }
   } else if (conv.platform === 'feishu') {
     try {
       const account = db.prepare('SELECT * FROM channel_accounts WHERE id=?').get(conv.account_id);
-      if (account) await require('./feishu').sendMessage(account, conv.contact_name, content);
+      // 飞书 receive_id 同样优先用 contact_external_id
+      const feishuUserId = conv.contact_external_id || conv.contact_name;
+      if (account) await require('./feishu').sendMessage(account, feishuUserId, content);
     } catch (e) { console.error('[channels] 飞书发送失败:', e.message); }
   }
 

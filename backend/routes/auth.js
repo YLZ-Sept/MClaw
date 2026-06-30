@@ -209,7 +209,7 @@ router.get('/user', (req, res) => {
 // ============================================================
 
 function requireAuth(req, res, next) {
-  const token = req.headers.authorization?.replace('Bearer ', '');
+  const token = req.headers.authorization?.replace('Bearer ', '') || req.query.token;
   if (!token || !tokens[token]) {
     return res.status(401).json({ code: 401, message: '未登录或登录已过期' });
   }

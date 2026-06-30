@@ -15,7 +15,7 @@ if (fs.existsSync(frontendDist)) {
   app.use(express.static(frontendDist));
   console.log('[server] 生产模式：serve 前端静态文件', frontendDist);
 }
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads', requireAuth, express.static(path.join(__dirname, 'uploads')));
 
 require('./db');
 
@@ -124,7 +124,7 @@ app.get('/api/info', (req, res) => {
   res.json({ code: 200, data: { version: 'v2026.6.16', engine: 'OpenClaw', status: 'running' } });
 });
 
-app.get('/api/agents', (req, res) => {
+app.get('/api/agents', requireAuth, (req, res) => {
   const builtin = [
     { id: 'internal-agent', name: '企业经营管理 Agent', icon: 'Avatar', emoji: '📋', bg: 'linear-gradient(135deg,#0d47a1 0%,#42a5f5 100%)', desc: '处理内部审批、日程安排、文档管理和协作任务', builtin: true },
     { id: 'sales-agent', name: '销售管理 Agent', icon: 'Coin', emoji: '🤝', bg: 'linear-gradient(135deg,#667eea 0%,#764ba2 100%)', desc: '管理销售流程、客户跟进、合同签署和业绩统计', builtin: true },
@@ -141,14 +141,14 @@ app.use('/api/users', requireAuth, require('./routes/users'));
 app.use('/api/roles', requireAuth, require('./routes/roles'));
 app.use('/api/security', requirePermission('security'), require('./routes/security'));
 app.use('/api/logs', requireAuth, require('./routes/logs'));
-app.use('/api/io', require('./routes/io'));
+app.use('/api/io', requireAuth, require('./routes/io'));
 app.use('/api/bids', require('./routes/bids'));
 app.use('/api/bid-statistics', require('./routes/bid-statistics'));
 app.use('/api/chat-sessions', require('./routes/chat-sessions'));
 app.use('/api/agent-apps', require('./routes/agent-apps'));
 app.use('/api/agent-skills', require('./routes/agent-skills'));
 app.use('/api/agent-openclaw-skills', require('./routes/agent-openclaw-skills'));
-app.use('/api/expert-agents', require('./routes/expert-agents'));
+app.use('/api/expert-agents', requireAuth, require('./routes/expert-agents'));
 app.use('/api/digital-employees', require('./routes/digital-employees'));
 app.use('/api/digital-human', require('./routes/digital-human'));
 app.use('/api/faq', require('./routes/faq'));
@@ -273,18 +273,18 @@ function makeMessages(config, history, faqMatches) {
 }
 
 // ── 聊天路由 ──
-app.get('/api/chat/history', (req, res) => {
+app.get('/api/chat/history', requireAuth, (req, res) => {
   const history = getHistory(req.query.agent);
   res.json({ code: 200, data: history });
 });
 
-app.post('/api/chat/clear', (req, res) => {
+app.post('/api/chat/clear', requireAuth, (req, res) => {
   const key = req.body.agent || 'default';
   clearHistory(key);
   res.json({ code: 200 });
 });
 
-app.post('/api/chat/send', async (req, res) => {
+app.post('/api/chat/send', requireAuth, async (req, res) => {
   const { content, agent, stream: wantStream, messages: clientMessages, session_id } = req.body;
   const isStream = wantStream !== false;
 
@@ -478,6 +478,11 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = 18621;
+
+// 进程兜底 — 未捕获异常不直接崩，留日志便于排查
+process.on('unhandledRejection', (reason) => console.error('[process] unhandledRejection:', reason));
+process.on('uncaughtException', (err) => console.error('[process] uncaughtException:', err));
+
 const server = http.createServer(app);
 
 // 启动 WebSocket 服务器（Events 前端推送）

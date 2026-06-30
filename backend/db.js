@@ -55,10 +55,48 @@ db.exec(`
     created_at TEXT DEFAULT (datetime('now','localtime'))
   );
 
-  CREATE TABLE IF NOT EXISTS feedback (
+  CREATE TABLE IF NOT EXISTS customer_feedback (
     id TEXT PRIMARY KEY, customer_id TEXT,
     rating INTEGER, category TEXT,
-    content TEXT,
+    content TEXT, status TEXT DEFAULT 'pending',
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+
+  CREATE TABLE IF NOT EXISTS leads (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    phone TEXT, company TEXT,
+    source TEXT, status TEXT DEFAULT 'new',
+    assigned_to TEXT, remark TEXT,
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+
+  CREATE TABLE IF NOT EXISTS marketing_campaigns (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    type TEXT, status TEXT DEFAULT 'draft',
+    budget REAL, start_date TEXT, end_date TEXT,
+    description TEXT,
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+
+  CREATE TABLE IF NOT EXISTS quotations (
+    id TEXT PRIMARY KEY,
+    customer_id TEXT,
+    title TEXT NOT NULL,
+    total REAL DEFAULT 0,
+    status TEXT DEFAULT 'draft',
+    valid_until TEXT, remark TEXT,
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+
+  CREATE TABLE IF NOT EXISTS quotation_items (
+    id TEXT PRIMARY KEY,
+    quotation_id TEXT REFERENCES quotations(id),
+    product_id TEXT, description TEXT,
+    quantity INTEGER DEFAULT 1,
+    unit_price REAL DEFAULT 0,
+    total REAL DEFAULT 0,
     created_at TEXT DEFAULT (datetime('now','localtime'))
   );
 
@@ -519,6 +557,17 @@ db.exec(`
     summary TEXT,
     status TEXT DEFAULT 'new',
     pushed INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+`);
+
+// ===== 内容发布 =====
+db.exec(`
+  CREATE TABLE IF NOT EXISTS content_publish (
+    id TEXT PRIMARY KEY,
+    platform TEXT, content_type TEXT,
+    content TEXT, scheduled_at TEXT,
+    status TEXT DEFAULT 'draft',
     created_at TEXT DEFAULT (datetime('now','localtime'))
   );
 `);

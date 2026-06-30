@@ -369,19 +369,19 @@ async function exec(toolName, args, context) {
 
       // ─── 反馈 ───
       case 'list_feedback':
-        return db.prepare('SELECT * FROM feedback ORDER BY created_at DESC').all();
+        return db.prepare('SELECT * FROM customer_feedback ORDER BY created_at DESC').all();
 
       case 'create_feedback': {
         const id = randomUUID();
-        db.prepare('INSERT INTO feedback (id,customer_id,rating,category,content) VALUES (?,?,?,?,?)')
+        db.prepare('INSERT INTO customer_feedback (id,customer_id,rating,category,content) VALUES (?,?,?,?,?)')
           .run(id, args.customer_id || null, args.rating || null, args.category || null, args.content || null);
         return { id, message: '反馈记录成功' };
       }
 
       case 'delete_feedback': {
-        const cur = db.prepare('SELECT * FROM feedback WHERE id=?').get(args.feedback_id);
+        const cur = db.prepare('SELECT * FROM customer_feedback WHERE id=?').get(args.feedback_id);
         if (!cur) return { error: '反馈不存在' };
-        db.prepare('DELETE FROM feedback WHERE id=?').run(args.feedback_id);
+        db.prepare('DELETE FROM customer_feedback WHERE id=?').run(args.feedback_id);
         return { message: '反馈已删除' };
       }
 
