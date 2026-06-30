@@ -60,27 +60,31 @@ const PERMISSION_MODULES = [
 ];
 
 function getUserPermissions(user) {
-  if (user.role === 'superadmin') return ALL_PERMISSIONS.map(p => p.key);
-  if (user.role === 'admin') return ALL_PERMISSIONS.map(p => p.key).filter(k => k !== 'model');
-  // RBAC：优先从角色表读取
+  // RBAC：role_id 优先，避免 legacy role 字段绕过角色授权
   if (user.role_id) {
     const role = db.prepare('SELECT permissions FROM roles WHERE id=?').get(user.role_id);
     if (role) {
       try { return JSON.parse(role.permissions); } catch { return []; }
     }
   }
-  // 兼容旧数据
+  // Legacy fallback：无 role_id 时按 role 字段兜底
+  if (user.role === 'superadmin') return ALL_PERMISSIONS.map(p => p.key);
+  if (user.role === 'admin') return ALL_PERMISSIONS.map(p => p.key).filter(k => k !== 'model');
   try { return JSON.parse(user.permissions || '[]'); } catch { return []; }
 }
 
 function getUserScope(user) {
-  if (user.role === 'superadmin' || user.role === 'admin') return null;
+  if (user.role === 'superadmin') return null;
+  // RBAC：role_id 优先，从角色表读取 scope
   if (user.role_id) {
     const role = db.prepare('SELECT scope FROM roles WHERE id=?').get(user.role_id);
     if (role && role.scope) {
       try { return JSON.parse(role.scope); } catch { return null; }
     }
+    return null;
   }
+  // Legacy：无 role_id 的 admin 不受限
+  if (user.role === 'admin') return null;
   return null;
 }
 
@@ -228,7 +232,7 @@ function requirePermission(perm) {
     req.tokenKey = token;
 
     const { role, permissions } = tokens[token];
-    if (role === 'superadmin' || role === 'admin') return next();
+    if (role === 'superadmin') return next();
     if (permissions && permissions.includes(perm)) return next();
 
     res.status(403).json({ code: 403, message: '无权限访问此模块' });

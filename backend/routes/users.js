@@ -84,7 +84,7 @@ router.put('/:id', canManageUsers, (req, res) => {
   if (name) db.prepare('UPDATE users SET name=? WHERE id=?').run(name, req.params.id);
   if (role !== undefined) {
     const perms = (role === 'admin') ? ALL_PERMISSIONS.map(p => p.key).filter(k => k !== 'model') : (permissions || user.permissions);
-    db.prepare('UPDATE users SET role=?, permissions=? WHERE id=?').run(role, JSON.stringify(perms), req.params.id);
+    db.prepare('UPDATE users SET role=?, permissions=?, role_id=NULL WHERE id=?').run(role, JSON.stringify(perms), req.params.id);
   }
   if (role_id !== undefined) {
     // 从角色表读取权限
