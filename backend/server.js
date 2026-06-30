@@ -15,8 +15,6 @@ if (fs.existsSync(frontendDist)) {
   app.use(express.static(frontendDist));
   console.log('[server] 生产模式：serve 前端静态文件', frontendDist);
 }
-app.use('/uploads', requireAuth, express.static(path.join(__dirname, 'uploads')));
-
 require('./db');
 
 // ── 授权校验（全局，白名单例外）──
@@ -119,6 +117,8 @@ app.use('/api/personnel-changes', require('./routes/hr-changes'));
 app.use('/api/performance', require('./routes/hr-performance'));
 app.use('/api/finance', require('./routes/finance'));
 const { requireAuth, requirePermission } = require('./routes/auth');
+
+app.use('/uploads', requireAuth, express.static(path.join(__dirname, 'uploads')));
 
 app.get('/api/info', (req, res) => {
   res.json({ code: 200, data: { version: 'v2026.6.16', engine: 'OpenClaw', status: 'running' } });
