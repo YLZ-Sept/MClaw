@@ -59,7 +59,7 @@
           <div class="contact-card">
             <el-icon :size="20"><Message /></el-icon>
             <span class="contact-label">邮箱</span>
-            <span class="contact-value">license@mibei.com</span>
+            <span class="contact-value">256903284@qq.com</span>
           </div>
           <div class="contact-card clickable" @click="openChat">
             <el-icon :size="20"><Service /></el-icon>
