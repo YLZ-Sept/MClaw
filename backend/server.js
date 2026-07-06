@@ -126,8 +126,7 @@ app.get('/api/info', (req, res) => {
 
 app.get('/api/agents', requireAuth, (req, res) => {
   const builtin = [
-    { id: 'internal-agent', name: '企业经营管理 Agent', icon: 'Avatar', emoji: '📋', bg: 'linear-gradient(135deg,#0d47a1 0%,#42a5f5 100%)', desc: '处理内部审批、日程安排、文档管理和协作任务', builtin: true },
-    { id: 'sales-agent', name: '销售管理 Agent', icon: 'Coin', emoji: '🤝', bg: 'linear-gradient(135deg,#667eea 0%,#764ba2 100%)', desc: '管理销售流程、客户跟进、合同签署和业绩统计', builtin: true },
+    { id: 'bid-agent', name: '招投标采集 Agent', icon: 'Search', emoji: '🎯', bg: 'linear-gradient(135deg,#e67e22 0%,#f1c40f 100%)', desc: '招标项目查询、关键词监控、Crawl4AI + Scrapling + 乙方宝三引擎采集', builtin: true },
   ];
   try {
     const custom = require('./db').prepare('SELECT id,name,desc,icon,color AS bg,emoji,base_agent,system_prompt,status,kb_article_ids,kb_folder_paths FROM agent_apps WHERE is_expert IS NULL OR is_expert=0 ORDER BY created_at DESC').all();
@@ -144,7 +143,8 @@ app.use('/api/logs', requireAuth, require('./routes/logs'));
 app.use('/api/io', requireAuth, require('./routes/io'));
 app.use('/api/bids', require('./routes/bids'));
 app.use('/api/bid-statistics', require('./routes/bid-statistics'));
-app.use('/api/chat-sessions', require('./routes/chat-sessions'));
+app.use('/api/bid-agent', require('./routes/bid-settings'));
+app.use('/api/chat-sessions', requireAuth, require('./routes/chat-sessions'));
 app.use('/api/agent-apps', require('./routes/agent-apps'));
 app.use('/api/agent-skills', require('./routes/agent-skills'));
 app.use('/api/agent-openclaw-skills', require('./routes/agent-openclaw-skills'));
@@ -161,6 +161,7 @@ app.use('/api/channel-conversations', require('./routes/channel-conversations'))
 
 // 消息渠道 webhook（企微/飞书/ClawBot 微信）
 app.use('/api/channels/wecom', express.text({ type: '*/*' }), require('./channels/wecom').router);
+app.use('/api/channels/wecom/kf', express.text({ type: '*/*' }), require('./channels/wecom-kf').router);
 app.use('/api/channels/feishu', require('./channels/feishu').router);
 app.use('/api/channels/clawbot', require('./channels/clawbot').router);
 

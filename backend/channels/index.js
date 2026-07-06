@@ -186,6 +186,8 @@ function extractExternalId(platform, raw_data, extra) {
       return raw_data.from_user_id || null;
     case 'wecom':
       return raw_data.FromUserName || null;
+    case 'wecom_kf':
+      return raw_data.FromUserName || null;
     case 'feishu':
       return extra?.sender_id || raw_data.sender?.sender_id?.open_id || null;
     default:
@@ -229,6 +231,24 @@ async function handleIncoming({ account_id, platform, contact_name, contact_avat
   return { conversation: conv, message: msg, aiSuggestion };
 }
 
+// 企微只支持纯文本，去掉 Markdown 语法
+function stripMarkdown(text) {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, '$1')       // **bold**
+    .replace(/\*(.+?)\*/g, '$1')           // *italic*
+    .replace(/__(.+?)__/g, '$1')           // __bold__
+    .replace(/_(.+?)_/g, '$1')             // _italic_
+    .replace(/~~(.+?)~~/g, '$1')           // ~~strikethrough~~
+    .replace(/`{1,3}(.+?)`{1,3}/g, '$1')   // `code`
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // [text](url)
+    .replace(/^#{1,6}\s+/gm, '')           // # headers
+    .replace(/^>\s+/gm, '')                // > blockquote
+    .replace(/^-{3,}/gm, '')               // --- horizontal rules
+    .replace(/^\s*[-*+]\s+/gm, '')         // - list items
+    .replace(/\n{3,}/g, '\n\n')            // collapse excessive newlines
+    .trim();
+}
+
 // ─── 发送回复 ───
 async function sendReply(conversationId, content, replyMode) {
   const conv = db.prepare('SELECT * FROM channel_conversations WHERE id=?').get(conversationId);
@@ -249,8 +269,14 @@ async function sendReply(conversationId, content, replyMode) {
       const account = db.prepare('SELECT * FROM channel_accounts WHERE id=?').get(conv.account_id);
       // 企微 API touser 必须是成员 UserID，优先用 contact_external_id（不会被重命名覆盖）
       const wecomUserId = conv.contact_external_id || conv.contact_name;
-      if (account) await require('./wecom').sendMessage(account, wecomUserId, content);
+      if (account) await require('./wecom').sendMessage(account, wecomUserId, stripMarkdown(content));
     } catch (e) { console.error('[channels] 企微发送失败:', e.message); }
+  } else if (conv.platform === 'wecom_kf') {
+    try {
+      const account = db.prepare('SELECT * FROM channel_accounts WHERE id=?').get(conv.account_id);
+      const kfUserId = conv.contact_external_id || conv.contact_name;
+      if (account) await require('./wecom-kf').sendMessage(account, kfUserId, stripMarkdown(content));
+    } catch (e) { console.error('[channels] 企微客服发送失败:', e.message); }
   } else if (conv.platform === 'feishu') {
     try {
       const account = db.prepare('SELECT * FROM channel_accounts WHERE id=?').get(conv.account_id);

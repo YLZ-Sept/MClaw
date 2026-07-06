@@ -164,6 +164,76 @@ async function sendMessage(account, touser, content) {
   throw new Error(`[${json.errcode}] ${json.errmsg}`);
 }
 
+// ─── 微信客服事件处理 ───
+async function handleKfEvent(msg) {
+  const openKfid = msg.OpenKfId;
+  const syncToken = msg.Token;
+  if (!syncToken) { console.log('[wecom] kf_msg_or_event 缺少 Token'); return; }
+
+  // 查找 wecom_kf 账号
+  const account = db.prepare("SELECT * FROM channel_accounts WHERE platform=? AND status=? AND config LIKE ?")
+    .get('wecom_kf', 'active', '%' + openKfid + '%');
+  if (!account) { console.log('[wecom] 未找到匹配的 wecom_kf 账号, open_kfid:', openKfid); return; }
+
+  let cfg = {};
+  try { cfg = typeof account.config === 'string' ? JSON.parse(account.config) : account.config; } catch {}
+
+  const token = await getAccessToken(cfg.corpid, cfg.corpsecret);
+
+  // 拉取消息
+  let cursor = '0';
+  let hasMore = true;
+  while (hasMore) {
+    const body = JSON.stringify({ cursor, token: syncToken, limit: 1000, voice_format: 0, open_kfid: openKfid });
+    const result = await httpsPost(
+      `https://qyapi.weixin.qq.com/cgi-bin/kf/sync_msg?access_token=${encodeURIComponent(token)}`,
+      body
+    );
+    if (result.errcode !== 0) {
+      console.log('[wecom] sync_msg 失败:', result.errcode, result.errmsg);
+      break;
+    }
+
+    const msgList = result.msg_list || [];
+    for (const m of msgList) {
+      if (m.origin === 3 && m.msgtype === 'text' && m.text?.content) {
+        console.log('[wecom] 客服消息:', m.external_userid, '→', m.text.content.slice(0, 60));
+        handleIncoming({
+          account_id: account.id,
+          platform: 'wecom_kf',
+          contact_name: m.external_userid,
+          contact_avatar: null,
+          content: m.text.content,
+          raw_data: { FromUserName: m.external_userid, OpenKfId: openKfid }
+        }).catch(err => console.error('[wecom] handleIncoming error:', err));
+      }
+      if (m.origin === 4 && m.event?.event_type === 'enter_session') {
+        // 发送欢迎语
+        try {
+          const welcome = '你好，我是米贝科技 AI 智能客服。请问有什么可以帮你的？';
+          const kfBody = JSON.stringify({
+            touser: m.external_userid,
+            open_kfid: openKfid,
+            msgtype: 'text',
+            text: { content: welcome }
+          });
+          await httpsPost(
+            `https://qyapi.weixin.qq.com/cgi-bin/kf/send_msg?access_token=${encodeURIComponent(token)}`,
+            kfBody
+          );
+          console.log('[wecom] 欢迎语已发送 →', m.external_userid);
+        } catch (e) {
+          console.error('[wecom] 欢迎语发送失败:', e.message);
+        }
+      }
+    }
+
+    hasMore = result.has_more === 1;
+    cursor = result.next_cursor || '0';
+    if (!hasMore) break;
+  }
+}
+
 // ─── 账号配置 ───
 
 function getAccountConfig(accountId) {
@@ -253,6 +323,10 @@ router.post('/callback', (req, res) => {
       case 'enter_agent':
         console.log('[wecom] 事件: 进入应用 →', msg.FromUserName);
         break;
+      case 'kf_msg_or_event':
+        // 微信客服事件 → 异步拉取消息
+        handleKfEvent(msg).catch(e => console.error('[wecom] kf_msg_or_event 处理失败:', e.message));
+        break;
       default:
         console.log('[wecom] 事件:', msg.Event, msg.FromUserName || '');
     }
@@ -280,4 +354,4 @@ router.post('/callback', (req, res) => {
   res.send('success');
 });
 
-module.exports = { router, sendMessage, getAccessToken };
+module.exports = { router, sendMessage, getAccessToken, sha1, pkcs7Unpad, decryptMsg, verifySignature, parseXml, httpsPost };
