@@ -438,13 +438,24 @@ try { db.exec("ALTER TABLE bid_sources ADD COLUMN source_type TEXT DEFAULT 'api'
 // 兼容旧 bid_items 表：补充 project_no / purchase_requirements 字段
 try { db.exec("ALTER TABLE bid_items ADD COLUMN project_no TEXT DEFAULT ''"); } catch {}
 try { db.exec("ALTER TABLE bid_items ADD COLUMN purchase_requirements TEXT DEFAULT ''"); } catch {}
+try { db.exec("ALTER TABLE bid_items ADD COLUMN win_amount REAL"); } catch {}
+try { db.exec("ALTER TABLE bid_items ADD COLUMN bidder TEXT DEFAULT ''"); } catch {}
+try { db.exec("ALTER TABLE bid_items ADD COLUMN win_company TEXT DEFAULT ''"); } catch {}
+try { db.exec("ALTER TABLE bid_items ADD COLUMN region TEXT DEFAULT ''"); } catch {}
+try { db.exec("ALTER TABLE bid_items ADD COLUMN industry TEXT DEFAULT ''"); } catch {}
+try { db.exec("ALTER TABLE bid_items ADD COLUMN notice_time TEXT DEFAULT ''"); } catch {}
 // 招投标统计对齐 Excel 模板：新增 招标时间/报名时间 列
 try { db.exec("ALTER TABLE bid_statistics ADD COLUMN bid_publish_time TEXT"); } catch {}
 try { db.exec("ALTER TABLE bid_statistics ADD COLUMN registration_time TEXT"); } catch {}
-// 乙方宝默认采集源
-try { db.prepare("INSERT INTO bid_sources (id,name,url,source_type,interval_minutes,enabled) VALUES (?,?,?,?,?,?)").run(
-  require('crypto').randomUUID(), '乙方宝', 'https://www.woyaobid.cn/search', 'crawl4ai', 360, 1
-); } catch {}
+	// 乙方宝默认采集源（仅当不存在时创建）
+	try {
+	  const exists = db.prepare("SELECT id FROM bid_sources WHERE source_type='woyaobid'").get();
+	  if (!exists) {
+	    db.prepare("INSERT INTO bid_sources (id,name,url,source_type,interval_minutes,enabled) VALUES (?,?,?,?,?,?)").run(
+	      require('crypto').randomUUID(), '乙方宝', 'https://www.woyaobid.cn/search', 'woyaobid', 360, 1
+	    );
+	  }
+	} catch {}
 try { db.exec("ALTER TABLE performance_reports ADD COLUMN category TEXT DEFAULT 'monthly'"); } catch {}
 // 兼容旧 returns 表：补充 executor 需要的字段
 try { db.exec("ALTER TABLE returns ADD COLUMN order_type TEXT DEFAULT 'sales'"); } catch {}

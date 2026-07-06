@@ -4,6 +4,18 @@ const { randomUUID } = require('crypto');
 const crypto = require('crypto');
 const db = require('../db');
 const { McpClient } = require('./mcp-client');
+const { saveToTxt } = require('./bid-excel-writer');
+
+// 云南地区城市列表（只采集云南地区数据）
+const YN_CITIES = ['昆明','曲靖','玉溪','保山','昭通','丽江','普洱','临沧','楚雄','红河','文山','版纳','大理','德宏','怒江','迪庆','云南'];
+
+function isYunnan(region) {
+  if (!region) return false;
+  for (const city of YN_CITIES) {
+    if (region.includes(city)) return true;
+  }
+  return false;
+}
 
 const CONFIG = {
   // Crawl4AI MCP server command
@@ -138,13 +150,19 @@ async function extractBidDetail(client, url) {
       properties: {
         title: { type: 'string', description: '招标项目名称' },
         project_no: { type: 'string', description: '项目编号' },
-        bid_type: { type: 'string', description: '招标方式' },
-        amount: { type: 'string', description: '预算金额（万元）' },
-        doc_deadline: { type: 'string', description: '文件获取截止时间' },
-        bid_time: { type: 'string', description: '开标时间' },
-        submit_type: { type: 'string', description: '投标方式' },
-        purchase_requirements: { type: 'string', description: '采购需求' },
+        bid_type: { type: 'string', description: '招标方式，如公开招标/竞争性磋商/询价/单一来源' },
+        amount: { type: 'string', description: '预算金额或项目金额（万元）' },
+        win_amount: { type: 'string', description: '中标金额或成交金额（万元）' },
+        doc_deadline: { type: 'string', description: '文件获取截止时间或报名截止时间' },
+        bid_time: { type: 'string', description: '开标时间或投标截止时间' },
+        submit_type: { type: 'string', description: '投标方式或提交方式' },
+        purchase_requirements: { type: 'string', description: '采购需求或项目需求描述' },
         evaluation: { type: 'string', description: '评标方法' },
+        bidder: { type: 'string', description: '采购人或招标人名称' },
+        win_company: { type: 'string', description: '中标人或中标单位名称' },
+        region: { type: 'string', description: '行政区域或省份地区' },
+        industry: { type: 'string', description: '行业分类，如学校/医院/政府/企业' },
+        notice_time: { type: 'string', description: '公告发布时间' },
         contact: { type: 'string', description: '联系方式' }
       }
     };
@@ -201,19 +219,37 @@ async function collectFromSource(client, source, keywords) {
     for (const item of listingItems) {
       await sleep(randomDelay());
       const detail = await extractBidDetail(client, item.href);
+      // 云南地区过滤
+      const region = detail?.region || null;
+      const isYNSource = source.url && (source.url.includes('yngp') || source.url.includes('ggzy.yn'));
+      if (region && !isYunnan(region)) {
+        console.log(`[crawl4ai] 跳过非云南: ${(detail?.title || item.title).substring(0, 40)} (${region})`);
+        continue;
+      }
+      if (!region && !isYNSource) {
+        console.log(`[crawl4ai] 跳过无地区: ${(detail?.title || item.title).substring(0, 40)}`);
+        continue;
+      }
       results.push({
         source_id: item.source_id,
+        source_name: source.name,
         title: (detail?.title || item.title).substring(0, 300),
         url: item.href,
         ...(detail ? {
           project_no: detail.project_no || null,
           bid_type: detail.bid_type || '公开招标',
           amount: detail.amount ? parseFloat(detail.amount) : null,
+          win_amount: detail.win_amount ? parseFloat(detail.win_amount) : null,
           doc_deadline: detail.doc_deadline || null,
           bid_time: detail.bid_time || null,
           submit_type: detail.submit_type || null,
           purchase_requirements: detail.purchase_requirements || null,
           evaluation: detail.evaluation || null,
+          bidder: detail.bidder || null,
+          win_company: detail.win_company || null,
+          region: detail.region || null,
+          industry: detail.industry || null,
+          notice_time: detail.notice_time || null,
         } : { bid_type: '公开招标' })
       });
     }
@@ -225,7 +261,7 @@ async function collectFromSource(client, source, keywords) {
 }
 
 async function runCollect(opts = {}) {
-  const sources = db.prepare("SELECT * FROM bid_sources WHERE enabled=1 AND (source_type='web' OR source_type='crawl4ai')").all();
+  const sources = db.prepare("SELECT * FROM bid_sources WHERE enabled=1 AND (source_type='web' OR source_type='crawl4ai') AND source_type!='woyaobid'").all();
   const keywords = db.prepare('SELECT keyword FROM bid_keywords').all().map(r => r.keyword);
 
   if (sources.length === 0) {
@@ -241,23 +277,27 @@ async function runCollect(opts = {}) {
 
   const client = await getClient();
   let totalFound = 0, totalInserted = 0;
+  const allItems = [];
 
   for (const source of sources) {
     const items = await collectFromSource(client, source, keywords);
     totalFound += items.length;
 
     for (const item of items) {
+      allItems.push(item);
       try {
         const existing = db.prepare('SELECT id FROM bid_items WHERE url=?').get(item.url);
         if (existing) continue;
 
         const id = randomUUID();
-        db.prepare(`INSERT INTO bid_items (id,source_id,title,url,status,bid_type,project_no,amount,doc_deadline,bid_time,submit_type,purchase_requirements,evaluation)
-          VALUES (?,?,?,?,'new',?,?,?,?,?,?,?,?)`).run(
+        db.prepare(`INSERT INTO bid_items (id,source_id,title,url,status,bid_type,project_no,amount,doc_deadline,bid_time,submit_type,purchase_requirements,evaluation,win_amount,bidder,win_company,region,industry,notice_time)
+          VALUES (?,?,?,?,'new',?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
           id, item.source_id, item.title, item.url,
           item.bid_type, item.project_no, item.amount,
           item.doc_deadline, item.bid_time, item.submit_type,
-          item.purchase_requirements, item.evaluation
+          item.purchase_requirements, item.evaluation,
+          item.win_amount, item.bidder, item.win_company,
+          item.region, item.industry, item.notice_time
         );
         totalInserted++;
       } catch (e) {
@@ -269,6 +309,11 @@ async function runCollect(opts = {}) {
     if (source !== sources[sources.length - 1]) {
       await sleep(randomDelay() * 2);
     }
+  }
+
+  // Save to txt
+  if (allItems.length > 0) {
+    saveToTxt('crawl4ai', allItems);
   }
 
   console.log(`[crawl4ai] 共发现 ${totalFound}, 新增 ${totalInserted}`);

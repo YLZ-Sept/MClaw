@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { randomUUID } = require('crypto');
 const db = require('../db');
+const { saveToTxt } = require('./bid-excel-writer');
 
 const DATA_DIR = path.resolve(__dirname, '../data/crawls');
 const YUNNAN_CITIES = ['昆明','曲靖','玉溪','保山','昭通','丽江','普洱','临沧','楚雄','红河','文山','版纳','大理','德宏','怒江','迪庆','云南'];
@@ -56,7 +57,7 @@ async function closeBrowser() {
   }
 }
 
-// Parse bid detail text into structured data (same regex as web-bid-crawler)
+// Parse bid detail from API snippet text
 function parseDetail(text, url, title) {
   const data = {
     bid_publish_time: null, registration_time: null, bid_time: null,
@@ -66,56 +67,124 @@ function parseDetail(text, url, title) {
     win_company: null, win_amount: null, url
   };
 
-  const titleMatch = text.match(/(?:项目名称|采购项目名称|招标项目)[：:]\s*(.+?)(?:\n|$)/);
-  if (!data.project_name && titleMatch) data.project_name = titleMatch[1].trim().substring(0, 300);
+  // 剥离 HTML 标签
+  const clean = text.replace(/<[^>]+>/g, '');
 
-  const budgetMatch = text.match(/(?:预算金额|项目预算|采购预算|预算)[：:]?\s*\|?\s*[¥￥]?\s*(\d+(?:\.\d+)?)\s*(?:万元|万)/);
-  if (budgetMatch) data.budget_amount = parseFloat(budgetMatch[1]);
+  // ── 区域：从 Area 头部提取 ──
+  const areaMatch = text.match(/^Area:\s*(.+)$/m);
+  if (areaMatch) {
+    const parts = areaMatch[1].split('-');
+    if (parts.length >= 2) {
+      const city = parts[1].trim();
+      if (YUNNAN_CITIES.some(c => city.includes(c))) data.region = city;
+    }
+  }
+  // 从正文匹配行政区域
+  if (data.region === '昆明') {
+    const admMatch = clean.match(/行政区域[：:]\s*(\S+?)(?:\s|、|$)/);
+    if (admMatch) {
+      for (const city of YUNNAN_CITIES) {
+        if (admMatch[1].includes(city)) { data.region = city === '云南' ? '昆明' : city; break; }
+      }
+    }
+  }
 
-  const winAmountMatch = text.match(/(?:中标金额|成交金额|中标价|中标总金额)[：:]?\s*\|?\s*[¥￥]?\s*(\d+(?:\.\d+)?)\s*(?:万元|万)/);
-  if (winAmountMatch) data.win_amount = parseFloat(winAmountMatch[1]);
+  // ── 招标类型：从 API Type 头部 ──
+  const typeMatch = text.match(/^Type:\s*(.+)$/m);
+  const apiType = typeMatch ? typeMatch[1] : '';
+  if (apiType.includes('中标') || apiType.includes('成交')) data.bid_method = '公开招标';
 
-  const winMatch = text.match(/(?:中标人|中标单位|成交供应商|供应商名称|中标供应商)[：:]\s*(.+?)(?:\n|$)/);
+  // ── 采购人/招标方 ──
+  const bidderPatterns = [
+    /(?:采购人|招标人|采购单位|招标单位|购买主体|业主单位|建设单位)[名称]*[：:]\s*(.+?)(?:[。；\n]|$)/,
+    /单位名称[：:]\s*(.+?)(?:[。；\n]|$)/,
+    /采购人名称[：:]\s*(.+?)(?:[。；\n]|$)/,
+  ];
+  for (const pat of bidderPatterns) {
+    const m = clean.match(pat);
+    if (m) { data.bidder = m[1].trim().replace(/^\|\s*|\s*\|$/g, '').substring(0, 200); break; }
+  }
+
+  // ── 代理机构 ──
+  const agentMatch = clean.match(/(?:采购代理机构|招标代理|代理机构)(?:名称)?[：:]?\s*(.+?)(?:[。；\n]|$)/);
+  if (agentMatch) data.bid_company = agentMatch[1].trim().replace(/^\|\s*|\s*\|$/g, '').substring(0, 200);
+
+  // ── 金额（多种模式） ──
+  const amountPatterns = [
+    /(?:预算金额|项目预算|采购预算|预算|项目金额|合同金额|采购金额|投资金额|总投资)[：:]?\s*[¥￥]?\s*(\d+(?:\.\d+)?)\s*(?:万元|万|元)/,
+    /(?:金额|预算)(?:不低于|不少于|约|为)?[¥￥]?\s*(\d+(?:\.\d+)?)\s*(?:万元|万)/,
+    /[¥￥]\s*(\d+(?:\.\d+)?)\s*(?:万元|万)/,
+    /(\d+(?:\.\d+)?)\s*万元/,
+  ];
+  for (const pat of amountPatterns) {
+    const m = clean.match(pat);
+    if (m) {
+      const amt = parseFloat(m[1]);
+      const matched = m[0];
+      data.budget_amount = /元[^元]*$/.test(matched) && !/万元|万/.test(matched) ? amt / 10000 : amt;
+      break;
+    }
+  }
+
+  // ── 中标金额 ──
+  const winAmtMatch = clean.match(/(?:中标金额|成交金额|中标价|中标总金额|成交价)[：:]?\s*[¥￥]?\s*(\d+(?:\.\d+)?)\s*(?:万元|万)/);
+  if (winAmtMatch) data.win_amount = parseFloat(winAmtMatch[1]);
+
+  // ── 中标单位 ──
+  const winMatch = clean.match(/(?:中标人|中标单位|成交供应商|供应商名称|中标供应商|中标单位名称)[：:]\s*(.+?)(?:[。；\n]|$)/);
   if (winMatch) data.win_company = winMatch[1].trim().replace(/^\|\s*|\s*\|$/g, '').substring(0, 200);
 
-  const bidderMatch = text.match(/(?:采购人|招标人|采购单位|招标单位)[：:]\s*(.+?)(?:\n|$)/);
-  if (bidderMatch) data.bidder = bidderMatch[1].trim().replace(/^\|\s*|\s*\|$/g, '').substring(0, 200);
+  // ── 采购需求/项目概况 ──
+  const prPatterns = [
+    /(?:采购需求|项目需求|招标范围|采购内容|采购范围|项目概况|招标内容|建设内容|服务内容)[：:]\s*(.+?)(?:\n[一二三四五六七八九十]|$)/,
+    /(?:采购需求|项目概况|项目内容)[：:]?\s*(.+?)(?:[。；]?\s*(?:二|三|四|五|六|七|八|九|十)[、．]|\n[一二三四五六七八九十]|$)/,
+  ];
+  for (const pat of prPatterns) {
+    const m = clean.match(pat);
+    if (m && m[1].trim().length > 5) { data.project_content = m[1].trim().substring(0, 500); break; }
+  }
+  // 如果没有采购需求标签，尝试提取项目基本情况后的文本
+  if (!data.project_content) {
+    const basicMatch = clean.match(/项目基本情况[：:]?\s*(.+?)(?:\n|$)/);
+    if (basicMatch && basicMatch[1].trim().length > 5) {
+      data.project_content = basicMatch[1].trim().substring(0, 300);
+    }
+  }
 
-  const agencyMatch = text.match(/(?:采购代理机构|招标代理|代理机构)(?:名称)?[：:]?\s*\|?\s*(.+?)(?:\n|$)/);
-  if (agencyMatch) data.bid_company = agencyMatch[1].trim().replace(/^\|\s*|\s*\|$/g, '').substring(0, 200);
+  // ── 时间字段 ──
+  const pubMatch = clean.match(/(?:发布时间|公告时间|发布日期)[：:]?\s*(\d{4}[-/年]\d{1,2}[-/月]\d{1,2})/);
+  if (pubMatch) data.notice_time = pubMatch[1].replace(/[年月]/g, '-').replace('日', '');
 
-  const dates = text.match(/(\d{4}[-/年]\d{1,2}[-/月]\d{1,2})/g);
+  // 报名截止/文件获取截止
+  const regMatch = clean.match(/(?:报名截止|文件获取截止|采购文件获取截止|招标文件获取截止)(?:时间)?[：:]?\s*(\d{4}[-/年]\d{1,2}[-/月]\d{1,2})/);
+  if (regMatch) data.registration_time = regMatch[1].replace(/[年月]/g, '-').replace('日', '');
+
+  // 开标/投标截止
+  const bidTimeMatch = clean.match(/(?:开标时间|投标截止|投标文件递交截止|响应文件提交截止)(?:时间)?[：:]?\s*(\d{4}[-/年]\d{1,2}[-/月]\d{1,2})/);
+  if (bidTimeMatch) data.bid_time = bidTimeMatch[1].replace(/[年月]/g, '-').replace('日', '');
+
+  // 通用日期提取
+  const dates = clean.match(/(\d{4}[-/年]\d{1,2}[-/月]\d{1,2})/g);
   if (dates) {
     const ds = dates.map(d => d.replace(/[年月]/g, '-').replace('日', ''));
-    if (ds.length >= 1) data.bid_publish_time = ds[0];
-    if (ds.length >= 2) data.registration_time = ds[1];
-    if (ds.length >= 3) data.bid_time = ds[2];
+    if (!data.notice_time && ds.length >= 1) data.notice_time = ds[0];
+    if (ds.length >= 1 && !data.bid_publish_time) data.bid_publish_time = ds[0];
   }
 
-  if (/竞争性磋商/.test(text)) data.bid_method = '竞争性磋商';
-  else if (/竞争性谈判/.test(text)) data.bid_method = '竞争性谈判';
-  else if (/询价/.test(text)) data.bid_method = '询价';
-  else if (/单一来源/.test(text)) data.bid_method = '单一来源';
-  else if (/邀请招标/.test(text)) data.bid_method = '邀请招标';
+  // ── 招标方式 ──
+  if (/竞争性磋商/.test(clean)) data.bid_method = '竞争性磋商';
+  else if (/竞争性谈判/.test(clean)) data.bid_method = '竞争性谈判';
+  else if (/询价|询比/.test(clean)) data.bid_method = '询价';
+  else if (/单一来源/.test(clean)) data.bid_method = '单一来源';
+  else if (/邀请招标/.test(clean)) data.bid_method = '邀请招标';
+  else if (/公开招标/.test(clean)) data.bid_method = '公开招标';
+  else if (/比选/.test(clean)) data.bid_method = '比选';
 
-  if (/学校|学院|大学|中学|小学|幼儿园/.test(text)) data.industry = '学校';
-  else if (/医院|卫生院|疾控|妇幼/.test(text)) data.industry = '医院';
-  else if (/政府|局|委员会|办公室|公安|法院|检察院/.test(text)) data.industry = '政府';
+  // ── 行业 ──
+  if (/学校|学院|大学|中学|小学|幼儿园|教育/.test(clean)) data.industry = '学校';
+  else if (/医院|卫生院|疾控|妇幼|医疗|药/.test(clean)) data.industry = '医院';
+  else if (/政府|局|委员会|办公室|公安|法院|检察院|行政/.test(clean)) data.industry = '政府';
   else data.industry = '企业';
-
-  const adminAreaMatch = text.match(/行政区域[：:]?\s*\|?\s*(\S+?)(?:\s|\||$)/);
-  const adminArea = adminAreaMatch ? adminAreaMatch[1].trim() : null;
-  let regionFound = false;
-  if (adminArea) {
-    for (const city of YUNNAN_CITIES) {
-      if (adminArea.includes(city)) { data.region = city === '云南' ? '昆明' : city; regionFound = true; break; }
-    }
-  }
-  if (!regionFound) {
-    for (const city of YUNNAN_CITIES) {
-      if (text.includes(city)) { data.region = city === '云南' ? '昆明' : city; break; }
-    }
-  }
 
   return data;
 }
@@ -156,6 +225,7 @@ async function runCollect(opts = {}) {
   const openidCookie = allCookies.find(c => c.name === 'openid' || c.name === 'yfb_openid');
   const openid = openidCookie ? openidCookie.value : 'oFNc6s09LT3dVymcZHsy4zxzddzc';
 
+  // 去重收集 + 直接从 API 摘要文本提取字段
   const allDetailTexts = [];
   const seen = new Set();
 
@@ -184,12 +254,27 @@ async function runCollect(opts = {}) {
           if (seen.has(title)) continue;
           seen.add(title);
 
-          const content = item.content || '';
+          // 检查 bid_items 是否已有
+          const dupCheck = db.prepare('SELECT id FROM bid_items WHERE title=?').get(title);
+          if (dupCheck) continue;
+
           const contentId = item.contentId || '';
           const areaName = item.areaName || '';
+          const apiType = item.type || '';
           const detailUrl = contentId ? `https://qiye.qianlima.com/new_qd_yfbsite/#/infoCenter/biddingDatabaseDetail?id=${contentId}` : null;
 
-          allDetailTexts.push(`\n---\nTitle: ${title}\nContentID: ${contentId}\nArea: ${areaName}\nURL: ${detailUrl || ''}\n\n${content}`);
+          // 用 API 返回的所有文本拼接进行解析
+          const fullText = [
+            'Title: ' + title,
+            'ContentID: ' + contentId,
+            'Area: ' + areaName,
+            'Type: ' + apiType,
+            'URL: ' + (detailUrl || ''),
+            '',
+            item.content || ''
+          ].join('\n');
+
+          allDetailTexts.push('\n---\n' + fullText);
         }
 
         await new Promise(r => setTimeout(r, 1000));
@@ -207,9 +292,15 @@ async function runCollect(opts = {}) {
   fs.writeFileSync(txtFile, fullText, 'utf-8');
   console.log(`[woyaobid] 保存文本: ${txtFile} (${fullText.length} 字符)`);
 
-  // Parse and insert
+  // Look up woyaobid source for bid_items
+  const woyaobidSource = db.prepare("SELECT id FROM bid_sources WHERE source_type='woyaobid' LIMIT 1").get();
+  const sourceId = woyaobidSource ? woyaobidSource.id : null;
+
+  // Parse and insert into both bid_statistics and bid_items
   let inserted = 0;
-  const insert = db.prepare(`INSERT OR IGNORE INTO bid_statistics (id,bid_publish_time,registration_time,bid_time,region,industry,bidder,bid_company,project_name,project_content,budget_amount,url,bid_method,bid_win_time,notice_time,win_company,win_amount,remark,source) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+  let bidItemsInserted = 0;
+  const allBidItems = [];
+  const insertStats = db.prepare(`INSERT OR IGNORE INTO bid_statistics (id,bid_publish_time,registration_time,bid_time,region,industry,bidder,bid_company,project_name,project_content,budget_amount,url,bid_method,bid_win_time,notice_time,win_company,win_amount,remark,source) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
 
   for (const text of allDetailTexts) {
     const titleMatch = text.match(/^Title: (.+)$/m);
@@ -225,21 +316,61 @@ async function runCollect(opts = {}) {
 
     const parsed = parseDetail(text, url, title);
     try {
-      insert.run(randomUUID(),
+      insertStats.run(randomUUID(),
         parsed.bid_publish_time||null, parsed.registration_time||null, parsed.bid_time||null,
         parsed.region||'昆明', parsed.industry||null, parsed.bidder||null, parsed.bid_company||null,
         parsed.project_name||title, parsed.project_content||null, parsed.budget_amount||null,
         parsed.url||null, parsed.bid_method||'公开招标', parsed.bid_win_time||null, parsed.notice_time||null,
         parsed.win_company||null, parsed.win_amount||null, null, 'woyaobid');
       inserted++;
-      console.log(`[woyaobid] INSERTED: ${title.substring(0, 60)}`);
+      console.log(`[woyaobid] INSERTED stats: ${title.substring(0, 60)}`);
     } catch (e) {
-      console.log(`[woyaobid] insert error: ${e.message}`);
+      console.log(`[woyaobid] insert stats error: ${e.message}`);
+    }
+
+    // Also insert into bid_items for frontend display
+    if (sourceId) {
+      const bidItem = {
+        source_id: sourceId, source_name: '乙方宝',
+        title: parsed.project_name || title, url: parsed.url,
+        bid_type: parsed.bid_method || '公开招标',
+        amount: parsed.budget_amount, win_amount: parsed.win_amount,
+        doc_deadline: parsed.registration_time, bid_time: parsed.bid_time,
+        bidder: parsed.bidder, win_company: parsed.win_company,
+        region: parsed.region || '昆明', industry: parsed.industry,
+        notice_time: parsed.notice_time || parsed.bid_publish_time,
+        purchase_requirements: parsed.project_content
+      };
+      allBidItems.push(bidItem);
+
+      try {
+        const existsInItems = db.prepare('SELECT id FROM bid_items WHERE url=?').get(bidItem.url);
+        if (!existsInItems) {
+          const itemId = randomUUID();
+          db.prepare(`INSERT INTO bid_items (id,source_id,title,url,status,bid_type,amount,win_amount,doc_deadline,bid_time,bidder,win_company,region,industry,notice_time,purchase_requirements)
+            VALUES (?,?,?,?,'new',?,?,?,?,?,?,?,?,?,?,?)`).run(
+            itemId, bidItem.source_id, bidItem.title, bidItem.url,
+            bidItem.bid_type, bidItem.amount, bidItem.win_amount,
+            bidItem.doc_deadline, bidItem.bid_time,
+            bidItem.bidder, bidItem.win_company,
+            bidItem.region, bidItem.industry, bidItem.notice_time,
+            bidItem.purchase_requirements
+          );
+          bidItemsInserted++;
+        }
+      } catch (e) {
+        console.log(`[woyaobid] insert bid_items error: ${e.message}`);
+      }
     }
   }
 
-  console.log(`[woyaobid] 共采集 ${allDetailTexts.length} 条, 新增 ${inserted}`);
-  return { found: allDetailTexts.length, inserted, txtFile };
+  // Save to bid-txt for frontend display
+  if (allBidItems.length > 0) {
+    saveToTxt('woyaobid', allBidItems);
+  }
+
+  console.log(`[woyaobid] 共采集 ${allDetailTexts.length} 条, 统计新增 ${inserted}, bid_items新增 ${bidItemsInserted}`);
+  return { found: allDetailTexts.length, inserted: bidItemsInserted, txtFile };
 }
 
 module.exports = { runCollect, saveCookies, loadCookies };

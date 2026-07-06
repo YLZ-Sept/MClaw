@@ -262,6 +262,7 @@ const agentConfigs = {
   'internal-agent': require('../agents/internal'),
   'sales-agent': require('../agents/sales'),
   'support-agent': require('../agents/support'),
+  'bid-agent': require('../agents/bid'),
   'default': require('../agents/internal')
 };
 
@@ -659,13 +660,16 @@ async function callLLM(messages, tools, stream, forceTool) {
   const body = { model: config.model, messages, max_tokens: config.max_tokens, temperature: config.temperature };
   if (stream) body.stream = true;
   if (tools) { body.tools = tools; body.tool_choice = forceTool || 'auto'; }
-  const dsRes = await fetch(`${config.api_base}/chat/completions`, {
+  const url = `${config.api_base.replace(/\/+$/, '')}/chat/completions`;
+  console.log('[callLLM] → %s  model=%s', url, config.model);
+  const dsRes = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.api_key}` },
     body: JSON.stringify(body)
   });
   if (!dsRes.ok) {
     const errText = await dsRes.text();
+    console.error('[callLLM] ← %s %s', dsRes.status, errText.slice(0, 200));
     throw new Error(`LLM ${dsRes.status}: ${errText.slice(0, 300)}`);
   }
   return dsRes;

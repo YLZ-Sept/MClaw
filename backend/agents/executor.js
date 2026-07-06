@@ -678,6 +678,30 @@ async function exec(toolName, args, context) {
         return db.prepare('SELECT * FROM bid_sources ORDER BY name').all();
       case 'list_bid_keywords':
         return db.prepare('SELECT * FROM bid_keywords ORDER BY keyword').all();
+      case 'trigger_bid_collect': {
+        const { runCollect: crawl4aiCollect } = require('../services/crawl4ai-collector');
+        const { runCollect: scraplingCollect } = require('../services/scrapling-collector');
+        const { runCollect: woyaobidCollect } = require('../services/woyaobid-crawler');
+        const [r1, r2, r3] = await Promise.allSettled([
+          crawl4aiCollect().catch(e => ({ engine: 'crawl4ai', found: 0, inserted: 0, error: e.message })),
+          scraplingCollect().catch(e => ({ engine: 'scrapling', found: 0, inserted: 0, error: e.message })),
+          woyaobidCollect().catch(e => ({ engine: 'woyaobid', found: 0, inserted: 0, error: e.message }))
+        ]);
+        const c4 = r1.value || { engine: 'crawl4ai', found: 0, inserted: 0 };
+        const sp = r2.value || { engine: 'scrapling', found: 0, inserted: 0 };
+        const wy = r3.value || { engine: 'woyaobid', found: 0, inserted: 0 };
+        const totalFound = c4.found + sp.found + wy.found;
+        const totalInserted = c4.inserted + sp.inserted + wy.inserted;
+        const parts = [
+          `Crawl4AI: 发现 ${c4.found} 新增 ${c4.inserted}`,
+          `Scrapling: 发现 ${sp.found} 新增 ${sp.inserted}`,
+          `乙方宝: 发现 ${wy.found} 新增 ${wy.inserted}`
+        ];
+        if (c4.error) parts[0] += ` (${c4.error})`;
+        if (sp.error) parts[1] += ` (${sp.error})`;
+        if (wy.error) parts[2] += ` (${wy.error})`;
+        return { success: true, message: `采集完成：共发现 ${totalFound} 个项目，新增 ${totalInserted} 个\n${parts.join('\n')}` };
+      }
 
       case 'list_local_files': {
         const { listLocalFiles } = require('../channels/agent-bridge');
