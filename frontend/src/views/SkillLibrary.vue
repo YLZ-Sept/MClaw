@@ -27,9 +27,19 @@
               @click="activeCategory = cat.key">
               {{ cat.icon }} {{ cat.label }}
             </span>
-            <el-button size="small" text type="primary" :loading="translating" @click="translateAll" style="margin-left:auto">
-              🌐 翻译全部
-            </el-button>
+            <div class="category-actions">
+              <el-button size="small" text type="primary" :loading="translating" @click="translateAll">
+                🌐 翻译全部
+              </el-button>
+              <el-upload
+                :auto-upload="true"
+                :show-file-list="false"
+                :http-request="handleImportSkill"
+                accept=".zip"
+              >
+                <el-button size="small" text type="primary" :loading="importing">📥 导入技能</el-button>
+              </el-upload>
+            </div>
           </div>
           <div class="skill-grid" style="margin-top:16px">
             <div v-for="s in filteredOpenclawSkills" :key="s.name" class="skill-card">
@@ -211,6 +221,7 @@ const clawhubLoading = ref(false)
 const clawhubSearched = ref(false)
 const installedSlugs = ref(new Set())
 const translating = ref(false)
+const importing = ref(false)
 const openclawSkills = ref([])
 
 function skillEmoji(name) {
@@ -277,6 +288,24 @@ async function loadRecentUsage() {
       recentUsage.value = data.data || []
     }
   } catch { recentUsage.value = [] }
+}
+
+async function handleImportSkill(options) {
+  importing.value = true
+  const form = new FormData()
+  form.append('file', options.file)
+  try {
+    const { data: res } = await request.post('/clawhub/import', form)
+    if (res.code === 200) {
+      ElMessage.success(res.message || '导入成功')
+      loadOpenClawSkills()
+    } else {
+      ElMessage.error(res.message || '导入失败')
+    }
+  } catch (e) {
+    ElMessage.error('导入失败: ' + (e.response?.data?.message || e.message))
+  }
+  importing.value = false
 }
 
 async function translateAll() {
@@ -382,6 +411,8 @@ onMounted(() => { loadSkills(); loadInstalledSlugs() })
 }
 .category-tag:hover { border-color: #7c3aed; color: #7c3aed; }
 .category-tag.active { background: #7c3aed; color: #fff; }
+.category-actions { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+.category-actions .el-upload { display: inline-flex; }
 .cat-count { font-size: 11px; background: rgba(255,255,255,.3); padding: 0 6px; border-radius: 8px; }
 
 .clawhub-search { display: flex; gap: 10px; align-items: center; }

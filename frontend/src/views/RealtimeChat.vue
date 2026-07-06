@@ -105,6 +105,12 @@ async function loadMessages() {
 async function handleSend() {
   const text = inputText.value.trim()
   if (!text || streaming.value) return
+
+  // 等待 greetExpert 完成，避免竞态创建两个会话
+  while (greetingInProgress.value) {
+    await new Promise(r => setTimeout(r, 100))
+  }
+
   inputText.value = ''
   streaming.value = true
 
@@ -158,6 +164,20 @@ async function handleUpload(options) {
 
       // 将文件全文作为上下文发送给 Agent
       if (d.text) {
+        // 有 agent 但无 session 时自动创建会话
+        if (agentKey() && !sessionId.value && !route.query.employee_id) {
+          try {
+            const sessionName = currentAgentName.value || d.fileName.slice(0, 20)
+            const { data: sData } = await request.post('/chat-sessions', {
+              name: sessionName,
+              agent_id: agentKey()
+            })
+            if (sData.data?.id) {
+              sessionId.value = sData.data.id
+              router.replace({ query: { ...route.query, session: sData.data.id } })
+            }
+          } catch { /* 创建失败不阻塞发送 */ }
+        }
         const fc = d.text.slice(0, 8000)
         const body = {
           content: `[系统上下文] 用户上传了文件「${d.fileName}」，以下是文件内容。请根据此内容主动引导用户，询问用户需要什么帮助：\n\n${fc}`,
@@ -184,11 +204,20 @@ async function handleUpload(options) {
 // ── SSE 流式响应抽取 ──
 async function streamResponse(body, aiIdx) {
   try {
+    const token = localStorage.getItem('token')
     const dsRes = await fetch('/api/chat/send', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: JSON.stringify(body)
     })
-    if (!dsRes.ok) throw new Error(`HTTP ${dsRes.status}`)
+    if (!dsRes.ok) {
+      let errMsg = `HTTP ${dsRes.status}`
+      try {
+        const errData = await dsRes.json()
+        if (errData.message) errMsg = errData.message
+      } catch {}
+      throw new Error(errMsg)
+    }
     const reader = dsRes.body.getReader()
     const decoder = new TextDecoder()
     let buf = '', rawText = '', eventType = 'message'
@@ -210,8 +239,8 @@ async function streamResponse(body, aiIdx) {
         eventType = 'message'
       }
     }
-  } catch {
-    messages.value[aiIdx].content = '消息发送失败，请检查后端服务后重试。'
+  } catch (e) {
+    messages.value[aiIdx].content = '消息发送失败：' + (e.message || '请检查后端服务后重试')
   }
   streaming.value = false
   scrollToBottom()

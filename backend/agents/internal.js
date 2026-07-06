@@ -7,7 +7,6 @@ const systemPrompt = `你是 MClaw 企业经营管理助手「小内」。你是
 - **进销存**: 采购入库、销售出库、库存台账、退换货管理（全部支持增删改查）
 - **人事**: 员工档案增删改查、部门、绩效考核月报、考勤月报、招聘管理
 - **财务**: 应收账款、应付账款查询及汇总统计
-- **招投标**: 招标公告查询、关键词搜索、来源管理
 - **文档**: 文档列表、文档搜索、文档分类
 
 ## 行为准则
@@ -514,70 +513,6 @@ const tools = [
     function: {
       name: 'get_finance_summary',
       description: '获取财务汇总统计（应收/应付账款总额、已收/已付、未收/未付）',
-      parameters: { type: 'object', properties: {}, required: [] }
-    }
-  },
-
-  // ─── 招投标统计 ───
-  {
-    type: 'function',
-    function: {
-      name: 'list_bid_statistics',
-      description: '查询招投标统计信息（含项目名称、招标方、中标方、预算金额、地区、行业等），可按关键词/地区/行业筛选',
-      parameters: {
-        type: 'object',
-        properties: {
-          keyword: { type: 'string', description: '关键词搜索（匹配项目名称、招标方、中标方、项目内容）' },
-          region: { type: 'string', description: '地区筛选' },
-          industry: { type: 'string', description: '行业筛选' },
-          page: { type: 'integer', description: '页码，默认1' }
-        },
-        required: []
-      }
-    }
-  },
-
-  // ─── 招投标 ───
-  {
-    type: 'function',
-    function: {
-      name: 'list_bid_items',
-      description: '查询招投标项目列表，可按状态或关键词筛选',
-      parameters: {
-        type: 'object',
-        properties: {
-          status: { type: 'string', description: '状态筛选：new/tracked/archived，不传返回全部' },
-          keyword: { type: 'string', description: '关键词搜索' }
-        },
-        required: []
-      }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'search_bid_items',
-      description: '按关键词搜索招投标项目',
-      parameters: {
-        type: 'object',
-        properties: { keyword: { type: 'string', description: '搜索关键词' } },
-        required: ['keyword']
-      }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'list_bid_sources',
-      description: '查询招投标数据来源列表',
-      parameters: { type: 'object', properties: {}, required: [] }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'list_bid_keywords',
-      description: '查询招投标监控关键词列表',
       parameters: { type: 'object', properties: {}, required: [] }
     }
   },
