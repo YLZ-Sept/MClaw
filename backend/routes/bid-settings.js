@@ -6,7 +6,6 @@ const path = require('path');
 
 const router = Router();
 const TXT_DIR = path.join(__dirname, '..', 'data', 'bid-txt');
-const COOKIE_FILE = path.join(__dirname, '..', 'data', 'woyaobid-cookies.json');
 
 // Keywords for classification
 const WIN_KW = ['中标', '成交', '结果'];
@@ -97,129 +96,60 @@ router.get('/settings', (req, res) => {
   res.json({ code: 200, data: { routes, sources, summary } });
 });
 
-// ── 乙方宝 Cookie 管理 ──
+// ── 乙方宝登录管理（Playwright persistent context）──
 
+const COOKIE_FILE = path.join(__dirname, '..', 'data', 'woyaobid-cookies.json');
+
+router.get('/woyaobid-status', (req, res) => {
+  const loggedIn = require('../services/ztb-sjcj-bridge').checkLoginState();
+  res.json({ code: 200, data: { logged_in: loggedIn } });
+});
+
+// 获取已保存的 Cookie
 router.get('/woyaobid-cookies', (req, res) => {
-  if (!fs.existsSync(COOKIE_FILE)) {
-    return res.json({ code: 200, data: { has_cookies: false, count: 0, updated_at: null } });
-  }
   try {
-    const cookies = JSON.parse(fs.readFileSync(COOKIE_FILE, 'utf-8'));
-    const stat = fs.statSync(COOKIE_FILE);
-    res.json({ code: 200, data: {
-      has_cookies: Array.isArray(cookies) && cookies.length > 0,
-      count: Array.isArray(cookies) ? cookies.length : 0,
-      updated_at: stat.mtime.toISOString()
-    }});
-  } catch {
+    if (fs.existsSync(COOKIE_FILE)) {
+      const raw = fs.readFileSync(COOKIE_FILE, 'utf-8');
+      const cookies = JSON.parse(raw);
+      const stat = fs.statSync(COOKIE_FILE);
+      res.json({ code: 200, data: { has_cookies: true, count: cookies.length, updated_at: stat.mtime.toISOString() } });
+    } else {
+      res.json({ code: 200, data: { has_cookies: false, count: 0, updated_at: null } });
+    }
+  } catch (e) {
     res.json({ code: 200, data: { has_cookies: false, count: 0, updated_at: null } });
   }
 });
 
+// 保存 Cookie（前端粘贴 JSON）
 router.post('/woyaobid-cookies', (req, res) => {
-  const { cookies } = req.body;
-  if (!cookies) return res.status(400).json({ code: 400, message: '缺少 cookies 字段' });
-
-  let parsed = cookies;
-  if (typeof cookies === 'string') {
-    try { parsed = JSON.parse(cookies); } catch {
-      return res.status(400).json({ code: 400, message: 'Cookie JSON 格式无效' });
-    }
-  }
-  if (!Array.isArray(parsed) || parsed.length === 0) {
-    return res.status(400).json({ code: 400, message: 'Cookie 应为非空数组' });
-  }
-
-  const dir = path.dirname(COOKIE_FILE);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(COOKIE_FILE, JSON.stringify(parsed, null, 2));
-  console.log(`[bid-settings] 乙方宝 Cookie 已保存: ${parsed.length} 条`);
-  res.json({ code: 200, data: { count: parsed.length, message: 'Cookie 保存成功' } });
-});
-
-// 自动登录：打开可见浏览器，用户扫码登录后自动捕获 Cookie
-router.post('/woyaobid-login', async (req, res) => {
-  let browser = null;
-  let context = null;
-
   try {
-    const { chromium } = require('playwright');
-
-    // 确保 cookie 目录存在
+    const { cookies } = req.body;
+    let parsed;
+    if (typeof cookies === 'string') {
+      parsed = JSON.parse(cookies);
+    } else if (Array.isArray(cookies)) {
+      parsed = cookies;
+    } else {
+      return res.status(400).json({ code: 400, message: 'Cookie 格式无效，需要 JSON 数组' });
+    }
     const dir = path.dirname(COOKIE_FILE);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-
-    // 尝试加载已有 cookie
-    let existingCookies = [];
-    if (fs.existsSync(COOKIE_FILE)) {
-      try { existingCookies = JSON.parse(fs.readFileSync(COOKIE_FILE, 'utf-8')); } catch {}
-    }
-
-    const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
-    browser = await chromium.launch({ headless: false });
-    context = await browser.newContext({ userAgent: UA });
-
-    if (existingCookies.length > 0) {
-      await context.addCookies(existingCookies);
-    }
-
-    const page = await context.newPage();
-    await page.goto('https://qiye.qianlima.com', { waitUntil: 'domcontentloaded', timeout: 30000 });
-
-    console.log('[bid-settings] 浏览器已打开，等待用户登录乙方宝...');
-
-    // 等待用户登录（最多 3 分钟），检测页面出现用户相关元素或 cookie 变化
-    const startTime = Date.now();
-    const timeout = 3 * 60 * 1000;
-    let cookies = [];
-
-    while (Date.now() - startTime < timeout) {
-      await new Promise(r => setTimeout(r, 2000));
-      cookies = await context.cookies();
-
-      // 检查是否有登录态 cookie（yfbSite.session.id 或其他 session cookie）
-      const hasSession = cookies.some(c =>
-        c.name && (c.name.includes('session') || c.name.includes('token') || c.name.includes('openid') || c.name.includes('yfb'))
-      );
-      const enoughCookies = cookies.length >= 3;
-
-      if (hasSession && enoughCookies) {
-        // 再等 3 秒确保 cookie 稳定
-        await new Promise(r => setTimeout(r, 3000));
-        cookies = await context.cookies();
-        break;
-      }
-    }
-
-    // 检查是否成功获取到足够的 cookie
-    if (cookies.length < 3) {
-      await page.close();
-      await context.close();
-      await browser.close();
-      return res.json({ code: 400, message: '登录超时或未检测到有效 Cookie，请确保已在浏览器中完成扫码登录' });
-    }
-
-    // 保存为简化格式（name, value, domain, path）
-    const simplified = cookies.map(c => ({
-      name: c.name,
-      value: c.value,
-      domain: c.domain,
-      path: c.path || '/'
-    }));
-
-    fs.writeFileSync(COOKIE_FILE, JSON.stringify(simplified, null, 2));
-
-    await page.close();
-    await context.close();
-    await browser.close();
-
-    console.log(`[bid-settings] 乙方宝 自动登录成功，捕获 ${simplified.length} 条 Cookie`);
-    res.json({ code: 200, data: { count: simplified.length, message: '登录成功，Cookie 已自动保存' } });
+    fs.writeFileSync(COOKIE_FILE, JSON.stringify(parsed, null, 2), 'utf-8');
+    res.json({ code: 200, data: { count: parsed.length } });
   } catch (e) {
-    console.error('[bid-settings] 自动登录失败:', e.message);
-    try { if (context) await context.close(); } catch {}
-    try { if (browser) await browser.close(); } catch {}
-    res.status(500).json({ code: 500, message: '自动登录失败: ' + e.message });
+    res.status(400).json({ code: 400, message: '保存失败: ' + e.message });
+  }
+});
+
+// 打开浏览器让用户扫码登录
+router.post('/woyaobid-login', async (req, res) => {
+  try {
+    const bridge = require('../services/ztb-sjcj-bridge');
+    const result = await bridge.login();
+    res.json({ code: 200, data: result });
+  } catch (e) {
+    res.status(500).json({ code: 500, message: '登录失败: ' + e.message });
   }
 });
 

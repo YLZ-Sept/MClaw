@@ -1,0 +1,29 @@
+# Browser persistent state (contains login cookies)
+browser_state/
+
+# Data and output
+data/
+output/
+
+# Signal files
+.login_ready
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Test artifacts
+_test_*.json
+_test_*.html
+_test_*.txt
+_detail_*.*
+_first_item.*
+_page.*
+_main_page.*
+_main_content.*
+_api_*.*
+_headers.txt
+_result_*.*
+_item*.*
+_text_snippets.txt
+*.png

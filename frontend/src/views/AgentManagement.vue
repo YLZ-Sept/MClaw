@@ -554,38 +554,36 @@ const bidSettingsDlg = reactive({
 async function openBidSettings() {
   bidSettingsDlg.visible = true
   bidSettingsDlg.loading = true
-  try {
-    const [{ data: d1 }, { data: d2 }] = await Promise.all([
-      request.get('/bid-agent/settings'),
-      request.get('/bid-agent/woyaobid-cookies')
-    ])
-    if (d1.code === 200) {
-      bidSettingsDlg.routes = d1.data.routes || []
-      bidSettingsDlg.sources = d1.data.sources || []
-      bidSettingsDlg.summary = d1.data.summary || { total_items: 0, new_items: 0, recent_7d: 0, zhongbiao_items: [], caiyou_items: [], txt_files: [] }
-    }
-    if (d2.code === 200) {
-      bidSettingsDlg.woyaobid = d2.data
-    }
-  } catch {}
+  const [r1, r2] = await Promise.allSettled([
+    request.get('/bid-agent/settings'),
+    request.get('/bid-agent/woyaobid-cookies')
+  ])
+  if (r1.status === 'fulfilled' && r1.value.data.code === 200) {
+    const d = r1.value.data.data
+    bidSettingsDlg.routes = d.routes || []
+    bidSettingsDlg.sources = d.sources || []
+    bidSettingsDlg.summary = d.summary || { total_items: 0, new_items: 0, recent_7d: 0, zhongbiao_items: [], caiyou_items: [], txt_files: [] }
+  }
+  if (r2.status === 'fulfilled' && r2.value.data.code === 200) {
+    bidSettingsDlg.woyaobid = r2.value.data.data
+  }
   bidSettingsDlg.loading = false
 }
 async function refreshBidSettings() {
   bidSettingsDlg.loading = true
-  try {
-    const [{ data: d1 }, { data: d2 }] = await Promise.all([
-      request.get('/bid-agent/settings'),
-      request.get('/bid-agent/woyaobid-cookies')
-    ])
-    if (d1.code === 200) {
-      bidSettingsDlg.routes = d1.data.routes || []
-      bidSettingsDlg.sources = d1.data.sources || []
-      bidSettingsDlg.summary = d1.data.summary || { total_items: 0, new_items: 0, recent_7d: 0, zhongbiao_items: [], caiyou_items: [], txt_files: [] }
-    }
-    if (d2.code === 200) {
-      bidSettingsDlg.woyaobid = d2.data
-    }
-  } catch {}
+  const [r1, r2] = await Promise.allSettled([
+    request.get('/bid-agent/settings'),
+    request.get('/bid-agent/woyaobid-cookies')
+  ])
+  if (r1.status === 'fulfilled' && r1.value.data.code === 200) {
+    const d = r1.value.data.data
+    bidSettingsDlg.routes = d.routes || []
+    bidSettingsDlg.sources = d.sources || []
+    bidSettingsDlg.summary = d.summary || { total_items: 0, new_items: 0, recent_7d: 0, zhongbiao_items: [], caiyou_items: [], txt_files: [] }
+  }
+  if (r2.status === 'fulfilled' && r2.value.data.code === 200) {
+    bidSettingsDlg.woyaobid = r2.value.data.data
+  }
   bidSettingsDlg.loading = false
 }
 function openWoyaobidLogin() {

@@ -15,13 +15,13 @@ conn.on('ready', () => {
   console.log(`[tunnel] Connected to ${REMOTE_HOST}`);
 
   // Request remote to listen on TUNNEL_PORT and forward to us
-  conn.forwardIn('0.0.0.0', TUNNEL_PORT, (err, port) => {
+  conn.forwardIn('127.0.0.1', TUNNEL_PORT, (err, port) => {
     if (err) {
       console.error(`[tunnel] forwardIn failed: ${err.message}`);
       conn.end();
       return;
     }
-    console.log(`[tunnel] Cloud server listening on 0.0.0.0:${port} → forwarding to localhost:${TUNNEL_PORT}`);
+    console.log(`[tunnel] Cloud server listening on 127.0.0.1:${port} → forwarding to localhost:${TUNNEL_PORT}`);
   });
 });
 
