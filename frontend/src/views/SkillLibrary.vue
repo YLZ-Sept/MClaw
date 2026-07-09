@@ -6,20 +6,6 @@
     </div>
     <div class="pg-body">
       <el-tabs v-model="activeTab">
-        <el-tab-pane label="本地技能" name="local">
-          <div class="skill-grid">
-            <div v-for="s in skills" :key="s.id" class="skill-card" @click="openSkill(s)">
-              <div class="sc-icon">{{ s.emoji || '⚡' }}</div>
-              <div class="sc-body">
-                <div class="sc-name">{{ s.name }}</div>
-                <div class="sc-desc">{{ s.desc || '暂无描述' }}</div>
-              </div>
-            </div>
-            <div v-if="!skills.length" class="skill-empty">
-              <el-empty description="暂无可用技能" />
-            </div>
-          </div>
-        </el-tab-pane>
         <el-tab-pane label="我的技能" name="openclaw">
           <div class="category-bar">
             <span v-for="cat in categories" :key="cat.key"
@@ -88,65 +74,15 @@
         </el-tab-pane>
       </el-tabs>
     </div>
-
-    <!-- 技能详情弹窗 -->
-    <el-dialog v-model="detailDlg.visible" :title="detailDlg.skill?.name" width="620px" :close-on-click-modal="false">
-      <div class="detail-body">
-        <div class="detail-desc">{{ detailDlg.skill?.desc }}</div>
-        <div class="detail-section">
-          <div class="detail-section-title">技能说明</div>
-          <div class="detail-content" v-html="renderMd(detailDlg.skill?.prompt_snippet || '')"></div>
-        </div>
-      </div>
-      <template #footer>
-        <el-button @click="detailDlg.visible=false">关闭</el-button>
-        <el-button v-if="detailDlg.skill?.id==='ppt-generator-builtin'" type="primary" @click="detailDlg.visible=false; pptDlg.visible=true">生成 PPT</el-button>
-      </template>
-    </el-dialog>
-
-    <!-- PPT 生成弹窗 -->
-    <el-dialog v-model="pptDlg.visible" title="生成 PPT" width="560px" :close-on-click-modal="false">
-      <div v-if="pptDlg.result" class="ppt-result">
-        <el-result icon="success" title="PPT 生成成功">
-          <template #sub-title>共 {{ pptDlg.result.slides_count }} 页幻灯片</template>
-          <template #extra>
-            <el-button type="primary" @click="downloadPpt(pptDlg.result.download_url)">下载 PPT</el-button>
-            <el-button @click="pptDlg.result=null;pptDlg.prompt=''">再生成一份</el-button>
-          </template>
-        </el-result>
-      </div>
-      <template v-else>
-        <el-form label-width="0">
-          <el-form-item>
-            <div class="ppt-prompt-label">描述你想要生成的 PPT 内容</div>
-            <el-input v-model="pptDlg.prompt" type="textarea" :rows="5"
-              placeholder="例如：Q3 营销复盘，包含核心数据、增长引擎和风险预警，Q4 策略规划"/>
-          </el-form-item>
-        </el-form>
-        <div class="ppt-examples">
-          <span class="ppt-examples-label">试试这些：</span>
-          <el-tag v-for="eg in pptExamples" :key="eg" size="small" class="ppt-eg-tag" @click="pptDlg.prompt=eg">{{ eg }}</el-tag>
-        </div>
-      </template>
-      <template #footer>
-        <el-button @click="pptDlg.visible=false">关闭</el-button>
-        <el-button v-if="!pptDlg.result" type="primary" :loading="pptDlg.loading" @click="doGeneratePPT">生成 PPT</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { marked } from 'marked'
 import request from '../api/index.js'
 
-const activeTab = ref('local')
-const skills = ref([])
-const detailDlg = ref({ visible: false, skill: null })
-const pptDlg = ref({ visible: false, prompt: '', loading: false, result: null })
-const pptExamples = ['Q3 营收复盘，分析增长引擎与风险', '新产品发布会，面向投资人', '季度技术分享：AI 在企业中的应用', '年度工作总结与明年规划']
+const activeTab = ref('openclaw')
 
 // ─── 分类 & 我的技能 ───
 const activeCategory = ref('all')
@@ -231,20 +167,11 @@ function skillEmoji(name) {
   return '⚡'
 }
 
-function renderMd(text) {
-  return marked(text || '')
-}
 
 function isInstalled(slug) {
   return installedSlugs.value.has(slug)
 }
 
-async function loadSkills() {
-  try {
-    const { data } = await request.get('/agent-skills')
-    skills.value = (data.data || []).map(s => ({ ...s, emoji: skillEmoji(s.name) }))
-  } catch {}
-}
 
 async function loadInstalledSlugs() {
   try {
@@ -348,32 +275,11 @@ async function installSkill(s) {
   s._installing = false
 }
 
-function openSkill(s) {
-  detailDlg.value = { visible: true, skill: s }
-}
 
-async function doGeneratePPT() {
-  if (!pptDlg.value.prompt.trim()) return
-  pptDlg.value.loading = true
-  try {
-    const { data } = await request.post('/ppt/generate', { prompt: pptDlg.value.prompt })
-    if (data.code === 200) {
-      pptDlg.value.result = data.data
-    } else {
-      ElMessage.error(data.message || '生成失败')
-    }
-  } catch (e) {
-    ElMessage.error(e.response?.data?.message || '生成失败')
-  }
-  pptDlg.value.loading = false
-}
 
-function downloadPpt(url) {
-  window.open(url, '_blank')
-}
 
 watch(activeTab, (tab) => { if (tab === 'openclaw') { loadOpenClawSkills(); loadRecentUsage(); activeCategory.value = 'all' } })
-onMounted(() => { loadSkills(); loadInstalledSlugs() })
+onMounted(() => { loadInstalledSlugs() })
 </script>
 
 <style scoped>

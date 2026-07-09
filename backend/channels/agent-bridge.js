@@ -408,45 +408,6 @@ function loadAgentConfig(agent) {
     }
   }
 
-  // 附加技能（prompt snippets + tool definitions）
-  // 查询范围：原始 agent（数字人 ID）+ 每个解析出的 agent/agent_app
-  const skillAgentIds = [agent, ...agentIds].filter(Boolean);
-  try {
-    const seenSkillIds = new Set();
-    let skillPrompts = '';
-    for (const aid of skillAgentIds) {
-      const skills = db.prepare(
-        'SELECT * FROM agent_skills WHERE (agent_id=? OR agent_id IS NULL OR agent_id=\'\') AND status=\'active\''
-      ).all(aid);
-      for (const s of skills) {
-        if (seenSkillIds.has(s.id)) continue;
-        seenSkillIds.add(s.id);
-        // prompt snippet
-        if (s.prompt_snippet) {
-          skillPrompts += `\n## ${s.name}\n${s.prompt_snippet}\n`;
-        }
-        // tool definitions
-        if (s.tools) {
-          try {
-            const skillTools = JSON.parse(s.tools);
-            if (Array.isArray(skillTools)) {
-              for (const st of skillTools) {
-                const stName = st.function?.name;
-                if (stName && !seenToolNames.has(stName)) {
-                  seenToolNames.add(stName);
-                  mergedTools.push(st);
-                }
-              }
-            }
-          } catch {}
-        }
-      }
-    }
-    if (skillPrompts) {
-      systemPrompt += '\n\n---\n\n# 附加技能' + skillPrompts;
-    }
-  } catch {}
-
   // 绑定的知识库文档（所有 agent_app 行）
   try {
     const allArticleIds = allDbRows
@@ -607,6 +568,59 @@ function loadAgentConfig(agent) {
           },
           required: ['url']
         }
+      }
+    });
+  }
+
+  
+  // 内置文档生成工具（原本地技能迁移）
+  if (!seenToolNames.has('generate_pptx')) {
+    mergedTools.push({
+      type: 'function',
+      function: {
+        name: 'generate_pptx',
+        description: '生成专业 PowerPoint 演示文稿。参数: theme(business/modern/tech/minimal), slides(每页含layout/type/title/content/chart/table等)。',
+        parameters: { type: 'object', properties: { theme: { type: 'string' }, slides: { type: 'array', items: { type: 'object' } } }, required: [] }
+      }
+    });
+  }
+  if (!seenToolNames.has('generate_excel')) {
+    mergedTools.push({
+      type: 'function',
+      function: {
+        name: 'generate_excel',
+        description: '生成专业 Excel 报表，支持多 Sheet、标题、表头样式、斑马纹。参数: title, author, sheets(每sheet含name/title/columns/rows)。',
+        parameters: { type: 'object', properties: { title: { type: 'string' }, author: { type: 'string' }, sheets: { type: 'array', items: { type: 'object' } } }, required: [] }
+      }
+    });
+  }
+  if (!seenToolNames.has('generate_pdf')) {
+    mergedTools.push({
+      type: 'function',
+      function: {
+        name: 'generate_pdf',
+        description: '生成 PDF 文档，支持表格、列表、水印。参数: title, author, content(段落数组), page_size(A4/A3/LETTER), orientation(portrait/landscape), watermark。',
+        parameters: { type: 'object', properties: { title: { type: 'string' }, author: { type: 'string' }, content: { type: 'array' }, page_size: { type: 'string' }, orientation: { type: 'string' }, watermark: { type: 'string' } }, required: [] }
+      }
+    });
+  }
+  if (!seenToolNames.has('generate_docx')) {
+    mergedTools.push({
+      type: 'function',
+      function: {
+        name: 'generate_docx',
+        description: '生成 Word (.docx) 文档，支持多级标题、段落、要点列表。参数: title, author, sections(每section含heading/level/paragraphs/bullets/table), footer。',
+        parameters: { type: 'object', properties: { title: { type: 'string' }, author: { type: 'string' }, sections: { type: 'array', items: { type: 'object' } }, footer: { type: 'string' } }, required: [] }
+      }
+    });
+  }
+  if (!seenToolNames.has('generate_diagram')) {
+    mergedTools.push({
+      type: 'function',
+      function: {
+        name: 'generate_diagram',
+        description: '使用 Mermaid 语法生成流程图、时序图、甘特图、类图、状态图。参数: code(Mermaid代码), theme(default/forest/dark/neutral), format(png/svg)。',
+        parameters: { type: 'object', properties: { code: { type: 'string' }, theme: { type: 'string' }, format: { type: 'string' } }, required: ['code'] }
       }
     });
   }

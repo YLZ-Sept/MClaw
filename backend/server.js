@@ -59,7 +59,6 @@ const routePermMap = [
   { prefix: '/api/org-charts', perm: 'docs' },
   { prefix: '/api/chat-sessions', perm: 'chat' },
   { prefix: '/api/agent-apps', perm: 'digital' },
-  { prefix: '/api/agent-skills', perm: 'digital' },
   { prefix: '/api/agent-openclaw-skills', perm: 'digital' },
   { prefix: '/api/digital-employees', perm: 'digital' },
   { prefix: '/api/digital-human', perm: 'digital' },
@@ -146,7 +145,6 @@ app.use('/api/bid-statistics', require('./routes/bid-statistics'));
 app.use('/api/bid-agent', require('./routes/bid-settings'));
 app.use('/api/chat-sessions', requireAuth, require('./routes/chat-sessions'));
 app.use('/api/agent-apps', require('./routes/agent-apps'));
-app.use('/api/agent-skills', require('./routes/agent-skills'));
 app.use('/api/agent-openclaw-skills', require('./routes/agent-openclaw-skills'));
 app.use('/api/expert-agents', requireAuth, require('./routes/expert-agents'));
 app.use('/api/digital-employees', require('./routes/digital-employees'));
