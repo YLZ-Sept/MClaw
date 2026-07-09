@@ -231,12 +231,30 @@ router.post('/import', importUpload.single('file'), async (req, res) => {
       }
     }
 
+    // 查找 SKILL.md（支持嵌套目录，如 GitHub zip 的 repo/skill-name/SKILL.md）
+    function findSkillMd(dir, depth) {
+      if (depth > 3) return null;
+      const mdPath = path.join(dir, 'SKILL.md');
+      if (fs.existsSync(mdPath)) return dir;
+      try {
+        for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+          if (e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules') {
+            const found = findSkillMd(path.join(dir, e.name), depth + 1);
+            if (found) return found;
+          }
+        }
+      } catch {}
+      return null;
+    }
+    const actualSkillDir = findSkillMd(skillDir, 0);
+    if (!actualSkillDir) {
+      return res.status(400).json({ code: 400, message: 'zip 包缺少 SKILL.md 文件' });
+    }
+    skillDir = actualSkillDir;
+
     // 校验必须文件
     const skillMdPath = path.join(skillDir, 'SKILL.md');
     const metaPath = path.join(skillDir, '_meta.json');
-    if (!fs.existsSync(skillMdPath)) {
-      return res.status(400).json({ code: 400, message: 'zip 包缺少 SKILL.md 文件' });
-    }
 
     // 如果缺少 _meta.json，从 SKILL.md 的 YAML frontmatter 自动生成
     if (!fs.existsSync(metaPath)) {
