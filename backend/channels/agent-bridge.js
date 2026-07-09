@@ -593,6 +593,24 @@ function loadAgentConfig(agent) {
     });
   }
 
+  // 所有 Agent 自动注入网页提取工具
+  if (!seenToolNames.has('stealth_extract')) {
+    mergedTools.push({
+      type: 'function',
+      function: {
+        name: 'stealth_extract',
+        description: '提取任意网页的结构化正文内容（文本格式）。使用内置浏览器渲染页面后提取，可处理公众号文章、新闻、博客等网页。当用户要求查看网页、阅读文章、获取页面信息时使用此工具。返回页面标题和正文文本。',
+        parameters: {
+          type: 'object',
+          properties: {
+            url: { type: 'string', description: '要提取的网页完整URL，如 https://mp.weixin.qq.com/s/xxx' }
+          },
+          required: ['url']
+        }
+      }
+    });
+  }
+
   // 注入已勾选的 OpenClaw 技能（prompt + openclaw_exec 工具）
   try {
     const enabledSkills = db.prepare(

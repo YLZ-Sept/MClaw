@@ -721,6 +721,58 @@ async function exec(toolName, args, context) {
         return await readLocalFile(args.filePath, ctx.agentId);
       }
 
+      // ─── 网页内容提取 ───
+      case 'stealth_extract': {
+        if (!args.url) return { error: '缺少 url 参数' };
+        try { new URL(args.url); } catch { return { error: '无效的 URL 格式' }; }
+        const { chromium } = require('playwright');
+        let browser;
+        try {
+          browser = await chromium.launch({ headless: true });
+          const context = await browser.newContext({
+            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            viewport: { width: 1366, height: 768 }
+          });
+          const page = await context.newPage();
+          // 隐藏 webdriver 特征
+          await page.addInitScript(() => {
+            Object.defineProperty(navigator, 'webdriver', { get: () => false });
+            window.chrome = { runtime: {} };
+          });
+          await page.goto(args.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+          const content = await page.evaluate(() => {
+            const title = document.title || '';
+            const article = document.querySelector('article, [role="main"], .rich_media_content, #js_content, .article-content, main');
+            const body = article || document.body;
+            // 提取文本，保留标题和图片说明
+            let text = '';
+            const extract = (node) => {
+              for (const child of node.childNodes) {
+                if (child.nodeType === 3) {
+                  const t = child.textContent.trim();
+                  if (t) text += t + '\n';
+                } else if (child.nodeType === 1) {
+                  const tag = child.tagName?.toLowerCase();
+                  if (['script', 'style', 'noscript', 'nav', 'footer', 'iframe'].includes(tag)) continue;
+                  if (/^h[1-6]$/.test(tag)) text += '\n## ' + child.textContent.trim() + '\n\n';
+                  else if (tag === 'img') { const a = child.getAttribute('alt'); if (a) text += '[图片: ' + a + ']\n'; }
+                  else if (tag === 'a') { const h = child.getAttribute('href'); const t = child.textContent.trim(); if (h && t) text += '[' + t + '](' + h + ')'; }
+                  else if (tag === 'br') text += '\n';
+                  else extract(child);
+                }
+              }
+            };
+            extract(body);
+            return { title, text: text.replace(/\n{3,}/g, '\n\n').trim().substring(0, 8000) };
+          });
+          await browser.close();
+          return { url: args.url, title: content.title, content: content.text, format: 'text' };
+        } catch (err) {
+          if (browser) await browser.close().catch(() => {});
+          return { error: `页面提取失败: ${err.message}` };
+        }
+      }
+
       default:
         return { error: `未知工具: ${toolName}` };
     }
