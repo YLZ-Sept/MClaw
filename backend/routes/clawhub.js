@@ -145,16 +145,42 @@ router.post('/import', importUpload.single('file'), async (req, res) => {
     if (!fs.existsSync(skillMdPath)) {
       return res.status(400).json({ code: 400, message: 'zip 包缺少 SKILL.md 文件' });
     }
+
+    // 如果缺少 _meta.json，从 SKILL.md 的 YAML frontmatter 自动生成
     if (!fs.existsSync(metaPath)) {
-      return res.status(400).json({ code: 400, message: 'zip 包缺少 _meta.json 文件' });
+      const skillMd = fs.readFileSync(skillMdPath, 'utf8');
+      if (skillMd.startsWith('---')) {
+        const end = skillMd.indexOf('---', 4);
+        if (end !== -1) {
+          const frontmatter = {};
+          const lines = skillMd.slice(4, end).split('\n');
+          for (const line of lines) {
+            const ci = line.indexOf(':');
+            if (ci > 0) {
+              const key = line.slice(0, ci).trim();
+              let val = line.slice(ci + 1).trim();
+              if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+                val = val.slice(1, -1);
+              }
+              frontmatter[key] = val;
+            }
+          }
+          if (frontmatter.name) {
+            fs.writeFileSync(metaPath, JSON.stringify({ name: frontmatter.name, version: frontmatter.version, description: frontmatter.description }, null, 2));
+            console.log('[clawhub] 从 SKILL.md 自动生成 _meta.json:', frontmatter.name);
+          }
+        }
+      }
     }
 
     // 读取 _meta.json 获取 slug/skillKey
     let meta;
-    try { meta = JSON.parse(fs.readFileSync(metaPath, 'utf8')); } catch {
-      return res.status(400).json({ code: 400, message: '_meta.json 格式无效' });
+    if (fs.existsSync(metaPath)) {
+      try { meta = JSON.parse(fs.readFileSync(metaPath, 'utf8')); } catch {
+        return res.status(400).json({ code: 400, message: '_meta.json 格式无效' });
+      }
     }
-    const skillName = meta.slug || meta.name || path.basename(skillDir);
+    const skillName = meta?.slug || meta?.name || path.basename(skillDir);
 
     // 目标目录
     const skillsDir = path.join(os.homedir(), '.openclaw', 'workspace', 'skills');
