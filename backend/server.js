@@ -79,7 +79,6 @@ const routePermMap = [
   { prefix: '/api/bids', perm: 'publish' },
   { prefix: '/api/bid-statistics', perm: 'publish' },
   { prefix: '/api/publish', perm: 'publish' },
-  { prefix: '/api/ppt', perm: 'publish' },
   { prefix: '/api/download', perm: 'publish' },
   { prefix: '/api/tasks', perm: 'tasks' },
   { prefix: '/api/clawhub', perm: 'skills' },
@@ -174,7 +173,6 @@ app.use('/api/hot-quick-reply', require('./routes/hot-quick-reply'));
 app.use('/api/hot-leads', require('./routes/hot-leads'));
 app.use('/api/hot-chanjing', require('./routes/hot-chanjing'));
 app.use('/api/social-acquisition', require('./routes/social-acquisition'));
-app.use('/api/ppt', require('./routes/ppt'));
 app.use('/api/download', require('./routes/downloads'));
 
 // 多平台发布 (抖音/小红书/微信视频号)

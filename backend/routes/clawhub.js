@@ -1,5 +1,8 @@
 const express = require('express');
 const router = express.Router();
+const path = require('path');
+const fs = require('fs');
+const os = require('os');
 const wsClient = require('../openclaw/ws-client');
 const { getTranslations, translateInBackground, translateBatch } = require('../services/skill-translator');
 
@@ -58,6 +61,34 @@ router.post('/install', async (req, res) => {
   }
 });
 
+// 扫描文件系统中的本地技能（workspace/skills 目录下含 SKILL.md 的子目录）
+function scanLocalSkills() {
+  const skills = [];
+  const skillsDir = path.join(os.homedir(), '.openclaw', 'workspace', 'skills');
+  if (!fs.existsSync(skillsDir)) return skills;
+  for (const entry of fs.readdirSync(skillsDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const dirPath = path.join(skillsDir, entry.name);
+    const skillMd = path.join(dirPath, 'SKILL.md');
+    if (!fs.existsSync(skillMd)) continue;
+    let meta = {};
+    try {
+      const metaPath = path.join(dirPath, '_meta.json');
+      if (fs.existsSync(metaPath)) meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+    } catch {}
+    skills.push({
+      name: meta.name || meta.slug || entry.name,
+      displayName: meta.name || entry.name,
+      skillKey: entry.name,
+      description: meta.description || '',
+      version: meta.version || '0.0.0',
+      source: 'local',
+      disabled: false
+    });
+  }
+  return skills;
+}
+
 // GET /api/clawhub/status
 router.get('/status', async (req, res) => {
   try {
@@ -71,14 +102,28 @@ router.get('/status', async (req, res) => {
         descZh: t?.desc_zh || null
       };
     });
-    // 后台翻译未缓存的技能
+
+    // 补充扫描文件系统中的本地技能
+    const existingNames = new Set(skills.map(s => (s.skillKey || s.name || '').toLowerCase()));
+    for (const ls of scanLocalSkills()) {
+      if (!existingNames.has(ls.skillKey.toLowerCase())) {
+        skills.push(ls);
+      }
+    }
+
     const untranslated = skills.filter(s => !translations[s.skillKey || s.name]);
     if (untranslated.length > 0) {
       translateInBackground(untranslated);
     }
     res.json({ code: 200, data: { ...result, skills } });
   } catch (e) {
-    res.status(e.status || 500).json({ code: e.status || 500, message: e.message });
+    // OpenClaw 不可用时，至少返回本地技能
+    if (e.status === 503) {
+      const skills = scanLocalSkills();
+      res.json({ code: 200, data: { skills } });
+    } else {
+      res.status(e.status || 500).json({ code: e.status || 500, message: e.message });
+    }
   }
 });
 
@@ -101,9 +146,6 @@ router.post('/translate-batch', async (req, res) => {
 // POST /api/clawhub/import — 导入外部技能 zip 包
 const multer = require('multer');
 const AdmZip = require('adm-zip');
-const path = require('path');
-const fs = require('fs');
-const os = require('os');
 
 const importUpload = multer({ dest: os.tmpdir() });
 

@@ -279,7 +279,7 @@ async function installSkill(s) {
 
 
 watch(activeTab, (tab) => { if (tab === 'openclaw') { loadOpenClawSkills(); loadRecentUsage(); activeCategory.value = 'all' } })
-onMounted(() => { loadInstalledSlugs() })
+onMounted(() => { loadOpenClawSkills(); loadRecentUsage(); loadInstalledSlugs() })
 </script>
 
 <style scoped>
