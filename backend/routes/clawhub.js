@@ -61,6 +61,52 @@ router.post('/install', async (req, res) => {
   }
 });
 
+// ── 技能分类（14个固定分类）──
+const CATEGORIES = {
+  external: '外部技能',
+  design: '设计多媒体', dev: '开发编程', itops: 'IT 运维与安全',
+  data: '数据分析', ai: 'AI Agent', content: '内容创作',
+  knowledge: '知识管理', business: '商业运营', edu: '教育学习',
+  industry: '行业专业', office: '办公效率', life: '生活服务'
+};
+
+const CATEGORY_KEYWORDS = {
+  // 顺序：先匹配语义明确的，后匹配宽泛的（design 兜底）
+  office: ['productivity','workflow','automation','task','schedule','calendar','todo','email','meeting','batch','organize','reminder','deadline','project','note','ppt','presentation','slide','document','word','pdf','excel','markdown','format','convert','template','collab'],
+  business: ['business','crm','sales','market','finance','hr','erp','supply','inventory','order','customer','lead','contract','invoice','payment','account','ecommerce','shop','revenue','tax','payroll','recruitment'],
+  edu: ['education','learn','course','tutorial','quiz','exam','study','teach','train','academy','student','flashcard','explain','lesson','textbook','classroom','skill'],
+  industry: ['legal','medical','health','real estate','logistics','manufacture','retail','compliance','regulation','clinic','construction','pharma','insurance','bank','industry','bid','procurement'],
+  data: ['analytics','visualization','chart','dashboard','bi','etl','csv','spreadsheet','metric','kpi','statistics','tableau','bigquery','databricks','database','sql','parse','extract','transform','report','stats','query','schema','pandas','numpy','jupyter'],
+  itops: ['security','auth','devops','monitor','deploy','server','cloud','network','backup','ci','cd','infra','encrypt','scan','audit','permission','sre','admin','linux','docker','kubernetes','firewall','proxy','dns','ssl','vpn','log','ssh','nginx','terraform','ansible','vault','secret','policy'],
+  dev: ['dev','code','git','browser','api','cli','npm','node','python','debug','terminal','shell','command','sdk','program','javascript','typescript','rust','golang','java','compile','build','ide','vscode','lint','commit','repo','package','plugin','framework','library','frontend','backend','css','html','react','vue','swift'],
+  content: ['content','write','blog','article','social','copywriting','seo','creative','text','story','script','newsletter','tweet','publish','headline','medium','post','essay','translate','summary','caption','writing'],
+  knowledge: ['knowledge','wiki','memory','faq','kb','retrieve','catalog','archive','library','search','obsidian','notion','index','reference','handbook','guide','manual'],
+  ai: ['llm','gpt','claude','agent','chatbot','prompt','rag','embedding','token','copilot','assistant','reasoning','nlp','chat','model','language','completion','vector','llama','mistral','gemini','openai','anthropic','deepseek','qwen','generate','generative','ai'],
+  life: ['travel','food','fitness','weather','shop','news','entertainment','fun','hobby','personal','lifestyle','recipe','restaurant','game','sport','movie','book','pet','music'],
+  design: ['image','video','audio','photo','picture','graphic','draw','art','animation','voice','speech','icon','logo','color','render','3d','canvas','svg','font','filter','effect','camera','sound','design','avatar','screenshot','thumbnail','banner']
+};
+
+function matchCategory(name, description) {
+  const text = ((name || '') + ' ' + (description || '')).toLowerCase();
+  for (const [cat, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
+    for (const kw of keywords) {
+      if (text.includes(kw)) return cat;
+    }
+  }
+  return 'external';
+}
+
+function readMetaCategory(skillKey) {
+  try {
+    const metaPath = path.join(os.homedir(), '.openclaw', 'workspace', 'skills', skillKey, '_meta.json');
+    if (fs.existsSync(metaPath)) {
+      const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+      if (meta.category && CATEGORIES[meta.category]) return meta.category;
+    }
+  } catch {}
+  return null;
+}
+
 // 扫描文件系统中的本地技能（workspace/skills 目录下含 SKILL.md 的子目录）
 function scanLocalSkills() {
   const skills = [];
@@ -76,6 +122,7 @@ function scanLocalSkills() {
       const metaPath = path.join(dirPath, '_meta.json');
       if (fs.existsSync(metaPath)) meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
     } catch {}
+    const category = meta.category || matchCategory(meta.name || entry.name, meta.description || '');
     skills.push({
       name: meta.name || meta.slug || entry.name,
       displayName: meta.name || entry.name,
@@ -83,7 +130,8 @@ function scanLocalSkills() {
       description: meta.description || '',
       version: meta.version || '0.0.0',
       source: 'local',
-      disabled: false
+      disabled: false,
+      category
     });
   }
   return skills;
@@ -96,10 +144,12 @@ router.get('/status', async (req, res) => {
     const translations = getTranslations();
     const skills = (result.skills || []).map(s => {
       const t = translations[s.skillKey || s.name];
+      const category = readMetaCategory(s.skillKey) || matchCategory(s.displayName || s.name, s.description || s.summary);
       return {
         ...s,
         nameZh: t?.name_zh || null,
-        descZh: t?.desc_zh || null
+        descZh: t?.desc_zh || null,
+        category
       };
     });
 
@@ -236,13 +286,44 @@ router.post('/import', importUpload.single('file'), async (req, res) => {
     fs.mkdirSync(targetDir, { recursive: true });
     copyDirSync(skillDir, targetDir);
 
-    res.json({ code: 200, data: { name: skillName, path: targetDir }, message: '导入成功' });
+    // 自动匹配分类并写入 _meta.json
+    const targetMetaPath = path.join(targetDir, '_meta.json');
+    const finalCategory = matchCategory(meta?.displayName || meta?.name || skillName, meta?.description || '');
+    try {
+      let targetMeta = {};
+      if (fs.existsSync(targetMetaPath)) targetMeta = JSON.parse(fs.readFileSync(targetMetaPath, 'utf8'));
+      targetMeta.category = finalCategory;
+      fs.writeFileSync(targetMetaPath, JSON.stringify(targetMeta, null, 2));
+      console.log('[clawhub] 自动分类:', skillName, '→', finalCategory);
+    } catch {}
+
+    res.json({ code: 200, data: { name: skillName, path: targetDir, category: finalCategory }, message: '导入成功' });
   } catch (e) {
     res.status(500).json({ code: 500, message: '导入失败: ' + e.message });
   } finally {
     // 清理临时文件
     try { req.file && fs.unlinkSync(req.file.path); } catch {}
     try { tmpDir && fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+  }
+});
+
+// PUT /api/clawhub/category — 修改技能分类
+router.put('/category', (req, res) => {
+  try {
+    const { skillKey, category } = req.body;
+    if (!skillKey || !category) return res.status(400).json({ code: 400, message: 'skillKey 和 category 为必填项' });
+    if (!CATEGORIES[category]) return res.status(400).json({ code: 400, message: '无效分类: ' + category });
+
+    const metaPath = path.join(os.homedir(), '.openclaw', 'workspace', 'skills', skillKey, '_meta.json');
+    let meta = {};
+    if (fs.existsSync(metaPath)) {
+      try { meta = JSON.parse(fs.readFileSync(metaPath, 'utf8')); } catch {}
+    }
+    meta.category = category;
+    fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
+    res.json({ code: 200, data: { skillKey, category } });
+  } catch (e) {
+    res.status(500).json({ code: 500, message: e.message });
   }
 });
 

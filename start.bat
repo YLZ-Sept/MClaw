@@ -15,19 +15,7 @@ echo   URL: http://localhost:18621
 echo ================================
 echo.
 
-:: ── Start OpenClaw Gateway ──
-where openclaw >nul 2>&1
-if %ERRORLEVEL% NEQ 0 (
-    echo [warn] openclaw not found in PATH, skip gateway startup
-    echo [warn] run setup.bat to install OpenClaw
-    goto :backend_start
-)
-echo [start] OpenClaw gateway :18622
-start "OpenClaw" /B cmd /c "openclaw gateway run --port 18622 --bind loopback >> %~dp0backend\openclaw.log 2>&1"
-call :wait_for "http://localhost:18622/health" "OpenClaw" 10
-
-:backend_start
-:: ── Start MClaw Backend ──
+:: ── Start MClaw Backend（含 AI引擎 auto-start）──
 echo [start] backend :18621
 start /B cmd /c "cd /d %~dp0backend && node server.js >> server.log 2>&1"
 call :wait_for "http://localhost:18621/api/status" "backend" 15

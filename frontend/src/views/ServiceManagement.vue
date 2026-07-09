@@ -55,7 +55,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { Refresh, Cpu, Memo, Timer, Monitor, VideoCamera, PictureFilled } from '@element-plus/icons-vue'
+import { Refresh, Cpu, Memo, Timer, Monitor, VideoCamera, PictureFilled, Connection } from '@element-plus/icons-vue'
 import { getStatus } from '../api/index.js'
 
 const services = ref([])
@@ -84,20 +84,21 @@ const URLS = {
   '后端 API 服务': 'http://localhost:18621',
   '抖音发布服务': 'http://localhost:8000',
   '前端 Web 服务': 'http://localhost:18621',
+  'AI引擎服务': 'http://localhost:18622',
 }
 
 function svcIcon(name) {
-  const map = { '后端 API 服务': Monitor, '抖音发布服务': VideoCamera, '前端 Web 服务': PictureFilled }
+  const map = { '后端 API 服务': Monitor, '抖音发布服务': VideoCamera, '前端 Web 服务': PictureFilled, 'AI引擎服务': Connection }
   return map[name] || Monitor
 }
 
 function svcIconBg(name) {
-  const map = { '后端 API 服务': '#ede9fe', '抖音发布服务': '#fce7f3', '前端 Web 服务': '#e0f2fe' }
+  const map = { '后端 API 服务': '#ede9fe', '抖音发布服务': '#fce7f3', '前端 Web 服务': '#e0f2fe', 'AI引擎服务': '#fef3c7' }
   return map[name] || '#ede9fe'
 }
 
 function svcIconColor(name) {
-  const map = { '后端 API 服务': '#7c3aed', '抖音发布服务': '#db2777', '前端 Web 服务': '#0284c7' }
+  const map = { '后端 API 服务': '#7c3aed', '抖音发布服务': '#db2777', '前端 Web 服务': '#0284c7', 'AI引擎服务': '#d97706' }
   return map[name] || '#7c3aed'
 }
 
@@ -172,7 +173,7 @@ onUnmounted(() => {
 /* 服务卡片 */
 .service-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 12px;
 }
 .service-card {

@@ -500,7 +500,7 @@ async function exec(toolName, args, context) {
       case 'generate_pptx': {
         const { generatePPTX } = require('../services/ppt-generator');
         const result = await generatePPTX({ theme: args.theme || 'business', slides: args.slides || [] });
-        return { filename: result.filename, download_url: `/api/ppt/download/${result.filename}`, message: `PPT 生成成功！\n\n[📥 点击下载 PPT](/api/ppt/download/${result.filename})` };
+        return { filename: result.filename, download_url: `/api/download/ppt/${result.filename}`, message: `PPT 生成成功！\n\n[📥 点击下载 PPT](/api/download/ppt/${result.filename})` };
       }
 
       // ─── Excel 报表 ───

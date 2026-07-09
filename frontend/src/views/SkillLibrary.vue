@@ -32,8 +32,16 @@
               <div class="sc-icon">{{ s.emoji || '⚡' }}</div>
               <div class="sc-body">
                 <div class="sc-name">{{ s.nameZh || s.displayName || s.name }}</div>
-                <div class="sc-desc">{{ s.descZh || s.description || s.summary || '暂无描述' }}</div>
-                <div class="sc-meta" v-if="s.version">v{{ s.version }} · {{ s.source || '' }}</div>
+                <el-tooltip :content="s.descZh || s.description || s.summary || '暂无描述'" placement="top" :show-after="400" effect="light">
+                  <div class="sc-desc">{{ s.descZh || s.description || s.summary || '暂无描述' }}</div>
+                </el-tooltip>
+                <div class="sc-cat-row">
+                  <el-select v-model="s._category" size="small" class="sc-cat-select"
+                    @change="(v) => updateCategory(s, v)" @click.stop>
+                    <el-option v-for="c in categories.slice(2)" :key="c.key" :label="c.icon + ' ' + c.label" :value="c.key" />
+                  </el-select>
+                </div>
+                <div class="sc-meta" v-if="s.version">v{{ s.version }} · {{ s.source || 'openclaw' }}</div>
               </div>
               <div class="sc-action">
                 <el-tag v-if="!s.disabled" size="small" type="success" effect="plain" class="skill-status-tag" @click.stop="toggleSkill(s)">已启用</el-tag>
@@ -90,7 +98,7 @@ const recentUsage = ref([])
 
 const categories = [
   { key: 'all', label: '全部', icon: '📋' },
-  { key: 'recent', label: '最近使用', icon: '🕐' },
+
   { key: 'design', label: '设计多媒体', icon: '🎨' },
   { key: 'dev', label: '开发编程', icon: '🛠️' },
   { key: 'itops', label: 'IT 运维与安全', icon: '🔒' },
@@ -102,22 +110,23 @@ const categories = [
   { key: 'edu', label: '教育学习', icon: '🎓' },
   { key: 'industry', label: '行业专业', icon: '🏭' },
   { key: 'office', label: '办公效率', icon: '⚡' },
-  { key: 'life', label: '生活服务', icon: '🌟' }
+  { key: 'life', label: '生活服务', icon: '🌟' },
+  { key: 'external', label: '外部技能', icon: '📦' }
 ]
 
 const CATEGORY_KEYWORDS = {
-  design: ['image', 'video', 'audio', 'music', 'photo', 'picture', 'design', 'graphic', 'draw', 'art', 'animation', 'voice', 'speech', 'icon', 'logo', 'color', 'render', '3d', 'canvas', 'svg', 'font', 'filter', 'effect', 'edit', 'clip', 'screen', 'record', 'camera', 'sound'],
-  dev: ['dev', 'code', 'git', 'browser', 'api', 'cli', 'npm', 'node', 'python', 'debug', 'terminal', 'shell', 'command', 'sdk', 'program', 'javascript', 'typescript', 'rust', 'golang', 'java', 'compile', 'build', 'ide', 'vscode', 'lint', 'commit', 'repo', 'package', 'plugin', 'framework', 'library', 'frontend', 'backend', 'css', 'html', 'react', 'vue', 'swift'],
-  itops: ['security', 'auth', 'devops', 'monitor', 'deploy', 'server', 'cloud', 'network', 'backup', 'ci', 'cd', 'infra', 'encrypt', 'scan', 'audit', 'permission', 'sre', 'admin', 'linux', 'docker', 'kubernetes', 'firewall', 'proxy', 'dns', 'ssl', 'vpn', 'log', 'ssh', 'nginx', 'terraform', 'ansible', 'vault', 'secret', 'policy'],
-  data: ['analytics', 'visualization', 'chart', 'dashboard', 'bi', 'etl', 'csv', 'spreadsheet', 'metric', 'kpi', 'statistics', 'tableau', 'bigquery', 'databricks', 'database', 'sql', 'excel', 'parse', 'extract', 'transform', 'report', 'stats', 'query', 'schema', 'pandas', 'numpy', 'jupyter'],
-  ai: ['llm', 'gpt', 'claude', 'agent', 'chatbot', 'prompt', 'rag', 'embedding', 'token', 'copilot', 'assistant', 'reasoning', 'nlp', 'chat', 'ai', 'model', 'language', 'completion', 'vector', 'llama', 'mistral', 'gemini', 'openai', 'anthropic', 'deepseek', 'qwen', 'generate', 'generative'],
-  content: ['content', 'write', 'blog', 'article', 'social', 'copywriting', 'seo', 'creative', 'text', 'story', 'script', 'newsletter', 'tweet', 'publish', 'headline', 'medium', 'post', 'essay', 'translate', 'summary', 'caption'],
-  knowledge: ['knowledge', 'wiki', 'memory', 'faq', 'kb', 'retrieve', 'catalog', 'archive', 'library', 'record', 'search', 'obsidian', 'notion', 'index', 'reference', 'handbook', 'guide', 'manual'],
-  business: ['business', 'crm', 'sales', 'market', 'finance', 'hr', 'erp', 'supply', 'inventory', 'order', 'customer', 'lead', 'contract', 'invoice', 'payment', 'account', 'ecommerce', 'shop', 'revenue', 'tax', 'payroll'],
-  edu: ['education', 'learn', 'course', 'tutorial', 'quiz', 'exam', 'study', 'teach', 'train', 'skill', 'academy', 'student', 'flashcard', 'explain', 'lesson', 'textbook', 'classroom'],
-  industry: ['legal', 'medical', 'health', 'real estate', 'logistics', 'manufacture', 'retail', 'industry', 'compliance', 'regulation', 'clinic', 'construction', 'pharma', 'insurance', 'bank'],
-  office: ['productivity', 'workflow', 'automation', 'task', 'schedule', 'calendar', 'todo', 'email', 'meeting', 'office', 'batch', 'organize', 'quick', 'reminder', 'plan', 'deadline', 'project', 'note', 'ppt', 'presentation', 'slide', 'document', 'word', 'pdf', 'markdown', 'format', 'convert', 'template', 'manage', 'collab'],
-  life: ['travel', 'food', 'health', 'fitness', 'weather', 'shop', 'news', 'entertainment', 'fun', 'hobby', 'personal', 'lifestyle', 'recipe', 'restaurant', 'game', 'sport', 'music', 'movie', 'book', 'pet']
+  office: ['productivity','workflow','automation','task','schedule','calendar','todo','email','meeting','batch','organize','reminder','deadline','project','note','ppt','presentation','slide','document','word','pdf','excel','markdown','format','convert','template','collab'],
+  business: ['business','crm','sales','market','finance','hr','erp','supply','inventory','order','customer','lead','contract','invoice','payment','account','ecommerce','shop','revenue','tax','payroll','recruitment'],
+  edu: ['education','learn','course','tutorial','quiz','exam','study','teach','train','academy','student','flashcard','explain','lesson','textbook','classroom','skill'],
+  industry: ['legal','medical','health','real estate','logistics','manufacture','retail','compliance','regulation','clinic','construction','pharma','insurance','bank','industry','bid','procurement'],
+  data: ['analytics','visualization','chart','dashboard','bi','etl','csv','spreadsheet','metric','kpi','statistics','tableau','bigquery','databricks','database','sql','parse','extract','transform','report','stats','query','schema','pandas','numpy','jupyter'],
+  itops: ['security','auth','devops','monitor','deploy','server','cloud','network','backup','ci','cd','infra','encrypt','scan','audit','permission','sre','admin','linux','docker','kubernetes','firewall','proxy','dns','ssl','vpn','log','ssh','nginx','terraform','ansible','vault','secret','policy'],
+  dev: ['dev','code','git','browser','api','cli','npm','node','python','debug','terminal','shell','command','sdk','program','javascript','typescript','rust','golang','java','compile','build','ide','vscode','lint','commit','repo','package','plugin','framework','library','frontend','backend','css','html','react','vue','swift'],
+  content: ['content','write','blog','article','social','copywriting','seo','creative','text','story','script','newsletter','tweet','publish','headline','medium','post','essay','translate','summary','caption','writing'],
+  knowledge: ['knowledge','wiki','memory','faq','kb','retrieve','catalog','archive','library','search','obsidian','notion','index','reference','handbook','guide','manual'],
+  ai: ['llm','gpt','claude','agent','chatbot','prompt','rag','embedding','token','copilot','assistant','reasoning','nlp','chat','model','language','completion','vector','llama','mistral','gemini','openai','anthropic','deepseek','qwen','generate','generative','ai'],
+  life: ['travel','food','fitness','weather','shop','news','entertainment','fun','hobby','personal','lifestyle','recipe','restaurant','game','sport','movie','book','pet','music'],
+  design: ['image','video','audio','photo','picture','graphic','draw','art','animation','voice','speech','icon','logo','color','render','3d','canvas','svg','font','filter','effect','camera','sound','design','avatar','screenshot','thumbnail','banner']
 }
 
 function getSkillCategory(s) {
@@ -127,7 +136,7 @@ function getSkillCategory(s) {
       if (text.includes(kw)) return cat
     }
   }
-  return 'ai' // 默认归入 AI Agent
+  return 'external'
 }
 
 function matchRecentUsage(s) {
@@ -142,12 +151,16 @@ function matchRecentUsage(s) {
   return false
 }
 
+function skillCategory(s) {
+  return s.category || getSkillCategory(s)
+}
+
 const filteredOpenclawSkills = computed(() => {
   if (activeCategory.value === 'recent') {
     return openclawSkills.value.filter(s => matchRecentUsage(s))
   }
   if (activeCategory.value === 'all') return openclawSkills.value
-  return openclawSkills.value.filter(s => getSkillCategory(s) === activeCategory.value)
+  return openclawSkills.value.filter(s => skillCategory(s) === activeCategory.value)
 })
 
 // ClawHub state
@@ -188,7 +201,8 @@ async function loadOpenClawSkills() {
     if (data.code === 200 && data.data?.skills) {
       openclawSkills.value = data.data.skills.map(s => ({
         ...s,
-        emoji: skillEmoji(s.name || s.displayName || '')
+        emoji: skillEmoji(s.name || s.displayName || ''),
+        _category: s.category || getSkillCategory(s)
       }))
     }
   } catch {}
@@ -262,6 +276,16 @@ async function searchClawHub() {
   clawhubLoading.value = false
 }
 
+async function updateCategory(s, category) {
+  try {
+    await request.put('/clawhub/category', { skillKey: s.skillKey, category })
+    s.category = category
+    ElMessage.success('分类已更新')
+  } catch (e) {
+    ElMessage.error('更新分类失败: ' + (e.response?.data?.message || e.message))
+  }
+}
+
 async function installSkill(s) {
   s._installing = true
   try {
@@ -301,6 +325,11 @@ onMounted(() => { loadOpenClawSkills(); loadRecentUsage(); loadInstalledSlugs() 
 .sc-body { flex: 1; min-width: 0; }
 .sc-name { font-size: 15px; font-weight: 600; color: #4a3f5e; }
 .sc-desc { font-size: 12px; color: #909399; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sc-cat-row { margin-top: 6px; }
+.sc-cat-select { --el-select-width: 140px; }
+.sc-cat-select :deep(.el-select__wrapper) { background: #f5f3ff; border: none; box-shadow: none; padding: 0 8px; min-height: 24px; }
+.sc-cat-select :deep(.el-select__placeholder) { color: #7c3aed; font-size: 12px; }
+.sc-cat-select :deep(.el-select__selected-item) { font-size: 12px; color: #7c3aed; }
 .sc-meta { font-size: 11px; color: #b8aad0; margin-top: 4px; }
 .sc-action { flex-shrink: 0; }
 .skill-status-tag { cursor: pointer; }

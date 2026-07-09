@@ -434,6 +434,7 @@ app.post('/api/chat/send', requireAuth, async (req, res) => {
 
 app.get('/api/status', async (req, res) => {
   const multiPublish = require('./services/multi-publish');
+  const wsClient = require('./openclaw/ws-client');
   const os = require('os');
 
   const [publishHealth] = await Promise.all([
@@ -450,6 +451,7 @@ app.get('/api/status', async (req, res) => {
         { name: '后端 API 服务', status: 'running', port: 18621, uptime: `${h}h ${m}m` },
         { name: '多平台发布服务', status: publishHealth.status === 'healthy' ? 'running' : 'stopped', port: 18623, uptime: publishHealth.status === 'healthy' ? '-' : '-' },
         { name: '前端 Web 服务', status: 'running', port: 18621, uptime: `${h}h ${m}m` },
+        { name: 'AI引擎服务', status: wsClient.isConnected() ? 'running' : 'stopped', port: 18622, uptime: wsClient.isConnected() ? '-' : '-' },
       ],
       system: {
         cpu: `${Math.round(os.loadavg()[0] * 100) / 100}%`,
@@ -489,8 +491,33 @@ server.listen(PORT, () => {
   console.log(`MClaw 后端运行在 http://localhost:${PORT}`);
   // 同步模型配置到 OpenClaw
   try { syncModelConfig(getActiveConfig()); } catch (e) { console.log('[server] model-sync 失败:', e.message); }
+  // 启动 OpenClaw 网关（如果未运行）
+  try {
+    const { execSync } = require('child_process');
+    const net = require('net');
+    const sock = new net.Socket();
+    sock.setTimeout(500);
+    sock.connect(18622, '127.0.0.1', () => { sock.destroy(); });
+    sock.on('error', () => {
+      // 端口未监听，启动网关（直接 node 拉起，脱离终端进程组）
+      const gatewayEntry = path.join(require('os').homedir(), 'AppData', 'Roaming', 'npm', 'node_modules', 'openclaw', 'dist', 'index.js');
+      if (fs.existsSync(gatewayEntry)) {
+        const { spawn } = require('child_process');
+        spawn(process.execPath, [gatewayEntry, 'gateway', '--port', '18622'], {
+          detached: true,
+          stdio: 'ignore',
+          windowsHide: true
+        }).unref();
+        console.log('[server] OpenClaw 网关已启动');
+      }
+    });
+    sock.on('timeout', () => sock.destroy());
+  } catch {}
+
   // 连接 OpenClaw Gateway
-  try { require('./openclaw/ws-client').connect(); } catch (e) { console.log('[server] OpenClaw WS 连接失败:', e.message); }
+  setTimeout(() => {
+    try { require('./openclaw/ws-client').connect(); } catch (e) { console.log('[server] OpenClaw WS 连接失败:', e.message); }
+  }, 3000);
   // 启动招投标定时采集（Crawl4AI 每6小时）
   try { const { startScheduler } = require('./services/crawl4ai-collector'); startScheduler(6 * 60 * 60 * 1000); } catch {}
   // 启动微信机器人长轮询
