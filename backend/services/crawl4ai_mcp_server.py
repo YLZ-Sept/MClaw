@@ -192,7 +192,7 @@ async def handle_tool_call(name: str, args: dict) -> str:
         if llm_provider and llm_api_key:
             llm_kwargs = {"provider": llm_provider, "api_token": llm_api_key}
             if llm_api_base:
-                llm_kwargs["api_base"] = llm_api_base
+                llm_kwargs["base_url"] = llm_api_base
             extraction_strategy = LLMExtractionStrategy(
                 llm_config=LLMConfig(**llm_kwargs),
                 instruction=schema_desc,

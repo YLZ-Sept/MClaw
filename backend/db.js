@@ -435,6 +435,9 @@ try { db.exec("ALTER TABLE faq ADD COLUMN similar_questions TEXT DEFAULT ''"); }
 try { db.exec("ALTER TABLE faq ADD COLUMN notes TEXT DEFAULT ''"); } catch {}
 // 兼容旧 bid_sources 表：补充 source_type 字段
 try { db.exec("ALTER TABLE bid_sources ADD COLUMN source_type TEXT DEFAULT 'api'"); } catch {}
+// 兼容旧 bid_sources 表：补充 collect_range 字段（7d/30d/90d/365d/all）
+try { db.exec("ALTER TABLE bid_sources ADD COLUMN collect_range TEXT DEFAULT '30d'"); } catch {}
+try { db.exec("UPDATE bid_sources SET collect_range='30d' WHERE collect_range IS NULL"); } catch {}
 // 兼容旧 bid_items 表：补充 project_no / purchase_requirements 字段
 try { db.exec("ALTER TABLE bid_items ADD COLUMN project_no TEXT DEFAULT ''"); } catch {}
 try { db.exec("ALTER TABLE bid_items ADD COLUMN purchase_requirements TEXT DEFAULT ''"); } catch {}

@@ -125,11 +125,32 @@ app.get('/api/info', (req, res) => {
 app.get('/api/agents', requireAuth, (req, res) => {
   const builtin = [
     { id: 'bid-agent', name: '招投标采集 Agent', icon: 'Search', emoji: '🎯', bg: 'linear-gradient(135deg,#e67e22 0%,#f1c40f 100%)', desc: '招标项目查询、关键词监控、Crawl4AI + Scrapling + 乙方宝三引擎采集', builtin: true },
+    { id: 'customer-service-agent', name: '智能客服系统', icon: 'Headset', emoji: '🎧', bg: 'linear-gradient(135deg,#06b6d4 0%,#3b82f6 100%)', desc: '腾讯元器 AI 智能客服，在线问答、知识库检索、自动回复', builtin: true },
   ];
   try {
     const custom = require('./db').prepare('SELECT id,name,desc,icon,color AS bg,emoji,base_agent,system_prompt,status,kb_article_ids,kb_folder_paths FROM agent_apps WHERE is_expert IS NULL OR is_expert=0 ORDER BY created_at DESC').all();
     res.json({ code: 200, data: [...builtin, ...custom.map(c => ({ ...c, builtin: false }))] });
   } catch { res.json({ code: 200, data: builtin }); }
+});
+
+// 智能客服系统：自定义链接存取
+const csConfigPath = path.join(__dirname, 'data', 'customer-service-config.json');
+function readCsConfig() {
+  try { return JSON.parse(fs.readFileSync(csConfigPath, 'utf-8')); } catch { return { url: '' }; }
+}
+function writeCsConfig(cfg) {
+  const dir = path.dirname(csConfigPath);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(csConfigPath, JSON.stringify(cfg, null, 2));
+}
+app.get('/api/customer-service/url', requireAuth, (req, res) => {
+  res.json({ code: 200, data: readCsConfig() });
+});
+app.put('/api/customer-service/url', requireAuth, (req, res) => {
+  const { url } = req.body;
+  if (typeof url !== 'string') return res.status(400).json({ code: 400, message: 'url 必填' });
+  writeCsConfig({ url });
+  res.json({ code: 200, message: '已保存' });
 });
 
 app.use('/api/auth', require('./routes/auth'));

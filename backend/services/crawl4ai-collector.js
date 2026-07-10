@@ -208,6 +208,17 @@ async function extractBidDetail(client, url) {
   return null;
 }
 
+// 根据 collect_range 判断日期是否在范围内
+function isWithinRange(dateStr, collectRange) {
+  if (!dateStr || collectRange === 'all' || !collectRange) return true;
+  const days = parseInt(collectRange) || 0;
+  if (days <= 0) return true;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return true; // 无法解析的日期不过滤
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  return d >= cutoff;
+}
+
 async function collectFromSource(client, source, keywords) {
   console.log(`[crawl4ai] 采集源: ${source.name} (${source.url})`);
   const results = [];
@@ -281,9 +292,16 @@ async function runCollect(opts = {}) {
 
   for (const source of sources) {
     const items = await collectFromSource(client, source, keywords);
-    totalFound += items.length;
+    const range = source.collect_range || '30d';
+    const filtered = items.filter(item =>
+      isWithinRange(item.doc_deadline, range) || isWithinRange(item.bid_time, range) || isWithinRange(item.notice_time, range)
+    );
+    if (filtered.length < items.length) {
+      console.log(`[crawl4ai] 采集范围 ${range}，过滤掉 ${items.length - filtered.length} 条过期数据`);
+    }
+    totalFound += filtered.length;
 
-    for (const item of items) {
+    for (const item of filtered) {
       allItems.push(item);
       try {
         const existing = db.prepare('SELECT id FROM bid_items WHERE url=?').get(item.url);

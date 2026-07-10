@@ -44,10 +44,13 @@
           <span class="agent-id">ID: {{ agent.id }}</span>
         </div>
         <div class="agent-action">
-          <el-button v-if="agent.builtin" type="primary" size="small" round @click="startChat(agent)">对话</el-button>
+          <el-button v-if="agent.builtin && agent.id !== 'customer-service-agent'" type="primary" size="small" round @click="startChat(agent)">对话</el-button>
           <el-button v-if="agent.id==='bid-agent'" size="small" round @click="openBidSettings">设置</el-button>
+          <el-button v-if="agent.id==='customer-service-agent'" type="primary" size="small" round @click="openCustomerServiceChat">对话</el-button>
+          <el-button v-if="agent.id==='customer-service-agent'" size="small" round @click="openCustomerServiceSettings">设置</el-button>
+          <el-button v-if="agent.id==='customer-service-agent'" size="small" round @click="csEditDlg.visible = true; loadCustomerServiceUrl()">编辑</el-button>
           <el-button v-if="hasPanel(agent)" type="success" size="small" round @click="openManagement(agent)">管理面板</el-button>
-          <el-button size="small" round @click="manageSkills(agent)">技能</el-button>
+          <el-button v-if="!agent.builtin" size="small" round @click="manageSkills(agent)">技能</el-button>
           <el-button v-if="!agent.builtin && !agent.is_digital_employee" size="small" round @click="openEdit(agent)">编辑</el-button>
           <el-button v-if="!agent.builtin && !agent.is_digital_employee" size="small" round type="danger" @click="delAgent(agent.id)">删除</el-button>
         </div>
@@ -133,27 +136,79 @@
                 <el-tag size="small" :type="r.status==='active'?'success':'info'">{{ r.status==='active'?'运行中':'待命' }}</el-tag>
               </div>
               <div class="brc-desc">{{ r.desc }}</div>
+              <!-- 乙方宝登录管理 -->
+              <div v-if="r.engine==='woyaobid'" style="margin-top:12px">
+                <div class="woyaobid-status" :style="{ color: bidSettingsDlg.woyaobid.has_cookies ? '#22c55e' : '#e74c3c' }">
+                  <el-icon :size="16"><CircleCheck v-if="bidSettingsDlg.woyaobid.has_cookies" /><WarningFilled v-else /></el-icon>
+                  <span style="font-weight:600;font-size:13px">{{ bidSettingsDlg.woyaobid.has_cookies ? '已登录' : '未登录' }}</span>
+                  <span v-if="bidSettingsDlg.woyaobid.has_cookies" style="font-size:11px;color:#909399;margin-left:8px">
+                    {{ bidSettingsDlg.woyaobid.count }} 条 · {{ new Date(bidSettingsDlg.woyaobid.updated_at).toLocaleString('zh-CN') }}
+                  </span>
+                </div>
+                <div style="margin-top:8px;padding:10px;background:#f0fdf4;border-radius:8px;border:1px solid #bbf7d0">
+                  <div style="font-size:13px;font-weight:600;color:#166534;margin-bottom:6px">自动获取 Cookie</div>
+                  <div style="font-size:11px;color:#4a3f5e;margin-bottom:8px">点击按钮自动打开浏览器，扫码登录后 Cookie 自动保存</div>
+                  <el-button type="success" size="small" :loading="bidSettingsDlg.woyaobidLogging" @click="autoWoyaobidLogin">
+                    自动登录并获取 Cookie
+                  </el-button>
+                  <span v-if="bidSettingsDlg.woyaobidLogging" style="margin-left:8px;font-size:11px;color:#909399">等待扫码登录中...</span>
+                </div>
+                <el-collapse style="margin-top:8px">
+                  <el-collapse-item title="手动输入 Cookie（备用）" name="manual">
+                    <div style="font-size:11px;color:#909399;line-height:1.6;margin-bottom:6px">
+                      1. 点击「打开登录页」→ 浏览器中扫码登录<br/>
+                      2. F12 → 控制台(Console) → 粘贴以下脚本 → 复制输出结果：
+                    </div>
+                    <div style="background:#1e1e2e;color:#cdd6f4;padding:8px;border-radius:6px;font-size:10px;font-family:monospace;margin-bottom:8px;white-space:pre-wrap;word-break:break-all">JSON.stringify(document.cookie.split('; ').map(c => { const [k,v] = c.split('='); return {name:k,value:v,domain:location.hostname,path:'/'} }))</div>
+                    <el-input v-model="bidSettingsDlg.woyaobidInput" type="textarea" :rows="2" placeholder="粘贴 Cookie JSON" style="margin-bottom:6px" />
+                    <div style="display:flex;gap:8px">
+                      <el-button size="small" @click="openWoyaobidLogin">打开登录页</el-button>
+                      <el-button type="primary" size="small" :loading="bidSettingsDlg.woyaobidSaving" @click="saveWoyaobidCookies">保存 Cookie</el-button>
+                    </div>
+                  </el-collapse-item>
+                </el-collapse>
+              </div>
             </div>
           </div>
         </el-tab-pane>
         <el-tab-pane label="采集网址" name="sources">
-          <el-table :data="bidSettingsDlg.sources" size="small" max-height="320" stripe>
-            <el-table-column prop="name" label="名称" width="140" />
-            <el-table-column prop="url" label="URL" min-width="200" show-overflow-tooltip />
+          <div style="margin-bottom:10px">
+            <el-button type="primary" size="small" @click="openSourceEdit(null)">添加网址</el-button>
+          </div>
+          <el-table :data="bidSettingsDlg.sources" size="small" max-height="280" stripe>
+            <el-table-column prop="name" label="名称" width="130" />
+            <el-table-column prop="url" label="URL" min-width="180" show-overflow-tooltip />
             <el-table-column prop="source_type" label="类型" width="80" />
+            <el-table-column prop="interval_minutes" label="间隔(分)" width="75" />
+            <el-table-column prop="collect_range" label="采集范围" width="90">
+              <template #default="{row}">
+                <el-tag size="small" type="info">{{ rangeLabel(row.collect_range) }}</el-tag>
+              </template>
+            </el-table-column>
             <el-table-column prop="enabled" label="启用" width="60">
               <template #default="{row}">
-                <el-tag :type="row.enabled?'success':'info'" size="small">{{ row.enabled ? '是' : '否' }}</el-tag>
+                <el-switch :model-value="row.enabled===1" size="small" @change="toggleSourceEnabled(row)" />
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="100">
+              <template #default="{row}">
+                <el-button size="small" text type="primary" @click="openSourceEdit(row)">编辑</el-button>
+                <el-button size="small" text type="danger" @click="deleteSource(row.id)">删除</el-button>
               </template>
             </el-table-column>
           </el-table>
         </el-tab-pane>
         <el-tab-pane label="采集结果" name="results">
           <div v-loading="bidSettingsDlg.loading" style="min-height:120px">
+            <div class="bid-time-filter">
+              <el-button v-for="t in timeRangeOptions" :key="t.value" size="small"
+                :type="bidSettingsDlg.timeRange === t.value ? 'primary' : ''"
+                @click="bidSettingsDlg.timeRange = t.value; refreshBidSettings()">{{ t.label }}</el-button>
+            </div>
             <div class="bid-summary-row">
               <div class="bid-summary-card">
                 <div class="bsc-num">{{ bidSettingsDlg.summary.total_items }}</div>
-                <div class="bsc-label">总采集项目</div>
+                <div class="bsc-label">{{ timeRangeLabel }}采集项目</div>
               </div>
               <div class="bid-summary-card">
                 <div class="bsc-num" style="color:#e67e22">{{ bidSettingsDlg.summary.new_items }}</div>
@@ -161,7 +216,7 @@
               </div>
               <div class="bid-summary-card">
                 <div class="bsc-num" style="color:#22c55e">{{ bidSettingsDlg.summary.recent_7d }}</div>
-                <div class="bsc-label">近 7 天新增</div>
+                <div class="bsc-label">{{ timeRangeLabel }}新增</div>
               </div>
             </div>
             <el-tabs v-model="bidSettingsDlg.resultTab" type="border-card" size="small" style="margin-top:16px">
@@ -172,7 +227,7 @@
                   <el-table-column prop="bid_type" label="投标方式" width="90" />
                   <el-table-column prop="region" label="类型" width="70" />
                   <el-table-column prop="industry" label="一级行业" width="80" />
-                  <el-table-column prop="source_name" label="招标方" width="100" show-overflow-tooltip />
+                  <el-table-column prop="bidder" label="招标方" width="100" show-overflow-tooltip />
                   <el-table-column prop="win_company" label="中标公司" width="100" show-overflow-tooltip />
                   <el-table-column prop="title" label="项目名称" min-width="150" show-overflow-tooltip />
                   <el-table-column prop="purchase_requirements" label="项目产品及服务" min-width="100" show-overflow-tooltip />
@@ -189,7 +244,7 @@
                 <el-table :data="bidSettingsDlg.summary.caiyou_items" size="small" max-height="300" stripe>
                   <el-table-column prop="region" label="省份" width="70" />
                   <el-table-column prop="industry" label="一级行业" width="80" />
-                  <el-table-column prop="source_name" label="招标方" width="100" show-overflow-tooltip />
+                  <el-table-column prop="bidder" label="招标方" width="100" show-overflow-tooltip />
                   <el-table-column prop="title" label="项目名称" min-width="150" show-overflow-tooltip />
                   <el-table-column prop="amount" label="金额(万元)" width="85" />
                   <el-table-column prop="purchase_requirements" label="采购需求" min-width="100" show-overflow-tooltip />
@@ -206,51 +261,59 @@
             </el-tabs>
           </div>
         </el-tab-pane>
-        <el-tab-pane label="乙方宝登录" name="woyaobid">
-          <div v-loading="bidSettingsDlg.loading" style="min-height:120px">
-            <div class="woyaobid-status" :style="{ color: bidSettingsDlg.woyaobid.has_cookies ? '#22c55e' : '#e74c3c' }">
-              <el-icon :size="18"><CircleCheck v-if="bidSettingsDlg.woyaobid.has_cookies" /><WarningFilled v-else /></el-icon>
-              <span style="font-weight:600">{{ bidSettingsDlg.woyaobid.has_cookies ? '已登录' : '未登录' }}</span>
-            </div>
-            <div v-if="bidSettingsDlg.woyaobid.has_cookies" style="margin-top:8px;font-size:13px;color:#4a3f5e">
-              Cookie 数量: {{ bidSettingsDlg.woyaobid.count }} 条 · 更新于 {{ new Date(bidSettingsDlg.woyaobid.updated_at).toLocaleString('zh-CN') }}
-            </div>
-
-            <!-- 方式一：自动获取 Cookie（推荐） -->
-            <div style="margin-top:16px;padding:14px;background:#f0fdf4;border-radius:8px;border:1px solid #bbf7d0">
-              <div style="font-size:14px;font-weight:600;color:#166534;margin-bottom:8px">推荐：自动获取 Cookie</div>
-              <div style="font-size:12px;color:#4a3f5e;line-height:1.8;margin-bottom:10px">
-                点击下方按钮，系统将自动打开浏览器窗口。在浏览器中完成扫码登录后，Cookie 将自动保存。
-              </div>
-              <el-button type="success" size="small" :loading="bidSettingsDlg.woyaobidLogging" @click="autoWoyaobidLogin">
-                <el-icon style="margin-right:4px"><Download /></el-icon>自动登录并获取 Cookie
-              </el-button>
-              <span v-if="bidSettingsDlg.woyaobidLogging" style="margin-left:10px;font-size:12px;color:#909399">
-                等待扫码登录中，请在打开的浏览器窗口中完成登录...
-              </span>
-            </div>
-
-            <!-- 方式二：手动输入（备用） -->
-            <el-collapse style="margin-top:12px">
-              <el-collapse-item title="手动输入 Cookie（备用）" name="manual">
-                <div style="font-size:12px;color:#909399;line-height:1.8;margin-bottom:8px">
-                  1. 点击「打开登录页」→ 在浏览器中扫码登录<br/>
-                  2. 登录后按 F12 → 控制台(Console) → 粘贴以下脚本并回车，复制输出结果：<br/>
-                </div>
-                <div style="background:#1e1e2e;color:#cdd6f4;padding:10px;border-radius:6px;font-size:11px;font-family:monospace;margin-bottom:10px;white-space:pre-wrap;word-break:break-all">JSON.stringify(document.cookie.split('; ').map(c => { const [k,v] = c.split('='); return {name:k,value:v,domain:location.hostname,path:'/'} }))</div>
-                <el-input v-model="bidSettingsDlg.woyaobidInput" type="textarea" :rows="3" placeholder="在此粘贴上方脚本输出的 Cookie JSON" style="margin-top:8px" />
-                <div style="display:flex;gap:8px;margin-top:8px">
-                  <el-button size="small" @click="openWoyaobidLogin">打开登录页</el-button>
-                  <el-button type="primary" size="small" :loading="bidSettingsDlg.woyaobidSaving" @click="saveWoyaobidCookies">保存 Cookie</el-button>
-                </div>
-              </el-collapse-item>
-            </el-collapse>
-          </div>
-        </el-tab-pane>
       </el-tabs>
       <template #footer>
         <el-button @click="bidSettingsDlg.visible=false">关闭</el-button>
         <el-button type="primary" @click="refreshBidSettings">刷新</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 采集网址编辑弹窗 -->
+    <el-dialog v-model="sourceEditDlg.visible" :title="sourceEditDlg.isEdit ? '编辑采集网址' : '添加采集网址'" width="500px" :close-on-click-modal="false">
+      <el-form :model="sourceEditDlg.form" label-width="90px" size="default">
+        <el-form-item label="名称"><el-input v-model="sourceEditDlg.form.name" placeholder="如：云南省政府采购网" /></el-form-item>
+        <el-form-item label="URL"><el-input v-model="sourceEditDlg.form.url" placeholder="https://..." /></el-form-item>
+        <el-form-item label="类型">
+          <el-select v-model="sourceEditDlg.form.source_type" style="width:100%">
+            <el-option label="通用网页 (自动分配引擎)" value="web" />
+            <el-option label="Crawl4AI 专用" value="crawl4ai" />
+            <el-option label="Scrapling 专用" value="scrapling" />
+            <el-option label="乙方宝" value="woyaobid" />
+            <el-option label="API接口" value="api" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="采集间隔(分)">
+          <el-input-number v-model="sourceEditDlg.form.interval_minutes" :min="10" :max="10080" style="width:100%" />
+        </el-form-item>
+        <el-form-item label="采集范围">
+          <el-select v-model="sourceEditDlg.form.collect_range" style="width:100%">
+            <el-option label="最近1周" value="7d" />
+            <el-option label="最近1月" value="30d" />
+            <el-option label="最近3月" value="90d" />
+            <el-option label="最近1年" value="365d" />
+            <el-option label="不限" value="all" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="启用">
+          <el-switch v-model="sourceEditDlg.form.enabled" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="sourceEditDlg.visible = false">取消</el-button>
+        <el-button type="primary" :loading="sourceEditDlg.saving" @click="saveSource">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 智能客服链接编辑对话框 -->
+    <el-dialog v-model="csEditDlg.visible" title="智能客服链接设置" width="480px" :close-on-click-modal="false">
+      <el-form label-width="80px" size="default">
+        <el-form-item label="客服链接">
+          <el-input v-model="csEditDlg.url" placeholder="请输入智能客服链接，如 https://yuanqi.tencent.com/..." />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="csEditDlg.visible = false">取消</el-button>
+        <el-button type="primary" :loading="csEditDlg.saving" @click="saveCustomerServiceUrl">保存</el-button>
       </template>
     </el-dialog>
 
@@ -354,7 +417,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Avatar, Cpu, Check, Setting, Plus, Delete, FolderOpened, Document, Loading, MagicStick, CircleCheck, WarningFilled } from '@element-plus/icons-vue'
@@ -544,18 +607,36 @@ async function delAgent(id) {
 }
 
 // ── 招投标采集设置 ──
+const timeRangeOptions = [
+  { label: '最近1周', value: '7' },
+  { label: '最近1月', value: '30' },
+  { label: '最近3月', value: '90' },
+  { label: '最近1年', value: '365' },
+  { label: '全部', value: '' }
+]
+const timeRangeLabel = computed(() => {
+  const opt = timeRangeOptions.find(t => t.value === bidSettingsDlg.timeRange)
+  return opt ? opt.label : '全部'
+})
+
 const bidSettingsDlg = reactive({
-  visible: false, loading: false, tab: 'routes', resultTab: 'zhongbiao',
+  visible: false, loading: false, tab: 'routes', resultTab: 'zhongbiao', timeRange: '7',
   routes: [], sources: [],
   summary: { total_items: 0, new_items: 0, recent_7d: 0, zhongbiao_items: [], caiyou_items: [], txt_files: [] },
   woyaobid: { has_cookies: false, count: 0, updated_at: null },
   woyaobidInput: '', woyaobidSaving: false, woyaobidLogging: false
 })
+
+const sourceEditDlg = reactive({
+  visible: false, isEdit: false, saving: false,
+  form: { name: '', url: '', source_type: 'web', interval_minutes: 360, collect_range: '30d', enabled: true }
+})
+
 async function openBidSettings() {
   bidSettingsDlg.visible = true
   bidSettingsDlg.loading = true
   const [r1, r2] = await Promise.allSettled([
-    request.get('/bid-agent/settings'),
+    request.get('/bid-agent/settings', { params: { timeRange: bidSettingsDlg.timeRange } }),
     request.get('/bid-agent/woyaobid-cookies')
   ])
   if (r1.status === 'fulfilled' && r1.value.data.code === 200) {
@@ -572,7 +653,7 @@ async function openBidSettings() {
 async function refreshBidSettings() {
   bidSettingsDlg.loading = true
   const [r1, r2] = await Promise.allSettled([
-    request.get('/bid-agent/settings'),
+    request.get('/bid-agent/settings', { params: { timeRange: bidSettingsDlg.timeRange } }),
     request.get('/bid-agent/woyaobid-cookies')
   ])
   if (r1.status === 'fulfilled' && r1.value.data.code === 200) {
@@ -585,6 +666,57 @@ async function refreshBidSettings() {
     bidSettingsDlg.woyaobid = r2.value.data.data
   }
   bidSettingsDlg.loading = false
+}
+
+// ── 采集网址 CRUD ──
+function openSourceEdit(row) {
+  if (row) {
+    sourceEditDlg.isEdit = true
+    sourceEditDlg.form = { id: row.id, name: row.name, url: row.url, source_type: row.source_type, interval_minutes: row.interval_minutes || 360, collect_range: row.collect_range || '30d', enabled: row.enabled === 1 }
+  } else {
+    sourceEditDlg.isEdit = false
+    sourceEditDlg.form = { name: '', url: '', source_type: 'web', interval_minutes: 360, collect_range: '30d', enabled: true }
+  }
+  sourceEditDlg.visible = true
+}
+
+async function saveSource() {
+  if (!sourceEditDlg.form.name || !sourceEditDlg.form.url) return ElMessage.warning('名称和URL必填')
+  sourceEditDlg.saving = true
+  try {
+    if (sourceEditDlg.isEdit) {
+      await request.put('/bid-agent/sources/' + sourceEditDlg.form.id, sourceEditDlg.form)
+    } else {
+      await request.post('/bid-agent/sources', sourceEditDlg.form)
+    }
+    ElMessage.success('已保存')
+    sourceEditDlg.visible = false
+    refreshBidSettings()
+  } catch (e) { ElMessage.error(e.response?.data?.message || e.message || '保存失败') }
+  sourceEditDlg.saving = false
+}
+
+async function deleteSource(id) {
+  try {
+    await ElMessageBox.confirm('删除该网址将同时删除关联的采集数据，确认？', '删除确认', { confirmButtonText: '确定删除', cancelButtonText: '取消', type: 'warning' })
+    await request.delete('/bid-agent/sources/' + id)
+    ElMessage.success('已删除')
+    refreshBidSettings()
+  } catch (e) {
+    if (e !== 'cancel' && e?.action !== 'cancel') ElMessage.error('删除失败')
+  }
+}
+
+function rangeLabel(v) {
+  const map = { '7d': '最近1周', '30d': '最近1月', '90d': '最近3月', '365d': '最近1年', 'all': '不限' }
+  return map[v] || v || '最近1月'
+}
+
+async function toggleSourceEnabled(row) {
+  try {
+    await request.put('/bid-agent/sources/' + row.id, { enabled: row.enabled ? 0 : 1 })
+    refreshBidSettings()
+  } catch { ElMessage.error('操作失败') }
 }
 function openWoyaobidLogin() {
   window.open('https://qiye.qianlima.com', '_blank')
@@ -620,6 +752,58 @@ async function autoWoyaobidLogin() {
     ElMessage.error(e.response?.data?.message || '自动登录失败，请检查 Playwright 是否安装或尝试手动输入')
   }
   bidSettingsDlg.woyaobidLogging = false
+}
+
+// ── 智能客服系统 ──
+const csEditDlg = reactive({ visible: false, url: '', saving: false })
+
+async function loadCustomerServiceUrl() {
+  try {
+    const { data } = await request.get('/customer-service/url')
+    csEditDlg.url = data.data?.url || ''
+  } catch { csEditDlg.url = '' }
+}
+
+async function saveCustomerServiceUrl() {
+  csEditDlg.saving = true
+  try {
+    await request.put('/customer-service/url', { url: csEditDlg.url })
+    ElMessage.success('已保存')
+    csEditDlg.visible = false
+  } catch { ElMessage.error('保存失败') }
+  csEditDlg.saving = false
+}
+
+function openCustomerServiceChat() {
+  if (!csUrlCache.value) {
+    loadAndOpenCustomerService()
+  } else {
+    window.open(csUrlCache.value, '_blank')
+  }
+}
+
+const csUrlCache = ref('')
+
+async function loadAndOpenCustomerService() {
+  try {
+    const { data } = await request.get('/customer-service/url')
+    const url = data.data?.url
+    if (url) {
+      csUrlCache.value = url
+      window.open(url, '_blank')
+    } else {
+      ElMessage.warning('请先设置智能客服链接')
+      csEditDlg.visible = true
+      loadCustomerServiceUrl()
+    }
+  } catch {
+    ElMessage.warning('请先设置智能客服链接')
+    csEditDlg.visible = true
+  }
+}
+
+function openCustomerServiceSettings() {
+  window.open('https://yuanqi.tencent.com/', '_blank')
 }
 
 onMounted(() => { loadAgents(); loadKB() })
@@ -746,6 +930,8 @@ onMounted(() => { loadAgents(); loadKB() })
 .brc-header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
 .brc-name { font-size: 15px; font-weight: 600; color: #4a3f5e; }
 .brc-desc { font-size: 12px; color: #909399; }
+.brc-interval { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; color: #4a3f5e; }
+.bid-time-filter { display: flex; gap: 8px; margin-bottom: 14px; }
 .bid-summary-row { display: flex; gap: 12px; }
 .bid-summary-card {
   flex: 1; text-align: center;

@@ -1,15 +1,26 @@
 // bid-agent settings API — collection routes, sources, classified results, woyaobid cookie
 const { Router } = require('express');
+const { randomUUID } = require('crypto');
 const db = require('../db');
 const fs = require('fs');
 const path = require('path');
 
 const router = Router();
 const TXT_DIR = path.join(__dirname, '..', 'data', 'bid-txt');
+const COOKIE_FILE = path.join(__dirname, '..', 'data', 'woyaobid-cookies.json');
+const INTERVAL_FILE = path.join(__dirname, '..', 'data', 'bid-route-intervals.json');
+
+function readIntervals() {
+  try { return JSON.parse(fs.readFileSync(INTERVAL_FILE, 'utf-8')); } catch { return { crawl4ai: 6, scrapling: 12, woyaobid: 24 }; }
+}
+function writeIntervals(data) {
+  const dir = path.dirname(INTERVAL_FILE);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(INTERVAL_FILE, JSON.stringify(data, null, 2));
+}
 
 // Keywords for classification
 const WIN_KW = ['中标', '成交', '结果'];
-const INTENT_KW = ['采购', '招标', '磋商', '谈判', '询价'];
 
 function classify(title) {
   for (const kw of WIN_KW) if (title.includes(kw)) return 'zhongbiao';
@@ -17,10 +28,14 @@ function classify(title) {
 }
 
 router.get('/settings', (req, res) => {
+  const intervals = readIntervals();
+  const { timeRange } = req.query; // 7d | 30d | 90d | 365d | all
+
   // Collection routes info
   const routes = [
-    { engine: 'crawl4ai', label: 'Crawl4AI', desc: 'MCP 协议 + Playwright 浏览器 + LLM 结构化提取', status: 'active' },
-    { engine: 'scrapling', label: 'Scrapling', desc: 'Python 子进程 + DynamicFetcher (Playwright) + Regex 提取', status: 'active' }
+    { engine: 'crawl4ai', label: 'Crawl4AI', desc: 'MCP 协议 + Playwright 浏览器 + LLM 结构化提取', status: 'active', interval_hours: intervals.crawl4ai || 6 },
+    { engine: 'scrapling', label: 'Scrapling', desc: 'Python 子进程 + DynamicFetcher (Playwright) + Regex 提取', status: 'active', interval_hours: intervals.scrapling || 12 },
+    { engine: 'woyaobid', label: '乙方宝(千里马)', desc: 'API 逆向 + Cookie 认证，采集企业招标信息', status: 'active', interval_hours: intervals.woyaobid || 24 }
   ];
 
   // Collection sources
@@ -41,16 +56,34 @@ router.get('/settings', (req, res) => {
     }
   } catch {}
 
-  // Stats
-  const totalItems = db.prepare('SELECT COUNT(*) AS cnt FROM bid_items').get()?.cnt || 0;
-  const newItems = db.prepare("SELECT COUNT(*) AS cnt FROM bid_items WHERE status='new'").get()?.cnt || 0;
-  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 19);
-  const recentCollected = db.prepare('SELECT COUNT(*) AS cnt FROM bid_items WHERE created_at >= ?').get(weekAgo)?.cnt || 0;
+  // Time filter
+  const days = parseInt(timeRange) || 0;
+  let timeFilter = '';
+  let timeParams = [];
+  if (days > 0) {
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 19);
+    timeFilter = ' WHERE bi.created_at >= ?';
+    timeParams = [since];
+  }
 
-  // Classified items for frontend tables (recent 50 each)
+  // Stats
+  let totalItems, newItems, recentCollected;
+  if (days > 0) {
+    const since = timeParams[0];
+    totalItems = db.prepare('SELECT COUNT(*) AS cnt FROM bid_items WHERE created_at >= ?').get(since)?.cnt || 0;
+    newItems = db.prepare("SELECT COUNT(*) AS cnt FROM bid_items WHERE status='new' AND created_at >= ?").get(since)?.cnt || 0;
+    recentCollected = db.prepare('SELECT COUNT(*) AS cnt FROM bid_items WHERE created_at >= ?').get(since)?.cnt || 0;
+  } else {
+    totalItems = db.prepare('SELECT COUNT(*) AS cnt FROM bid_items').get()?.cnt || 0;
+    newItems = db.prepare("SELECT COUNT(*) AS cnt FROM bid_items WHERE status='new'").get()?.cnt || 0;
+    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 19);
+    recentCollected = db.prepare('SELECT COUNT(*) AS cnt FROM bid_items WHERE created_at >= ?').get(weekAgo)?.cnt || 0;
+  }
+
+  // Classified items for frontend tables
   const recentItems = db.prepare(
-    'SELECT bi.title, bi.url, bi.bid_type, bi.amount, bi.win_amount, bi.doc_deadline, bi.bid_time, bi.purchase_requirements, bi.created_at, bi.notice_time, bi.bidder, bi.win_company, bi.region, bi.industry, bs.name AS source_name FROM bid_items bi LEFT JOIN bid_sources bs ON bi.source_id=bs.id ORDER BY bi.created_at DESC LIMIT 200'
-  ).all();
+    `SELECT bi.title, bi.url, bi.bid_type, bi.amount, bi.win_amount, bi.doc_deadline, bi.bid_time, bi.purchase_requirements, bi.created_at, bi.notice_time, bi.bidder, bi.win_company, bi.region, bi.industry, bs.name AS source_name FROM bid_items bi LEFT JOIN bid_sources bs ON bi.source_id=bs.id${timeFilter} ORDER BY bi.created_at DESC LIMIT 200`
+  ).all(...timeParams);
 
   const zhongbiao_items = [];
   const caiyou_items = [];
@@ -96,9 +129,43 @@ router.get('/settings', (req, res) => {
   res.json({ code: 200, data: { routes, sources, summary } });
 });
 
-// ── 乙方宝登录管理（Playwright persistent context）──
+// 采集网址 CRUD（复用 bid_sources 表）
+router.post('/sources', (req, res) => {
+  const { name, url, source_type, interval_minutes, collect_range } = req.body;
+  if (!name || !url) return res.status(400).json({ code: 400, message: '名称和URL必填' });
+  const id = randomUUID();
+  db.prepare('INSERT INTO bid_sources (id,name,url,source_type,interval_minutes,collect_range,enabled) VALUES (?,?,?,?,?,?,1)')
+    .run(id, name, url, source_type || 'web', interval_minutes || 360, collect_range || '30d');
+  res.json({ code: 200, data: { id } });
+});
+router.put('/sources/:id', (req, res) => {
+  const { name, url, source_type, interval_minutes, collect_range, enabled } = req.body;
+  const en = enabled != null ? (enabled ? 1 : 0) : null;
+  db.prepare('UPDATE bid_sources SET name=COALESCE(?,name), url=COALESCE(?,url), source_type=COALESCE(?,source_type), interval_minutes=COALESCE(?,interval_minutes), collect_range=COALESCE(?,collect_range), enabled=COALESCE(?,enabled) WHERE id=?')
+    .run(name, url, source_type, interval_minutes, collect_range, en, req.params.id);
+  res.json({ code: 200 });
+});
+router.delete('/sources/:id', (req, res) => {
+  db.prepare('DELETE FROM bid_items WHERE source_id=?').run(req.params.id);
+  db.prepare('DELETE FROM bid_sources WHERE id=?').run(req.params.id);
+  res.json({ code: 200 });
+});
 
-const COOKIE_FILE = path.join(__dirname, '..', 'data', 'woyaobid-cookies.json');
+// 采集线路间隔配置
+router.get('/route-intervals', (req, res) => {
+  res.json({ code: 200, data: readIntervals() });
+});
+
+router.put('/route-intervals', (req, res) => {
+  const { engine, interval_hours } = req.body;
+  if (!engine || interval_hours == null) return res.status(400).json({ code: 400, message: 'engine 和 interval_hours 必填' });
+  const intervals = readIntervals();
+  intervals[engine] = interval_hours;
+  writeIntervals(intervals);
+  res.json({ code: 200, data: intervals });
+});
+
+// ── 乙方宝登录管理（Playwright persistent context）──
 
 router.get('/woyaobid-status', (req, res) => {
   const loggedIn = require('../services/ztb-sjcj-bridge').checkLoginState();

@@ -61,6 +61,16 @@ async function crawlSource(url, keywords) {
   });
 }
 
+function isWithinRange(dateStr, collectRange) {
+  if (!dateStr || collectRange === 'all' || !collectRange) return true;
+  const days = parseInt(collectRange) || 0;
+  if (days <= 0) return true;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return true;
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  return d >= cutoff;
+}
+
 async function runCollect(opts = {}) {
   const sources = db.prepare(
     "SELECT * FROM bid_sources WHERE enabled=1 AND (source_type='web' OR source_type='crawl4ai' OR source_type='scrapling') AND source_type!='woyaobid'"
@@ -86,10 +96,17 @@ async function runCollect(opts = {}) {
 
     try {
       const items = await crawlSource(source.url, keywords);
-      totalFound += items.length;
-      console.log(`[scrapling-collector] ${source.name}: 命中 ${items.length} 条`);
+      const range = source.collect_range || '30d';
+      const filtered = items.filter(item =>
+        isWithinRange(item.doc_deadline, range) || isWithinRange(item.bid_time, range) || isWithinRange(item.notice_time, range)
+      );
+      if (filtered.length < items.length) {
+        console.log(`[scrapling-collector] 采集范围 ${range}，过滤掉 ${items.length - filtered.length} 条过期数据`);
+      }
+      totalFound += filtered.length;
+      console.log(`[scrapling-collector] ${source.name}: 命中 ${filtered.length} 条`);
 
-      for (const item of items) {
+      for (const item of filtered) {
         // 云南地区过滤
         const isYNSource = source.url && (source.url.includes('yngp') || source.url.includes('ggzy.yn'));
         if (item.region && !isYunnan(item.region)) {
