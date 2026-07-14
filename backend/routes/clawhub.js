@@ -3,6 +3,8 @@ const router = express.Router();
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const archiver = require('archiver');
+const db = require('../db');
 const wsClient = require('../openclaw/ws-client');
 const { getTranslations, translateInBackground, translateBatch } = require('../services/skill-translator');
 
@@ -190,6 +192,82 @@ router.post('/translate-batch', async (req, res) => {
     res.json({ code: 200, data: r });
   } catch (e) {
     res.status(e.status || 500).json({ code: e.status || 500, message: e.message });
+  }
+});
+
+// GET /api/clawhub/readme/:name — 获取已安装技能的 SKILL.md 内容
+router.get('/readme/:name', (req, res) => {
+  try {
+    const skillName = req.params.name;
+    const candidates = [
+      path.join(os.homedir(), '.openclaw', 'workspace', 'skills', skillName, 'SKILL.md'),
+      path.join(os.homedir(), '.agents', 'skills', skillName, 'SKILL.md'),
+      path.join(os.homedir(), '.openclaw', 'plugin-skills', skillName, 'SKILL.md')
+    ];
+    let content = null;
+    for (const p of candidates) {
+      try { content = fs.readFileSync(p, 'utf8'); break; } catch {}
+    }
+    if (!content) return res.status(404).json({ code: 404, message: 'SKILL.md 未找到' });
+
+    // 去掉 YAML frontmatter
+    let body = content;
+    if (body.startsWith('---')) {
+      const end = body.indexOf('---', 4);
+      if (end !== -1) body = body.slice(end + 3).trim();
+    }
+
+    res.json({ code: 200, data: { content: body } });
+  } catch (e) {
+    res.status(500).json({ code: 500, message: e.message });
+  }
+});
+
+// GET /api/clawhub/skills/:name/export — 导出技能为 ZIP
+router.get('/skills/:name/export', (req, res) => {
+  try {
+    const skillName = req.params.name;
+    const skillDir = path.join(os.homedir(), '.openclaw', 'workspace', 'skills', skillName);
+
+    if (!fs.existsSync(skillDir)) {
+      return res.status(404).json({ code: 404, message: '技能不存在' });
+    }
+
+    res.set({
+      'Content-Type': 'application/zip',
+      'Content-Disposition': `attachment; filename="${encodeURIComponent(skillName)}.zip"`
+    });
+
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    archive.on('error', () => { if (!res.headersSent) res.status(500).end(); });
+    archive.directory(skillDir, skillName);
+    archive.pipe(res);
+    archive.finalize();
+  } catch (e) {
+    if (!res.headersSent) res.status(500).json({ code: 500, message: e.message });
+  }
+});
+
+// DELETE /api/clawhub/skills/:name — 卸载已安装技能
+router.delete('/skills/:name', (req, res) => {
+  try {
+    const skillName = req.params.name;
+    const skillDir = path.join(os.homedir(), '.openclaw', 'workspace', 'skills', skillName);
+
+    if (!fs.existsSync(skillDir)) {
+      return res.status(404).json({ code: 404, message: '技能不存在' });
+    }
+
+    // 删除技能目录
+    fs.rmSync(skillDir, { recursive: true, force: true });
+
+    // 清理 agent_openclaw_skills 表关联
+    db.prepare('DELETE FROM agent_openclaw_skills WHERE skill_name=?').run(skillName);
+
+    console.log('[clawhub] 卸载技能:', skillName);
+    res.json({ code: 200, message: '已卸载' });
+  } catch (e) {
+    res.status(500).json({ code: 500, message: e.message });
   }
 });
 

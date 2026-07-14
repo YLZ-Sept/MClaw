@@ -625,17 +625,31 @@ function loadAgentConfig(agent) {
     });
   }
 
-  // 注入已勾选的 OpenClaw 技能（prompt + openclaw_exec 工具）
+  // 注入已勾选的 OpenClaw 技能 + agent_apps.skill_bindings 技能（prompt + openclaw_exec 工具）
   try {
-    const enabledSkills = db.prepare(
+    // 从 agent_openclaw_skills 表收集
+    const tableSkills = db.prepare(
       "SELECT skill_name FROM agent_openclaw_skills WHERE (agent_id=? OR agent_id='*') AND enabled=1"
-    ).all(agent);
-    if (enabledSkills.length > 0) {
+    ).all(agent).map(r => r.skill_name);
+
+    // 从 agent_apps.skill_bindings 列收集
+    const bindingSkills = [];
+    for (const row of allDbRows) {
+      if (row.skill_bindings && row.skill_bindings.trim()) {
+        try {
+          const parsed = JSON.parse(row.skill_bindings);
+          if (Array.isArray(parsed)) bindingSkills.push(...parsed.filter(Boolean).map(String));
+        } catch {}
+      }
+    }
+
+    const allSkillNames = [...new Set([...tableSkills, ...bindingSkills])];
+    if (allSkillNames.length > 0) {
       const os = require('os');
       const homeDir = os.homedir();
       let skillPrompts = '';
 
-      for (const { skill_name } of enabledSkills) {
+      for (const skill_name of allSkillNames) {
         // 尝试从 agents 目录和 plugin-skills 目录找 SKILL.md
         const candidates = [
           path.join(homeDir, '.agents', 'skills', skill_name, 'SKILL.md'),

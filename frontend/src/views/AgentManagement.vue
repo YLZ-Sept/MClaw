@@ -59,40 +59,20 @@
 
     <!-- 技能选择对话框 -->
     <el-dialog v-model="skillDlg.visible" :title="'技能分配 - ' + skillDlg.agentName" width="620px" :close-on-click-modal="false">
-      <el-tabs v-model="skillDlg.tab" type="card">
-        <el-tab-pane label="本地技能" name="local">
-          <div v-if="allSkills.length === 0" style="text-align:center;padding:40px 0">
-            <el-empty description="技能库暂无技能">
-              <el-button type="primary" @click="skillDlg.visible=false;router.push('/skill-library')">前往技能库</el-button>
-            </el-empty>
+      <div v-if="openclawSkills.length === 0" style="text-align:center;padding:40px 0">
+        <el-empty description="OpenClaw 服务不可用或无已安装技能">
+          <span style="color:#909399;font-size:12px">请确认 OpenClaw 已启动并已安装技能</span>
+        </el-empty>
+      </div>
+      <div v-else class="skill-check-list">
+        <div v-for="s in openclawSkills" :key="s.name" class="skill-check-item" :class="{ checked: openclawChecked.includes(s.name) }" @click="toggleOpenClawCheck(s.name)">
+          <el-checkbox :model-value="openclawChecked.includes(s.name)" @click.stop @change="toggleOpenClawCheck(s.name)"/>
+          <div class="sci-body">
+            <div class="sci-name">{{ s.name }} <el-tag v-if="s.source" size="small" type="info" style="margin-left:6px">{{ s.source }}</el-tag></div>
+            <div class="sci-desc">{{ s.description || '无描述' }}</div>
           </div>
-          <div v-else class="skill-check-list">
-            <div v-for="s in allSkills" :key="s.id" class="skill-check-item" :class="{ checked: checkedIds.includes(s.id) }" @click="toggleCheck(s.id)">
-              <el-checkbox :model-value="checkedIds.includes(s.id)" @click.stop @change="toggleCheck(s.id)"/>
-              <div class="sci-body">
-                <div class="sci-name">{{ s.name }}</div>
-                <div class="sci-desc">{{ s.desc }}</div>
-              </div>
-            </div>
-          </div>
-        </el-tab-pane>
-        <el-tab-pane label="我的技能" name="openclaw">
-          <div v-if="openclawSkills.length === 0" style="text-align:center;padding:40px 0">
-            <el-empty description="OpenClaw 服务不可用或无已安装技能">
-              <span style="color:#909399;font-size:12px">请确认 OpenClaw 已启动并已安装技能</span>
-            </el-empty>
-          </div>
-          <div v-else class="skill-check-list">
-            <div v-for="s in openclawSkills" :key="s.name" class="skill-check-item" :class="{ checked: openclawChecked.includes(s.name) }" @click="toggleOpenClawCheck(s.name)">
-              <el-checkbox :model-value="openclawChecked.includes(s.name)" @click.stop @change="toggleOpenClawCheck(s.name)"/>
-              <div class="sci-body">
-                <div class="sci-name">{{ s.name }} <el-tag v-if="s.source" size="small" type="info" style="margin-left:6px">{{ s.source }}</el-tag></div>
-                <div class="sci-desc">{{ s.description || '无描述' }}</div>
-              </div>
-            </div>
-          </div>
-        </el-tab-pane>
-      </el-tabs>
+        </div>
+      </div>
       <template #footer>
         <el-button @click="skillDlg.visible=false">取消</el-button>
         <el-button type="primary" :loading="skillSaving" @click="saveSkillBinding">保存</el-button>
@@ -433,9 +413,7 @@ const icons = ['Avatar', 'Coin', 'Headset', 'Lock', 'ChatDotSquare', 'DataAnalys
 const emojis = ['🤖', '🤝', '📋', '🔧', '🛡️', '💻', '💬', '📢', '🎯', '🧠', '👔', '📊']
 
 // 技能分配
-const skillDlg = reactive({ visible: false, agentId: '', agentName: '', tab: 'local' })
-const allSkills = ref([])
-const checkedIds = ref([])
+const skillDlg = reactive({ visible: false, agentId: '', agentName: '' })
 const openclawSkills = ref([])
 const openclawChecked = ref([])
 const skillSaving = ref(false)
@@ -464,13 +442,7 @@ function openManagement(agent) {
 
 // ----- 技能 -----
 async function manageSkills(agent) {
-  skillDlg.agentId = agent.id; skillDlg.agentName = agent.name; skillDlg.tab = 'local'
-  // 加载本地技能 + OpenClaw 技能
-  try {
-    const { data } = await request.get('/agent-skills')
-    allSkills.value = data.data || []
-    checkedIds.value = allSkills.value.filter(s => s.agent_id === agent.id).map(s => s.id)
-  } catch { allSkills.value = []; checkedIds.value = [] }
+  skillDlg.agentId = agent.id; skillDlg.agentName = agent.name
   try {
     const [allRes, checkedRes] = await Promise.all([
       request.get('/agent-openclaw-skills'),
@@ -481,26 +453,10 @@ async function manageSkills(agent) {
   } catch { openclawSkills.value = []; openclawChecked.value = [] }
   skillDlg.visible = true
 }
-function toggleCheck(skillId) {
-  const idx = checkedIds.value.indexOf(skillId)
-  if (idx >= 0) checkedIds.value.splice(idx, 1)
-  else checkedIds.value.push(skillId)
-}
 async function saveSkillBinding() {
   skillSaving.value = true
   try {
-    const agentId = skillDlg.agentId
-    // 本地技能：勾选的设为 agent_id，未勾选的清空 agent_id
-    for (const s of allSkills.value) {
-      const shouldBind = checkedIds.value.includes(s.id)
-      if (shouldBind && s.agent_id !== agentId) {
-        await request.put('/agent-skills/' + s.id, { agent_id: agentId })
-      } else if (!shouldBind && s.agent_id === agentId) {
-        await request.put('/agent-skills/' + s.id, { agent_id: '' })
-      }
-    }
-    // OpenClaw 技能
-    await request.put('/agent-openclaw-skills/' + agentId, { skills: openclawChecked.value })
+    await request.put('/agent-openclaw-skills/' + skillDlg.agentId, { skills: openclawChecked.value })
     ElMessage.success('技能分配已保存')
     skillDlg.visible = false
   } catch (e) {

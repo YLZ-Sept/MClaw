@@ -210,7 +210,7 @@ app.use('/api/clawhub', require('./routes/clawhub'));
 
 // 动态读取当前激活的模型配置
 const { getActiveConfig } = require('./routes/model-configs');
-const { loadAgentConfig, callLLM, execTool, polishReply } = require('./channels/agent-bridge');
+const { loadAgentConfig, execTool } = require('./channels/agent-bridge');
 const { setExecutionContext } = require('./shared/execution-context');
 
 // OpenClaw 模型同步 + 通用聊天透传
@@ -336,11 +336,12 @@ app.post('/api/chat/send', requireAuth, async (req, res) => {
     const isExpert = !!expertRow;
 
     if (agent && !isExpert) {
-      // MClaw 路径：选中 agent/数字员工 → agent-bridge → 直接调 LLM（含工具执行/润色）
+      // 数字员工路径：OpenClaw + 工具执行循环
+      const gw = getOpenClawGateway();
       const history = session_id ? loadSessionHistory(session_id) : getHistory(agent);
       const config = loadAgentConfig(agent);
 
-      console.log(`[chat] MClaw agent=${agent} session=${session_id||'memory'} content="${(content||'').slice(0,80)}"`);
+      console.log(`[chat] OpenClaw(de) agent=${agent} session=${session_id||'memory'} content="${(content||'').slice(0,80)}"`);
 
       history.push({ role: 'user', content });
       if (session_id) saveSessionMessage(session_id, 'user', content);
@@ -348,10 +349,25 @@ app.post('/api/chat/send', requireAuth, async (req, res) => {
       const faqMatches = matchFAQ(content);
       const messages = makeMessages(config, history, faqMatches);
 
+      const callOpenClaw = async (msgs, tools, stream) => {
+        const body = { model: 'openclaw', messages: msgs, stream };
+        if (tools && tools.length) { body.tools = tools; body.tool_choice = 'auto'; }
+        if (session_id) body.user = session_id;
+        return fetch(`${gw.url}/v1/chat/completions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${gw.token}` },
+          body: JSON.stringify(body)
+        });
+      };
+
       // 工具调用轮（非流式，最多2轮）
-      let dsRes = await callLLM(messages, config.tools, false);
-      let dsData = await dsRes.json();
-      let msg = dsData.choices?.[0]?.message;
+      let ocRes = await callOpenClaw(messages, config.tools, false);
+      if (!ocRes.ok) {
+        const errText = await ocRes.text();
+        throw new Error(`OpenClaw ${ocRes.status}: ${errText.slice(0, 300)}`);
+      }
+      let ocData = await ocRes.json();
+      let msg = ocData.choices?.[0]?.message;
       let loop = 0;
       setExecutionContext(agent);
       while (msg?.tool_calls && msg.tool_calls.length > 0 && loop < 2) {
@@ -364,18 +380,16 @@ app.post('/api/chat/send', requireAuth, async (req, res) => {
           const result = await execTool(tc.function.name, args);
           messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) });
         }
-        dsRes = await callLLM(messages, config.tools, false);
-        dsData = await dsRes.json();
-        msg = dsData.choices?.[0]?.message;
+        ocRes = await callOpenClaw(messages, config.tools, false);
+        if (!ocRes.ok) {
+          const errText = await ocRes.text();
+          throw new Error(`OpenClaw ${ocRes.status}: ${errText.slice(0, 300)}`);
+        }
+        ocData = await ocRes.json();
+        msg = ocData.choices?.[0]?.message;
       }
 
-      let reply = msg?.content || '未返回有效回复';
-
-      // 润色
-      try {
-        const polished = await polishReply(reply);
-        if (polished && polished.length > 10) reply = polished;
-      } catch {}
+      const reply = msg?.content || '未返回有效回复';
 
       history.push({ role: 'assistant', content: reply });
       if (session_id) saveSessionMessage(session_id, 'assistant', reply);

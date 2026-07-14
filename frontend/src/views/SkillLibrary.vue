@@ -44,8 +44,11 @@
                 <div class="sc-meta" v-if="s.version">v{{ s.version }} · {{ s.source || 'openclaw' }}</div>
               </div>
               <div class="sc-action">
+                <el-button size="small" text type="primary" @click.stop="showDetail(s)">查看详情</el-button>
+                <el-button size="small" text @click.stop="exportSkill(s)">导出</el-button>
                 <el-tag v-if="!s.disabled" size="small" type="success" effect="plain" class="skill-status-tag" @click.stop="toggleSkill(s)">已启用</el-tag>
                 <el-tag v-else size="small" type="info" effect="plain" class="skill-status-tag" @click.stop="toggleSkill(s)">已禁用</el-tag>
+                <el-button size="small" text type="danger" @click.stop="deleteSkill(s)">删除</el-button>
               </div>
             </div>
             <div v-if="!filteredOpenclawSkills.length" class="skill-empty">
@@ -82,13 +85,28 @@
         </el-tab-pane>
       </el-tabs>
     </div>
+
+    <!-- 技能详情弹窗 -->
+    <el-dialog v-model="detailDlg.visible" :title="detailDlg.title" width="700px" :close-on-click-modal="false">
+      <div v-if="detailDlg.loading" style="text-align:center;padding:40px 0">
+        <el-icon class="is-loading"><svg viewBox="0 0 1024 1024" width="24" height="24"><path d="M512 64a448 448 0 110 896 448 448 0 010-896z" fill="#ccc"/><path d="M512 64a448 448 0 01320 128" stroke="#409EFF" stroke-width="32" fill="none" stroke-linecap="round"/></svg></el-icon>
+        <p style="color:#909399;margin-top:12px">加载中...</p>
+      </div>
+      <div v-else class="markdown-body" v-html="detailDlg.content"></div>
+      <template #footer>
+        <el-button @click="detailDlg.visible=false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { marked } from 'marked'
 import request from '../api/index.js'
+
+marked.setOptions({ breaks: true, gfm: true })
 
 const activeTab = ref('openclaw')
 
@@ -172,6 +190,7 @@ const installedSlugs = ref(new Set())
 const translating = ref(false)
 const importing = ref(false)
 const openclawSkills = ref([])
+const detailDlg = reactive({ visible: false, title: '', content: '', loading: false })
 
 function skillEmoji(name) {
   if (name.includes('PPT')) return '📊'
@@ -276,6 +295,55 @@ async function searchClawHub() {
   clawhubLoading.value = false
 }
 
+async function showDetail(s) {
+  detailDlg.visible = true
+  detailDlg.title = s.nameZh || s.displayName || s.name
+  detailDlg.content = ''
+  detailDlg.loading = true
+  try {
+    const skillKey = s.skillKey || s.name
+    const { data } = await request.get('/clawhub/readme/' + encodeURIComponent(skillKey))
+    if (data.code === 200) {
+      detailDlg.content = marked.parse(data.data.content)
+    } else {
+      detailDlg.content = '<p style="color:#909399">无法加载技能详情</p>'
+    }
+  } catch (e) {
+    detailDlg.content = '<p style="color:#909399">加载失败: ' + (e.response?.data?.message || e.message) + '</p>'
+  }
+  detailDlg.loading = false
+}
+
+function exportSkill(s) {
+  const skillKey = s.skillKey || s.name
+  const skillName = s.nameZh || s.displayName || s.name
+  const a = document.createElement('a')
+  a.href = request.defaults.baseURL + '/clawhub/skills/' + encodeURIComponent(skillKey) + '/export'
+  a.download = `${skillName}.zip`
+  const token = localStorage.getItem('token') || ''
+  if (token) a.href += (a.href.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token)
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+}
+
+async function deleteSkill(s) {
+  const skillKey = s.skillKey || s.name
+  const skillName = s.nameZh || s.displayName || s.name
+  try {
+    await ElMessageBox.confirm(`确定要卸载「${skillName}」吗？此操作不可恢复。`, '确认卸载', {
+      confirmButtonText: '卸载',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    await request.delete('/clawhub/skills/' + encodeURIComponent(skillKey))
+    ElMessage.success('已卸载')
+    loadOpenClawSkills()
+  } catch (e) {
+    if (e !== 'cancel') ElMessage.error('卸载失败: ' + (e.response?.data?.message || e.message))
+  }
+}
+
 async function updateCategory(s, category) {
   try {
     await request.put('/clawhub/category', { skillKey: s.skillKey, category })
@@ -331,7 +399,7 @@ onMounted(() => { loadOpenClawSkills(); loadRecentUsage(); loadInstalledSlugs() 
 .sc-cat-select :deep(.el-select__placeholder) { color: #7c3aed; font-size: 12px; }
 .sc-cat-select :deep(.el-select__selected-item) { font-size: 12px; color: #7c3aed; }
 .sc-meta { font-size: 11px; color: #b8aad0; margin-top: 4px; }
-.sc-action { flex-shrink: 0; }
+.sc-action { flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .skill-status-tag { cursor: pointer; }
 .skill-status-tag:hover { opacity: 0.8; }
 .skill-empty { padding: 60px 0; text-align: center; width: 100%; }
