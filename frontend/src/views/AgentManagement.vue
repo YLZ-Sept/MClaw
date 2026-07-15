@@ -68,8 +68,8 @@
         <div v-for="s in openclawSkills" :key="s.name" class="skill-check-item" :class="{ checked: openclawChecked.includes(s.name) }" @click="toggleOpenClawCheck(s.name)">
           <el-checkbox :model-value="openclawChecked.includes(s.name)" @click.stop @change="toggleOpenClawCheck(s.name)"/>
           <div class="sci-body">
-            <div class="sci-name">{{ s.name }} <el-tag v-if="s.source" size="small" type="info" style="margin-left:6px">{{ s.source }}</el-tag></div>
-            <div class="sci-desc">{{ s.description || '无描述' }}</div>
+            <div class="sci-name">{{ s.nameZh || s.name }} <el-tag v-if="s.source" size="small" type="info" style="margin-left:6px">{{ s.source }}</el-tag></div>
+            <div class="sci-desc">{{ s.descZh || s.description || '无描述' }}</div>
           </div>
         </div>
       </div>

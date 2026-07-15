@@ -92,7 +92,10 @@
         <el-icon class="is-loading"><svg viewBox="0 0 1024 1024" width="24" height="24"><path d="M512 64a448 448 0 110 896 448 448 0 010-896z" fill="#ccc"/><path d="M512 64a448 448 0 01320 128" stroke="#409EFF" stroke-width="32" fill="none" stroke-linecap="round"/></svg></el-icon>
         <p style="color:#909399;margin-top:12px">加载中...</p>
       </div>
-      <div v-else class="markdown-body" v-html="detailDlg.content"></div>
+      <div v-else>
+        <div v-if="detailDlg.desc" class="detail-desc">{{ detailDlg.desc }}</div>
+        <div class="markdown-body" v-html="detailDlg.content"></div>
+      </div>
       <template #footer>
         <el-button @click="detailDlg.visible=false">关闭</el-button>
       </template>
@@ -190,7 +193,7 @@ const installedSlugs = ref(new Set())
 const translating = ref(false)
 const importing = ref(false)
 const openclawSkills = ref([])
-const detailDlg = reactive({ visible: false, title: '', content: '', loading: false })
+const detailDlg = reactive({ visible: false, title: '', desc: '', content: '', loading: false })
 
 function skillEmoji(name) {
   if (name.includes('PPT')) return '📊'
@@ -298,6 +301,7 @@ async function searchClawHub() {
 async function showDetail(s) {
   detailDlg.visible = true
   detailDlg.title = s.nameZh || s.displayName || s.name
+  detailDlg.desc = s.descZh || s.description || ''
   detailDlg.content = ''
   detailDlg.loading = true
   try {

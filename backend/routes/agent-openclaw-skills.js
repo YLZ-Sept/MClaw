@@ -2,6 +2,7 @@
 const { Router } = require('express');
 const db = require('../db');
 const wsClient = require('../openclaw/ws-client');
+const { getTranslations, translateInBackground } = require('../services/skill-translator');
 const router = Router();
 
 db.exec(`CREATE TABLE IF NOT EXISTS agent_openclaw_skills (
@@ -28,14 +29,25 @@ function openclaw(method, params) {
 router.get('/', async (req, res) => {
   try {
     const result = await openclaw('skills.status');
-    const skills = (result.skills || []).filter(s => !s.disabled).map(s => ({
-      name: s.name,
-      description: s.description || '',
-      skillKey: s.skillKey,
-      source: s.source,
-      filePath: s.filePath,
-      baseDir: s.baseDir
-    }));
+    const translations = getTranslations();
+    const skills = (result.skills || []).filter(s => !s.disabled).map(s => {
+      const key = s.skillKey || s.name;
+      const t = translations[key];
+      return {
+        name: s.name,
+        description: s.description || '',
+        nameZh: t?.name_zh || null,
+        descZh: t?.desc_zh || null,
+        skillKey: s.skillKey,
+        source: s.source,
+        filePath: s.filePath,
+        baseDir: s.baseDir
+      };
+    });
+    const untranslated = skills.filter(s => !translations[s.skillKey || s.name]);
+    if (untranslated.length > 0) {
+      translateInBackground(untranslated);
+    }
     res.json({ code: 200, data: skills });
   } catch (e) {
     res.status(e.status || 500).json({ code: e.status || 500, message: e.message });
