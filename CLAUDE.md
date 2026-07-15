@@ -10,6 +10,53 @@
 - **无 TypeScript**，纯 JavaScript
 - **其他关键依赖:** Playwright (浏览器自动化)、multer (上传)、xlsx (Excel)、pdf-parse、mammoth (docx)、sharp (图片)、tesseract.js (OCR)、cheerio (HTML 解析)
 
+## 换电脑迁移
+
+全新电脑上恢复项目运行，按以下步骤操作：
+
+### 1. 手动安装三个依赖（setup.bat 不会自动装）
+
+| 依赖 | 原因 | 下载 |
+|------|------|------|
+| **Visual Studio Build Tools (C++)** | better-sqlite3 需要 C++ 编译，否则 `npm install` 失败 | https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022 勾选「Desktop development with C++」 |
+| **FFmpeg** | 视频生成 (`services/video-generator.js` 等) | https://ffmpeg.org/download.html 添加到 PATH |
+| **Tesseract OCR** | 图片文字识别，项目含 `chi_sim.traineddata` + `eng.traineddata` | https://github.com/UB-Mannheim/tesseract/wiki 安装到 `C:\Program Files\Tesseract-OCR\`，语言包放入 `tessdata/` |
+
+### 2. 拷贝项目文件夹
+
+整个 `E:\CC\MClaw\` 复制到新电脑，Git 历史、SQLite 数据库、上传文件都在里面。
+
+### 3. 运行 setup.bat
+
+以管理员身份运行，自动完成：
+- 安装 Node.js (winget)
+- 安装 Python 3.12.9
+- 后端 `npm install` (backend/)
+- 前端 `npm install` (frontend/)
+- 安装 OpenClaw Gateway (`npm install -g openclaw@2026.6.6` + 初始化设备身份)
+- Python 依赖 (fastapi, playwright, uvicorn 等)
+- Playwright Chromium 浏览器
+- 前端 `npm run build`
+- 创建 `.env` 模板
+- 端口检测 + 冒烟测试
+
+### 4. 激活 License
+
+换电脑后硬件指纹 (CPU UUID + 磁盘序列号 + MAC 地址) 全变，旧 License 失效。
+
+- 项目能启动，但 API 返回 402
+- `/api/license` 页面获取新机器指纹
+- 用 `tools/` 里的私钥生成新授权码激活
+- 容错机制：5 段指纹匹配 3 段即通过，换硬盘/网卡不会立即锁死
+
+### 5. 启动
+
+```bash
+start.bat
+```
+
+访问 `http://localhost:18621`
+
 ## 目录结构
 
 ```
