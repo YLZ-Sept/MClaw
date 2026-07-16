@@ -33,7 +33,7 @@
           :disabled="streaming || uploading"
           accept=".pdf,.docx,.doc,.xlsx,.xls,.csv,.txt,.md,.html,.json,.xml,.log,.ppt,.pptx"
         >
-          <el-button size="small" circle :icon="Upload" :disabled="streaming||uploading" :loading="uploading" title="上传文件并解析"/>
+          <el-button size="small" circle :icon="Upload" :loading="uploading" title="上传文件并解析"/>
         </el-upload>
         <el-input
           ref="inputRef"
@@ -45,7 +45,8 @@
           :disabled="streaming"
           resize="none"
         />
-        <el-button type="primary" class="send-btn" :icon="Promotion" @click="handleSend" :loading="streaming" :disabled="!inputText.trim()||streaming">发送</el-button>
+        <el-button v-if="streaming" type="danger" class="send-btn" @click="handleStop">⏹ 停止</el-button>
+        <el-button v-else type="primary" class="send-btn" :icon="Promotion" @click="handleSend" :disabled="!inputText.trim()">发送</el-button>
       </div>
     </div>
   </div>
@@ -64,6 +65,7 @@ const messages = ref([])
 const inputText = ref('')
 const inputRef = ref(null)
 const streaming = ref(false)
+const abortController = ref(null)
 const uploading = ref(false)
 const uploadRef = ref(null)
 const messagesRef = ref(null)
@@ -113,21 +115,9 @@ async function handleSend() {
 
   inputText.value = ''
   streaming.value = true
+  abortController.value = new AbortController()
 
-  // 有 agent 但无 session 时自动创建会话，保证切换页面后聊天记录不丢失
-  if (agentKey() && !sessionId.value && !route.query.employee_id) {
-    try {
-      const sessionName = currentAgentName.value || text.slice(0, 20)
-      const { data } = await request.post('/chat-sessions', {
-        name: sessionName,
-        agent_id: agentKey()
-      })
-      if (data.data?.id) {
-        sessionId.value = data.data.id
-        router.replace({ query: { ...route.query, session: data.data.id } })
-      }
-    } catch { /* 创建失败不阻塞发送 */ }
-  }
+  await ensureSession(text.slice(0, 20))
 
   messages.value.push({ role: 'user', content: text })
   const aiIdx = messages.value.length
@@ -137,6 +127,19 @@ async function handleSend() {
   const body = { content: text, agent: agentKey(), stream: true }
   if (sessionId.value) body.session_id = sessionId.value
   await streamResponse(body, aiIdx)
+}
+
+// 自动创建会话（有 agent 但无 session 时）
+async function ensureSession(fallbackName = '新会话') {
+  if (!agentKey() || sessionId.value || route.query.employee_id) return
+  try {
+    const sessionName = currentAgentName.value || fallbackName
+    const { data } = await request.post('/chat-sessions', { name: sessionName, agent_id: agentKey() })
+    if (data.data?.id) {
+      sessionId.value = data.data.id
+      router.replace({ query: { ...route.query, session: data.data.id } })
+    }
+  } catch { /* 创建失败不阻塞发送 */ }
 }
 
 // ── 文件上传 & 解析 ──
@@ -155,30 +158,18 @@ async function handleUpload(options) {
         info += `⚠️ 解析警告：${d.error}\n\n`
       }
       if (d.text) {
-        const preview = d.text.slice(0, 6000)
+        const preview = d.text.slice(0, 10000)
         info += `---\n### 📄 文件内容预览\n\n${preview}`
-        if (d.text.length > 6000) info += `\n\n*(内容过长，仅展示前 6000 字符)*`
+        if (d.text.length > 10000) info += `\n\n*(内容过长，仅展示前 10000 字符)*`
       }
       messages.value.push({ role: 'user', content: info })
+      ElMessage.success(`已解析：${d.fileName}`)
       scrollToBottom()
 
       // 将文件全文作为上下文发送给 Agent
       if (d.text) {
-        // 有 agent 但无 session 时自动创建会话
-        if (agentKey() && !sessionId.value && !route.query.employee_id) {
-          try {
-            const sessionName = currentAgentName.value || d.fileName.slice(0, 20)
-            const { data: sData } = await request.post('/chat-sessions', {
-              name: sessionName,
-              agent_id: agentKey()
-            })
-            if (sData.data?.id) {
-              sessionId.value = sData.data.id
-              router.replace({ query: { ...route.query, session: sData.data.id } })
-            }
-          } catch { /* 创建失败不阻塞发送 */ }
-        }
-        const fc = d.text.slice(0, 8000)
+        await ensureSession(d.fileName.slice(0, 20))
+        const fc = d.text.slice(0, 10000)
         const body = {
           content: `[系统上下文] 用户上传了文件「${d.fileName}」，以下是文件内容。请根据此内容主动引导用户，询问用户需要什么帮助：\n\n${fc}`,
           agent: agentKey(),
@@ -203,12 +194,14 @@ async function handleUpload(options) {
 
 // ── SSE 流式响应抽取 ──
 async function streamResponse(body, aiIdx) {
+  const signal = abortController.value?.signal
   try {
     const token = localStorage.getItem('token')
     const dsRes = await fetch('/api/chat/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
+      signal
     })
     if (!dsRes.ok) {
       let errMsg = `HTTP ${dsRes.status}`
@@ -228,6 +221,7 @@ async function streamResponse(body, aiIdx) {
       const lines = buf.split('\n')
       buf = lines.pop() || ''
       for (const line of lines) {
+        if (signal?.aborted) break
         if (line.startsWith('event: ')) { eventType = line.slice(7).trim(); continue }
         if (!line.startsWith('data: ')) { if (line === '') eventType = 'message'; continue }
         let data; try { data = JSON.parse(line.slice(6)) } catch { continue }
@@ -239,20 +233,40 @@ async function streamResponse(body, aiIdx) {
         eventType = 'message'
       }
     }
+    if (signal?.aborted) {
+      if (!messages.value[aiIdx].content) messages.value[aiIdx].content = '(已停止生成)'
+      else messages.value[aiIdx].content += '\n\n*(已停止生成)*'
+    }
   } catch (e) {
-    messages.value[aiIdx].content = '消息发送失败：' + (e.message || '请检查后端服务后重试')
+    if (e.name === 'AbortError') {
+      if (!messages.value[aiIdx].content) messages.value[aiIdx].content = '(已停止生成)'
+      else messages.value[aiIdx].content += '\n\n*(已停止生成)*'
+    } else {
+      messages.value[aiIdx].content = '消息发送失败：' + (e.message || '请检查后端服务后重试')
+    }
   }
   streaming.value = false
+  abortController.value = null
   scrollToBottom()
   nextTick(() => inputRef.value?.focus())
 }
 
+function handleStop() {
+  if (abortController.value) {
+    abortController.value.abort()
+  }
+}
+
 async function handleClear() {
-  if (sessionId.value) {
-    await request.delete('/chat-sessions/' + sessionId.value + '/messages')
-    messages.value = [{ role: 'ai', content: '对话已清空，开始新的交流吧。' }]
-  } else {
-    await clearChat(agentKey()); messages.value = []
+  try {
+    if (sessionId.value) {
+      await request.delete('/chat-sessions/' + sessionId.value + '/messages')
+      messages.value = [{ role: 'ai', content: '对话已清空，开始新的交流吧。' }]
+    } else {
+      await clearChat(agentKey()); messages.value = []
+    }
+  } catch (e) {
+    ElMessage.error('清空失败: ' + (e.response?.data?.message || e.message))
   }
   scrollToBottom()
 }
@@ -312,7 +326,7 @@ watch(() => route.query.session, (sid) => {
     loadMessages()
   }
 })
-watch(() => route.query.agent, () => init())
+watch(() => route.query.agent, () => { sessionId.value = null; currentSessionName.value = ''; init() })
 onMounted(init)
 </script>
 

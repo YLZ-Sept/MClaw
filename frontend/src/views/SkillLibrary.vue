@@ -28,27 +28,27 @@
             </div>
           </div>
           <div class="skill-grid" style="margin-top:16px">
-            <div v-for="s in filteredOpenclawSkills" :key="s.name" class="skill-card">
+            <div v-for="s in filteredOpenclawSkills" :key="s.name" class="skill-card" @click="showDetail(s)">
               <div class="sc-icon">{{ s.emoji || '⚡' }}</div>
               <div class="sc-body">
-                <div class="sc-name">{{ s.nameZh || s.displayName || s.name }}</div>
+                <div class="sc-top-row">
+                  <div class="sc-name">{{ s.nameZh || s.displayName || s.name }}</div>
+                  <el-switch v-model="s._enabled" size="small" @change="toggleSkill(s)" @click.stop />
+                </div>
                 <el-tooltip :content="s.descZh || s.description || s.summary || '暂无描述'" placement="top" :show-after="400" effect="light">
                   <div class="sc-desc">{{ s.descZh || s.description || s.summary || '暂无描述' }}</div>
                 </el-tooltip>
-                <div class="sc-cat-row">
+                <div class="sc-bottom-row">
                   <el-select v-model="s._category" size="small" class="sc-cat-select"
                     @change="(v) => updateCategory(s, v)" @click.stop>
                     <el-option v-for="c in categories.slice(2)" :key="c.key" :label="c.icon + ' ' + c.label" :value="c.key" />
                   </el-select>
+                  <span v-if="s.version" class="sc-meta">v{{ s.version }}</span>
+                  <span class="sc-actions">
+                    <el-button size="small" text @click.stop="exportSkill(s)" title="导出">📥</el-button>
+                    <el-button size="small" text type="danger" @click.stop="deleteSkill(s)" title="卸载">🗑</el-button>
+                  </span>
                 </div>
-                <div class="sc-meta" v-if="s.version">v{{ s.version }} · {{ s.source || 'openclaw' }}</div>
-              </div>
-              <div class="sc-action">
-                <el-button size="small" text type="primary" @click.stop="showDetail(s)">查看详情</el-button>
-                <el-button size="small" text @click.stop="exportSkill(s)">导出</el-button>
-                <el-tag v-if="!s.disabled" size="small" type="success" effect="plain" class="skill-status-tag" @click.stop="toggleSkill(s)">已启用</el-tag>
-                <el-tag v-else size="small" type="info" effect="plain" class="skill-status-tag" @click.stop="toggleSkill(s)">已禁用</el-tag>
-                <el-button size="small" text type="danger" @click.stop="deleteSkill(s)">删除</el-button>
               </div>
             </div>
             <div v-if="!filteredOpenclawSkills.length" class="skill-empty">
@@ -60,19 +60,19 @@
           <div class="clawhub-search">
             <el-input v-model="clawhubQuery" placeholder="搜索 ClawHub 技能..." clearable
               @keyup.enter="searchClawHub" style="width: 360px" />
-            <el-button type="primary" @click="searchClawHub" :loading="clawhubLoading">搜索</el-button>
+            <el-button type="primary" @click="searchClawHub" :loading="clawhubLoading" :disabled="!clawhubQuery.trim()">搜索</el-button>
           </div>
           <div class="skill-grid" style="margin-top:16px">
             <div v-for="s in clawhubResults" :key="s.slug" class="skill-card">
               <div class="sc-icon">📦</div>
               <div class="sc-body">
-                <div class="sc-name">{{ s.name }}</div>
+                <div class="sc-top-row">
+                  <div class="sc-name">{{ s.name }}</div>
+                  <el-button v-if="isInstalled(s.slug)" size="small" disabled round>已安装</el-button>
+                  <el-button v-else size="small" type="primary" round @click.stop="installSkill(s)" :loading="s._installing">安装</el-button>
+                </div>
                 <div class="sc-desc">{{ s.description || '暂无描述' }}</div>
-                <div class="sc-meta" v-if="s.version">v{{ s.version }} · {{ s.owner || '' }}</div>
-              </div>
-              <div class="sc-action">
-                <el-button v-if="isInstalled(s.slug)" size="small" disabled>已安装</el-button>
-                <el-button v-else size="small" type="primary" @click.stop="installSkill(s)" :loading="s._installing">安装</el-button>
+                <span class="sc-meta" v-if="s.version">v{{ s.version }} · {{ s.owner || '' }}</span>
               </div>
             </div>
             <div v-if="!clawhubLoading && clawhubSearched && !clawhubResults.length" class="skill-empty">
@@ -195,11 +195,22 @@ const importing = ref(false)
 const openclawSkills = ref([])
 const detailDlg = reactive({ visible: false, title: '', desc: '', content: '', loading: false })
 
-function skillEmoji(name) {
-  if (name.includes('PPT')) return '📊'
-  if (name.includes('文档') || name.includes('Word')) return '📝'
-  if (name.includes('表') || name.includes('Excel')) return '📈'
-  return '⚡'
+const CATEGORY_EMOJI = {
+  design: '🎨', dev: '🛠️', itops: '🔒', data: '📊', ai: '🤖',
+  content: '✍️', knowledge: '📚', business: '💼', edu: '🎓',
+  industry: '🏭', office: '⚡', life: '🌟', external: '📦'
+}
+function skillEmoji(s) {
+  const name = (s.name || s.displayName || '').toLowerCase()
+  if (name.includes('ppt') || name.includes('slide')) return '📊'
+  if (name.includes('excel') || name.includes('sheet')) return '📈'
+  if (name.includes('word') || name.includes('doc')) return '📝'
+  if (name.includes('code') || name.includes('dev')) return '💻'
+  if (name.includes('image') || name.includes('photo')) return '🖼️'
+  if (name.includes('video')) return '🎬'
+  if (name.includes('audio') || name.includes('music')) return '🎵'
+  const cat = getSkillCategory(s)
+  return CATEGORY_EMOJI[cat] || '⚡'
 }
 
 
@@ -208,40 +219,32 @@ function isInstalled(slug) {
 }
 
 
-async function loadInstalledSlugs() {
-  try {
-    const { data } = await request.get('/clawhub/status')
-    if (data.code === 200 && data.data?.skills) {
-      installedSlugs.value = new Set(data.data.skills.map(s => s.name).filter(Boolean))
-    }
-  } catch {}
-}
-
 async function loadOpenClawSkills() {
   try {
     const { data } = await request.get('/clawhub/status')
     if (data.code === 200 && data.data?.skills) {
-      openclawSkills.value = data.data.skills.map(s => ({
+      const skills = data.data.skills
+      openclawSkills.value = skills.map(s => ({
         ...s,
-        emoji: skillEmoji(s.name || s.displayName || ''),
-        _category: s.category || getSkillCategory(s)
+        emoji: skillEmoji(s),
+        _category: s.category || getSkillCategory(s),
+        _enabled: !s.disabled
       }))
+      installedSlugs.value = new Set(skills.map(s => s.name).filter(Boolean))
     }
   } catch {}
 }
 
 async function toggleSkill(s) {
-  const enabled = !!s.disabled // 当前是禁用状态，点一下变成启用
-  s._toggling = true
+  const enabled = s._enabled
   try {
     await request.put('/agent-openclaw-skills/toggle', { skillKey: s.skillKey, enabled })
     s.disabled = !enabled
     loadRecentUsage()
-    ElMessage.success(enabled ? '已启用' : '已禁用')
   } catch (e) {
+    s._enabled = !enabled  // 还原开关状态
     ElMessage.error('操作失败: ' + (e.response?.data?.message || e.message))
   }
-  s._toggling = false
 }
 
 async function loadRecentUsage() {
@@ -320,15 +323,18 @@ async function showDetail(s) {
 
 function exportSkill(s) {
   const skillKey = s.skillKey || s.name
-  const skillName = s.nameZh || s.displayName || s.name
-  const a = document.createElement('a')
-  a.href = request.defaults.baseURL + '/clawhub/skills/' + encodeURIComponent(skillKey) + '/export'
-  a.download = `${skillName}.zip`
-  const token = localStorage.getItem('token') || ''
-  if (token) a.href += (a.href.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token)
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
+  const skillName = (s.nameZh || s.displayName || s.name) + '.zip'
+  try {
+    const token = localStorage.getItem('token') || ''
+    const a = document.createElement('a')
+    a.href = `/api/clawhub/skills/${encodeURIComponent(skillKey)}/export?token=${encodeURIComponent(token)}`
+    a.download = skillName
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+  } catch (e) {
+    ElMessage.error('导出失败: ' + (e.message || '未知错误'))
+  }
 }
 
 async function deleteSkill(s) {
@@ -375,7 +381,7 @@ async function installSkill(s) {
 
 
 watch(activeTab, (tab) => { if (tab === 'openclaw') { loadOpenClawSkills(); loadRecentUsage(); activeCategory.value = 'all' } })
-onMounted(() => { loadOpenClawSkills(); loadRecentUsage(); loadInstalledSlugs() })
+onMounted(() => { loadOpenClawSkills(); loadRecentUsage() })
 </script>
 
 <style scoped>
@@ -387,26 +393,29 @@ onMounted(() => { loadOpenClawSkills(); loadRecentUsage(); loadInstalledSlugs() 
 
 .skill-grid { display: flex; flex-wrap: wrap; gap: 16px; }
 .skill-card {
-  display: flex; align-items: center; gap: 14px;
-  width: 340px; padding: 20px;
+  display: flex; gap: 14px;
+  width: 340px; padding: 18px;
   background: #fff; border: 1px solid #f0ecfc; border-radius: 14px;
   cursor: pointer; transition: all .2s;
 }
 .skill-card:hover { border-color: #7c3aed; box-shadow: 0 6px 20px rgba(124,58,237,.1); transform: translateY(-2px); }
 .sc-icon { width: 48px; height: 48px; border-radius: 12px; background: #f5f3ff; display: flex; align-items: center; justify-content: center; font-size: 24px; flex-shrink: 0; }
-.sc-body { flex: 1; min-width: 0; }
-.sc-name { font-size: 15px; font-weight: 600; color: #4a3f5e; }
-.sc-desc { font-size: 12px; color: #909399; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sc-cat-row { margin-top: 6px; }
-.sc-cat-select { --el-select-width: 140px; }
+.sc-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.sc-top-row { display: flex; align-items: center; justify-content: space-between; }
+.sc-name { font-size: 15px; font-weight: 600; color: #4a3f5e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sc-desc { font-size: 12px; color: #909399; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sc-bottom-row { display: flex; align-items: center; justify-content: space-between; }
+.sc-cat-select { --el-select-width: 130px; }
 .sc-cat-select :deep(.el-select__wrapper) { background: #f5f3ff; border: none; box-shadow: none; padding: 0 8px; min-height: 24px; }
 .sc-cat-select :deep(.el-select__placeholder) { color: #7c3aed; font-size: 12px; }
 .sc-cat-select :deep(.el-select__selected-item) { font-size: 12px; color: #7c3aed; }
-.sc-meta { font-size: 11px; color: #b8aad0; margin-top: 4px; }
-.sc-action { flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; }
-.skill-status-tag { cursor: pointer; }
-.skill-status-tag:hover { opacity: 0.8; }
+.sc-meta { font-size: 11px; color: #b8aad0; }
+.sc-actions { display: flex; gap: 2px; }
+.sc-actions .el-button { padding: 2px 4px; font-size: 16px; }
 .skill-empty { padding: 60px 0; text-align: center; width: 100%; }
+
+/* switch 颜色匹配主题 */
+.sc-top-row :deep(.el-switch.is-checked .el-switch__core) { background-color: #7c3aed; border-color: #7c3aed; }
 
 /* 分类标签栏 */
 .category-bar { display: flex; gap: 8px; flex-wrap: wrap; }
