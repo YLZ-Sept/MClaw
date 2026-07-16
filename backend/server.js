@@ -79,7 +79,6 @@ const routePermMap = [
   { prefix: '/api/bids', perm: 'publish' },
   { prefix: '/api/bid-statistics', perm: 'publish' },
   { prefix: '/api/publish', perm: 'publish' },
-  { prefix: '/api/download', perm: 'publish' },
   { prefix: '/api/tasks', perm: 'tasks' },
   { prefix: '/api/clawhub', perm: 'skills' },
 ];
@@ -535,8 +534,19 @@ server.listen(PORT, () => {
     sock.connect(18622, '127.0.0.1', () => { sock.destroy(); });
     sock.on('error', () => {
       // 端口未监听，启动网关（直接 node 拉起，脱离终端进程组）
-      const gatewayEntry = path.join(require('os').homedir(), 'AppData', 'Roaming', 'npm', 'node_modules', 'openclaw', 'dist', 'index.js');
-      if (fs.existsSync(gatewayEntry)) {
+      // 动态获取 npm 全局模块路径（兼容不同 npm prefix 配置）
+      let gatewayEntry = null;
+      try {
+        const npmRoot = require('child_process').execSync('npm root -g', { encoding: 'utf8', timeout: 5000 }).trim();
+        const candidate = path.join(npmRoot, 'openclaw', 'dist', 'index.js');
+        if (fs.existsSync(candidate)) gatewayEntry = candidate;
+      } catch {}
+      // 兼容旧路径（AppData\Roaming\npm）
+      if (!gatewayEntry) {
+        const legacyPath = path.join(require('os').homedir(), 'AppData', 'Roaming', 'npm', 'node_modules', 'openclaw', 'dist', 'index.js');
+        if (fs.existsSync(legacyPath)) gatewayEntry = legacyPath;
+      }
+      if (gatewayEntry) {
         const { spawn } = require('child_process');
         spawn(process.execPath, [gatewayEntry, 'gateway', '--port', '18622'], {
           detached: true,
@@ -544,6 +554,8 @@ server.listen(PORT, () => {
           windowsHide: true
         }).unref();
         console.log('[server] OpenClaw 网关已启动');
+      } else {
+        console.log('[server] 未找到 OpenClaw 网关入口文件，跳过启动');
       }
     });
     sock.on('timeout', () => sock.destroy());

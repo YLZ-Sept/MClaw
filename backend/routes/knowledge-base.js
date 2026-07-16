@@ -179,4 +179,56 @@ router.post('/browse', (req, res) => {
   }
 });
 
+// 上传本地文件到服务器知识库目录（供远程/局域网用户使用）
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const os = require('os');
+
+const kbUploadDir = path.join(__dirname, '..', 'uploads', 'kb');
+fs.mkdirSync(kbUploadDir, { recursive: true });
+
+const kbUpload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      // 按用户名分目录
+      const user = (req.user && req.user.username) || 'anonymous';
+      const userDir = path.join(kbUploadDir, user);
+      fs.mkdirSync(userDir, { recursive: true });
+      cb(null, userDir);
+    },
+    filename: (req, file, cb) => {
+      // 保留中文文件名
+      const original = Buffer.from(file.originalname, 'latin1').toString('utf8');
+      cb(null, original);
+    }
+  }),
+  limits: { fileSize: 200 * 1024 * 1024 } // 200MB 单文件
+});
+
+router.post('/upload-kb', kbUpload.array('files', 50), (req, res) => {
+  try {
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ code: 400, message: '请选择文件' });
+    }
+    const user = (req.user && req.user.username) || 'anonymous';
+    const userDir = path.join(kbUploadDir, user);
+    // 返回服务器上的目录路径，自动填入"本地引用"
+    res.json({
+      code: 200,
+      message: `成功上传 ${req.files.length} 个文件`,
+      data: {
+        serverPath: userDir,
+        files: req.files.map(f => ({
+          name: f.originalname,
+          size: f.size,
+          path: f.path
+        }))
+      }
+    });
+  } catch (e) {
+    res.status(500).json({ code: 500, message: '上传失败: ' + e.message });
+  }
+});
+
 module.exports = router;

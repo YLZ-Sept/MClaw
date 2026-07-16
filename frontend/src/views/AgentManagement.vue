@@ -357,8 +357,17 @@
             <el-form-item label="本地引用">
               <div class="folder-list">
                 <div v-for="(fp, idx) in dlg.form.kb_folder_paths" :key="idx" class="folder-row">
-                  <el-input v-model="dlg.form.kb_folder_paths[idx]" placeholder="文件夹或文件路径，如 E:\docs\产品" size="small" style="flex:1" />
+                  <el-input v-model="dlg.form.kb_folder_paths[idx]" placeholder="文件夹路径，或上传本地文件到服务器" size="small" style="flex:1" />
                   <el-button size="small" @click="openBrowse(idx)">浏览</el-button>
+                  <el-upload
+                    :auto-upload="true"
+                    :show-file-list="false"
+                    :http-request="(opts) => handleKbUpload(opts, idx)"
+                    multiple
+                    style="display:inline-flex"
+                  >
+                    <el-button size="small" :loading="kbUploading === idx">📤 上传</el-button>
+                  </el-upload>
                   <el-button size="small" type="danger" :icon="Delete" circle @click="dlg.form.kb_folder_paths.splice(idx,1)" />
                 </div>
                 <el-button size="small" type="primary" text @click="dlg.form.kb_folder_paths.push('')">
@@ -417,6 +426,7 @@ const skillDlg = reactive({ visible: false, agentId: '', agentName: '' })
 const openclawSkills = ref([])
 const openclawChecked = ref([])
 const skillSaving = ref(false)
+const kbUploading = ref(-1)  // 当前正在上传的本地引用行索引，-1 表示无
 
 async function loadAgents() {
   try { const { data } = await request.get('/agents'); agents.value = data.data || [] } catch { agents.value = [] }
@@ -498,6 +508,27 @@ function selectBrowseItem(p) {
     dlg.form.kb_folder_paths[browseDlg.editIdx] = p
   }
   browseDlg.visible = false
+}
+
+// 上传本地文件到服务器，返回服务器路径自动填入
+async function handleKbUpload(opts, idx) {
+  kbUploading.value = idx
+  try {
+    const formData = new FormData()
+    formData.append('files', opts.file)
+    const { data } = await request.post('/knowledge-base/upload-kb', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+    if (data.code === 200) {
+      dlg.form.kb_folder_paths[idx] = data.data.serverPath
+      ElMessage.success(data.message)
+    } else {
+      ElMessage.error(data.message || '上传失败')
+    }
+  } catch (e) {
+    ElMessage.error('上传失败: ' + (e.response?.data?.message || e.message))
+  }
+  kbUploading.value = -1
 }
 
 // ----- 智能体 -----
