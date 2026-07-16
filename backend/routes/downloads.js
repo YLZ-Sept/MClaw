@@ -71,4 +71,26 @@ router.get('/:type/:filename', authByToken, (req, res) => {
   res.sendFile(filepath);
 });
 
+// 代理 OpenClaw workspace 文件下载：/api/download/openclaw/:filename
+// OpenClaw 内置技能生成的文件存在其 workspace，通过此路由代理下载
+const http = require('http');
+router.get('/openclaw/:filename', authByToken, (req, res) => {
+  const { filename } = req.params;
+  if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+    return res.status(400).json({ code: 400, message: '无效文件名' });
+  }
+  // 代理到 OpenClaw 本地文件服务
+  const ocUrl = `http://127.0.0.1:7071/api/download/${encodeURIComponent(filename)}`;
+  http.get(ocUrl, (ocRes) => {
+    if (ocRes.statusCode !== 200) {
+      return res.status(ocRes.statusCode).json({ code: ocRes.statusCode, message: 'OpenClaw 文件不存在' });
+    }
+    res.setHeader('Content-Type', ocRes.headers['content-type'] || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    ocRes.pipe(res);
+  }).on('error', () => {
+    res.status(502).json({ code: 502, message: 'OpenClaw 文件服务不可达' });
+  });
+});
+
 module.exports = router;

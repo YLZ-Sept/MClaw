@@ -29,14 +29,14 @@ const rendered = computed(() => {
   try {
     let text = props.content || ''
     // 自动将下载链接转为可点击的 markdown 链接（跳过已在链接中的 URL）
-    text = text.replace(/(?<!\]\()(\/api\/download\/(?:ppt|excel|pdf|docx|diagram)\/[\w.-]+)/g, '[$1]($1)')
+    text = text.replace(/(?<!\]\()(\/api\/download\/(?:ppt|excel|pdf|docx|diagram|openclaw)\/[\w.-]+)/g, '[$1]($1)')
     let html = marked.parse(text)
     // 所有链接新标签打开，避免 SPA 路由拦截
     html = html.replace(/<a /g, '<a target="_blank" rel="noopener" ')
     // 下载链接注入 token，避免新标签页打开时 401
     const token = localStorage.getItem('token')
     if (token) {
-      html = html.replace(/href="(\/api\/download\/(?:ppt|excel|pdf|docx|diagram)\/[\w.-]+)"/g, (_, url) => `href="${url}?token=${encodeURIComponent(token)}"`)
+      html = html.replace(/href="(\/api\/download\/(?:ppt|excel|pdf|docx|diagram|openclaw)\/[\w.-]+)"/g, (_, url) => `href="${url}?token=${encodeURIComponent(token)}"`)
     }
     return html
   } catch {

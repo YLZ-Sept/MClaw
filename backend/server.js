@@ -252,7 +252,14 @@ async function streamReply(ocRes, res) {
       } catch {}
     }
   }
-  return fullText;
+  // 将 OpenClaw 本地下载 URL 替换为 MClaw 代理下载
+  return rewriteOpenClawUrls(fullText);
+}
+
+// 将 OpenClaw 本地文件 URL 替换为 MClaw 代理下载
+function rewriteOpenClawUrls(text) {
+  if (!text) return text;
+  return text.replace(/https?:\/\/localhost:7071\/api\/download\//g, '/api/download/openclaw/');
 }
 
 // ── MClaw 聊天辅助 ──
@@ -388,7 +395,8 @@ app.post('/api/chat/send', requireAuth, async (req, res) => {
         msg = ocData.choices?.[0]?.message;
       }
 
-      const reply = msg?.content || '未返回有效回复';
+      let reply = msg?.content || '未返回有效回复';
+      reply = rewriteOpenClawUrls(reply);
 
       history.push({ role: 'assistant', content: reply });
       if (session_id) saveSessionMessage(session_id, 'assistant', reply);
@@ -449,6 +457,7 @@ app.post('/api/chat/send', requireAuth, async (req, res) => {
       } else {
         const data = await ocRes.json();
         reply = data.choices?.[0]?.message?.content || '';
+        reply = rewriteOpenClawUrls(reply);
         res.json({ code: 200, data: { content: reply } });
       }
 
