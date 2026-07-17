@@ -2,16 +2,27 @@
 // Calls scrapling_crawler.py via child_process for each source
 const { randomUUID } = require('crypto');
 const { spawn } = require('child_process');
+const fs = require('fs');
 const path = require('path');
 const db = require('../db');
 const { saveToTxt } = require('./bid-excel-writer');
 
-// 云南地区城市列表（只采集云南地区数据）
-const YN_CITIES = ['昆明','曲靖','玉溪','保山','昭通','丽江','普洱','临沧','楚雄','红河','文山','版纳','大理','德宏','怒江','迪庆','云南'];
+const REGION_FILE = path.join(__dirname, '..', 'data', 'bid-region-filter.json');
 
-function isYunnan(region) {
+function loadRegionFilter() {
+  try {
+    if (fs.existsSync(REGION_FILE)) {
+      return JSON.parse(fs.readFileSync(REGION_FILE, 'utf-8'));
+    }
+  } catch {}
+  return ['昆明','曲靖','玉溪','保山','昭通','丽江','普洱','临沧','楚雄','红河','文山','版纳','大理','德宏','怒江','迪庆','云南'];
+}
+
+function isTargetRegion(region) {
+  const cities = loadRegionFilter();
+  if (!cities || cities.length === 0) return true;
   if (!region) return false;
-  for (const city of YN_CITIES) {
+  for (const city of cities) {
     if (region.includes(city)) return true;
   }
   return false;
@@ -72,8 +83,9 @@ function isWithinRange(dateStr, collectRange) {
 }
 
 async function runCollect(opts = {}) {
+  const startTime = Date.now();
   const sources = db.prepare(
-    "SELECT * FROM bid_sources WHERE enabled=1 AND (source_type='web' OR source_type='crawl4ai' OR source_type='scrapling') AND source_type!='woyaobid'"
+    "SELECT * FROM bid_sources WHERE enabled=1 AND source_type='scrapling'"
   ).all();
   const keywords = db.prepare('SELECT keyword FROM bid_keywords').all().map(r => r.keyword);
 
@@ -109,7 +121,7 @@ async function runCollect(opts = {}) {
       for (const item of filtered) {
         // 云南地区过滤
         const isYNSource = source.url && (source.url.includes('yngp') || source.url.includes('ggzy.yn'));
-        if (item.region && !isYunnan(item.region)) {
+        if (item.region && !isTargetRegion(item.region)) {
           console.log('[scrapling-collector] 跳过非云南: ' + (item.title || '').substring(0, 40) + ' (' + item.region + ')');
           continue;
         }
@@ -156,8 +168,34 @@ async function runCollect(opts = {}) {
     saveToTxt('scrapling', allItems);
   }
 
+  // 记录采集日志
+  try {
+    db.prepare(`INSERT INTO bid_collect_logs (id, engine, source_name, found, inserted, status, duration_ms)
+      VALUES (?, 'scrapling', ?, ?, ?, 'success', ?)`).run(
+      randomUUID(), sources.map(s => s.name).join(',') || null, totalFound, totalInserted,
+      Date.now() - startTime
+    );
+  } catch {}
+
   console.log(`[scrapling-collector] 共发现 ${totalFound}, 新增 ${totalInserted}`);
   return { engine: 'scrapling', found: totalFound, inserted: totalInserted };
 }
 
-module.exports = { runCollect };
+let scraplingCronJob = null;
+function logCollectError(engine, error) {
+  try {
+    db.prepare(`INSERT INTO bid_collect_logs (id, engine, status, error_detail, duration_ms)
+      VALUES (?, ?, 'error', ?, ?)`).run(randomUUID(), engine, error.message?.slice(0, 500) || String(error).slice(0, 500), 0);
+  } catch {}
+}
+function startScheduler(intervalMs) {
+  if (scraplingCronJob) return;
+  console.log(`[scrapling] 定时器 ${Math.round(intervalMs / 60000)} 分钟`);
+  setTimeout(() => runCollect().catch(e => { console.error('[scrapling] 初始化采集失败:', e.message); logCollectError('scrapling', e); }), 60000);
+  scraplingCronJob = setInterval(() => runCollect().catch(e => { console.error('[scrapling] 采集失败:', e.message); logCollectError('scrapling', e); }), intervalMs);
+}
+function stopScheduler() {
+  if (scraplingCronJob) { clearInterval(scraplingCronJob); scraplingCronJob = null; }
+}
+
+module.exports = { runCollect, startScheduler, stopScheduler };

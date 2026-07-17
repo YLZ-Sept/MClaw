@@ -364,6 +364,18 @@ db.exec(`
     created_at TEXT DEFAULT (datetime('now','localtime'))
   );
 
+  CREATE TABLE IF NOT EXISTS bid_collect_logs (
+    id TEXT PRIMARY KEY,
+    engine TEXT NOT NULL,
+    source_name TEXT,
+    found INTEGER DEFAULT 0,
+    inserted INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'success',
+    error_detail TEXT,
+    duration_ms INTEGER,
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+
   CREATE TABLE IF NOT EXISTS auto_reply_rules (
     id TEXT PRIMARY KEY, keyword TEXT NOT NULL,
     reply TEXT NOT NULL, priority INTEGER DEFAULT 0,
@@ -726,6 +738,12 @@ db.exec(`
   );
 
   CREATE TABLE IF NOT EXISTS security_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+
+  CREATE TABLE IF NOT EXISTS system_settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL,
     updated_at TEXT DEFAULT (datetime('now','localtime'))

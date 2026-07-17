@@ -5,6 +5,31 @@ const { randomUUID } = require('crypto');
 const db = require('../db');
 const { saveToTxt } = require('./bid-excel-writer');
 
+const INDUSTRY_FILE = path.resolve(__dirname, '../data/bid-industry-terms.json');
+
+function loadIndustryTerms() {
+  try {
+    if (fs.existsSync(INDUSTRY_FILE)) {
+      return JSON.parse(fs.readFileSync(INDUSTRY_FILE, 'utf-8'));
+    }
+  } catch {}
+  return [
+    '网络安全', '信息安全', '数据安全', '终端安全', '系统集成',
+    '等级保护', '等保测评', '安全审计', '安全运维', '安全防护',
+    '应急响应', '态势感知', '渗透测试', '漏洞扫描', '入侵检测',
+    '身份认证', '服务器', '交换机', '路由器', '防火墙', '堡垒机',
+    '加密机', '信息系统', '数据库', '网络设备', '硬件采购',
+    '软件采购', '信息化设备', '信息化平台', '信息化系统',
+    '信息化建设', '全光纤', '智慧安防', '安防系统',
+    '机房建设', '数据中心', '云平台', 'IT运维',
+    '网络安全建设', '网络安全设备', '智慧校园', '智慧医院',
+    '智慧监管', '智慧监所', '智慧园区', '智慧工厂',
+    '智慧体育', '智慧种植', '通信网', '虚拟专网',
+    '信息发布系统', '科技管控', '调度系统',
+    '办公自动化', '运维服务',
+  ];
+}
+
 const DATA_DIR = path.resolve(__dirname, '../data/crawls');
 const COOKIE_FILE = path.resolve(__dirname, '../data/woyaobid-cookies.json');
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
@@ -109,6 +134,7 @@ function classifyIndustry(title) {
 }
 
 async function runCollect(opts = {}) {
+  const startTime = Date.now();
   let cookies = null;
 
   if (opts.cookies) {
@@ -178,24 +204,12 @@ async function runCollect(opts = {}) {
         const matchedKw = keywords.filter(kw => searchText.includes(kw));
         if (matchedKw.length === 0) continue;
 
-        // 网络安全/IT 行业确认：标题或内容需包含行业特征词，排除"等保险→等保"类误匹配
-        const cyberTerms = [
-          '网络安全', '信息安全', '数据安全', '终端安全', '系统集成',
-          '等级保护', '等保测评', '安全审计', '安全运维', '安全防护',
-          '应急响应', '态势感知', '渗透测试', '漏洞扫描', '入侵检测',
-          '身份认证', '服务器', '交换机', '路由器', '防火墙', '堡垒机',
-          '加密机', '信息系统', '数据库', '网络设备', '硬件采购',
-          '软件采购', '信息化设备', '信息化平台', '信息化系统',
-          '信息化建设', '全光纤', '智慧安防', '安防系统',
-          '机房建设', '数据中心', '云平台', 'IT运维',
-          '网络安全建设', '网络安全设备', '智慧校园', '智慧医院',
-          '智慧监管', '智慧监所', '智慧园区', '智慧工厂',
-          '智慧体育', '智慧种植', '通信网', '虚拟专网',
-          '信息发布系统', '科技管控', '调度系统',
-          '办公自动化', '运维服务',
-        ];
-        const isCyber = cyberTerms.some(t => searchText.includes(t));
-        if (!isCyber) continue;
+        // 行业确认：标题或内容需包含行业特征词（从 bid-industry-terms.json 加载）
+        const industryTerms = loadIndustryTerms();
+        if (industryTerms.length > 0) {
+          const matched = industryTerms.some(t => searchText.includes(t));
+          if (!matched) continue;
+        }
 
         seen.add(title);
 
@@ -281,8 +295,45 @@ async function runCollect(opts = {}) {
     saveToTxt('woyaobid', allItems);
   }
 
+  // 记录采集日志
+  try {
+    db.prepare(`INSERT INTO bid_collect_logs (id, engine, source_name, found, inserted, status, duration_ms)
+      VALUES (?, 'woyaobid', '乙方宝', ?, ?, 'success', ?)`).run(
+      randomUUID(), allItems.length, bidItemsInserted, Date.now() - startTime
+    );
+  } catch {}
+
   console.log(`[woyaobid] 共采集 ${allItems.length} 条, 新增 ${bidItemsInserted}`);
   return { found: allItems.length, inserted: bidItemsInserted, txtFile };
 }
 
-module.exports = { runCollect, saveCookies, loadCookies };
+let woyaobidCronJob = null;
+function logCollectError(engine, error) {
+  try {
+    db.prepare(`INSERT INTO bid_collect_logs (id, engine, status, error_detail, duration_ms)
+      VALUES (?, ?, 'error', ?, ?)`).run(randomUUID(), engine, error.message?.slice(0, 500) || String(error).slice(0, 500), 0);
+  } catch {}
+}
+function startScheduler(intervalMs) {
+  if (woyaobidCronJob) return;
+  console.log(`[woyaobid] 定时器 ${Math.round(intervalMs / 60000)} 分钟`);
+  setTimeout(() => {
+    if (!loadCookies()) {
+      console.log('[woyaobid] 无 Cookie，跳过首次采集（请在设置中登录乙方宝）');
+      return;
+    }
+    runCollect().catch(e => { console.error('[woyaobid] 初始化采集失败:', e.message); logCollectError('woyaobid', e); });
+  }, 120000);
+  woyaobidCronJob = setInterval(() => {
+    if (!loadCookies()) {
+      console.log('[woyaobid] 无 Cookie，跳过定时采集');
+      return;
+    }
+    runCollect().catch(e => { console.error('[woyaobid] 采集失败:', e.message); logCollectError('woyaobid', e); });
+  }, intervalMs);
+}
+function stopScheduler() {
+  if (woyaobidCronJob) { clearInterval(woyaobidCronJob); woyaobidCronJob = null; }
+}
+
+module.exports = { runCollect, saveCookies, loadCookies, startScheduler, stopScheduler };

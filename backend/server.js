@@ -206,6 +206,7 @@ app.use('/api/org-charts', require('./routes/org-charts'));
 // OpenClaw 集成 — 任务调度 & 技能市场
 app.use('/api/tasks', require('./routes/tasks'));
 app.use('/api/clawhub', require('./routes/clawhub'));
+app.use('/api/settings', require('./routes/settings'));
 
 // 动态读取当前激活的模型配置
 const { getActiveConfig } = require('./routes/model-configs');
@@ -574,8 +575,20 @@ server.listen(PORT, () => {
   setTimeout(() => {
     try { require('./openclaw/ws-client').connect(); } catch (e) { console.log('[server] OpenClaw WS 连接失败:', e.message); }
   }, 3000);
-  // 启动招投标定时采集（Crawl4AI 每6小时）
-  try { const { startScheduler } = require('./services/crawl4ai-collector'); startScheduler(6 * 60 * 60 * 1000); } catch {}
+  // 启动招投标定时采集（多引擎，间隔来自 bid-route-intervals.json）
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const intervalFile = path.join(__dirname, 'data', 'bid-route-intervals.json');
+    const intervals = JSON.parse(fs.readFileSync(intervalFile, 'utf-8'));
+    const { startScheduler: startCrawl4ai } = require('./services/crawl4ai-collector');
+    const { startScheduler: startScrapling } = require('./services/scrapling-collector');
+    const { startScheduler: startWoyaobid } = require('./services/woyaobid-crawler');
+    startCrawl4ai((intervals.crawl4ai || 12) * 60 * 60 * 1000);
+    startScrapling((intervals.scrapling || 12) * 60 * 60 * 1000);
+    startWoyaobid((intervals.woyaobid || 2) * 60 * 60 * 1000);
+    console.log(`[server] 招投标定时采集已启动 (crawl4ai:${intervals.crawl4ai||12}h scrapling:${intervals.scrapling||12}h woyaobid:${intervals.woyaobid||2}h)`);
+  } catch (e) { console.log('[server] 招投标定时采集启动失败:', e.message); }
   // 启动微信机器人长轮询
   try { const { startAllBots, ensureWechatAccount } = require('./channels/wechat-bot'); ensureWechatAccount(); startAllBots(); } catch (e) { console.log('[server] 微信 Bot 启动失败:', e.message); }
 });

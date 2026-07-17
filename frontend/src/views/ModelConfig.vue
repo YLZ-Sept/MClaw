@@ -81,38 +81,29 @@
           <div v-if="editing && form.secret_key?.startsWith('***')" class="mc-hint">留空则不修改已保存的 Secret</div>
         </el-form-item>
         <template v-if="!isVideoProvider">
-          <el-row :gutter="20">
-            <el-col :span="12">
-              <el-form-item label="模型">
-                <div style="display:flex;gap:8px;align-items:center">
-                  <el-select v-model="form.model" style="width:260px" filterable allow-create>
-                    <el-option v-for="m in currentModels" :key="m" :label="m" :value="m"/>
-                  </el-select>
-                  <el-button v-if="form.provider==='ollama'" size="small" :loading="probing" @click="probeOllama">🔍 探测</el-button>
-                </div>
-              </el-form-item>
-            </el-col>
-            <el-col :span="6">
-              <el-form-item label="超时">
-                <el-input-number v-model="form.timeout" :min="10" :max="300"/> <span class="mc-unit">秒</span>
-              </el-form-item>
-            </el-col>
-          </el-row>
-          <el-row :gutter="20">
-            <el-col :span="12">
-              <el-form-item label="Temperature">
-                <div class="slider-row">
-                  <el-slider v-model="form.temperature" :min="0" :max="2" :step="0.1" :format-tooltip="v=>v"/>
-                  <span class="slider-val">{{ form.temperature }}</span>
-                </div>
-              </el-form-item>
-            </el-col>
-            <el-col :span="6">
-              <el-form-item label="最大 Token">
-                <el-input-number v-model="form.max_tokens" :min="256" :max="32768" :step="256"/>
-              </el-form-item>
-            </el-col>
-          </el-row>
+          <el-form-item label="模型">
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <el-select v-model="form.model" style="width:260px" filterable allow-create>
+                <el-option v-for="m in currentModels" :key="m" :label="m" :value="m"/>
+              </el-select>
+              <el-button v-if="form.provider==='ollama'" size="small" :loading="probing" @click="probeOllama">🔍 探测</el-button>
+            </div>
+          </el-form-item>
+          <el-form-item label="参数">
+            <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap">
+              <span style="font-size:13px;color:#909399">超时</span>
+              <el-input-number v-model="form.timeout" :min="10" :max="300" size="small"/>
+              <span class="mc-unit">秒</span>
+              <span style="font-size:13px;color:#909399;margin-left:8px">最大 Token</span>
+              <el-input-number v-model="form.max_tokens" :min="256" :max="32768" :step="256" size="small"/>
+            </div>
+          </el-form-item>
+          <el-form-item label="Temperature">
+            <div class="slider-row">
+              <el-slider v-model="form.temperature" :min="0" :max="2" :step="0.1" :format-tooltip="v=>v"/>
+              <span class="slider-val">{{ form.temperature }}</span>
+            </div>
+          </el-form-item>
         </template>
         <el-divider/>
         <el-form-item>
@@ -322,7 +313,7 @@ onMounted(load)
 </script>
 
 <style scoped>
-.mc-page { padding: 24px; background: #fafafe; min-height: 100%; }
+.mc-page { padding: 24px; background: #fafafe; height: 100%; overflow-y: auto; }
 .mc-hd { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
 .mc-title { margin: 0; font-size: 22px; font-weight: 700; color: #4a3f5e; }
 .mc-sub { margin: 4px 0 0; font-size: 13px; color: #b8aad0; }

@@ -241,6 +241,96 @@
             </el-tabs>
           </div>
         </el-tab-pane>
+        <el-tab-pane label="地区过滤" name="regions">
+          <div style="min-height:120px;padding:8px 0">
+            <div style="margin-bottom:12px;display:flex;align-items:center;gap:12px">
+              <span style="font-size:13px;color:#606266">启用地区过滤：</span>
+              <el-switch v-model="bidSettingsDlg.regionEnabled" size="small" @change="saveRegionFilter" />
+              <span style="font-size:12px;color:#909399">{{ bidSettingsDlg.regionEnabled ? '仅采集下列地区' : '不限制地区' }}</span>
+            </div>
+            <div v-if="bidSettingsDlg.regionEnabled" style="margin-bottom:12px">
+              <el-tag v-for="(city, idx) in bidSettingsDlg.regionList" :key="idx" closable :disable-transitions="false"
+                size="default" style="margin:3px 6px 3px 0" @close="removeRegion(idx)">{{ city }}</el-tag>
+              <div style="display:flex;gap:8px;margin-top:8px">
+                <el-input v-model="bidSettingsDlg.regionInput" placeholder="输入城市名" size="small" style="width:180px"
+                  @keyup.enter="addRegion" />
+                <el-button size="small" type="primary" @click="addRegion">添加</el-button>
+                <el-button size="small" @click="resetRegions">重置默认</el-button>
+              </div>
+            </div>
+          </div>
+        </el-tab-pane>
+        <el-tab-pane label="行业筛选" name="industryTerms">
+          <div style="min-height:120px;padding:8px 0">
+            <div style="margin-bottom:12px;display:flex;align-items:center;gap:12px">
+              <span style="font-size:13px;color:#606266">启用行业筛选：</span>
+              <el-switch v-model="bidSettingsDlg.industryEnabled" size="small" @change="saveIndustryTerms" />
+              <span style="font-size:12px;color:#909399">{{ bidSettingsDlg.industryEnabled ? '仅采集含以下关键词的项目（乙方宝引擎）' : '不限制行业' }}</span>
+            </div>
+            <div v-if="bidSettingsDlg.industryEnabled" style="margin-bottom:12px">
+              <el-tag v-for="(term, idx) in bidSettingsDlg.industryList" :key="idx" closable :disable-transitions="false"
+                size="default" style="margin:3px 6px 3px 0" @close="removeIndustryTerm(idx)">{{ term }}</el-tag>
+              <div style="display:flex;gap:8px;margin-top:8px">
+                <el-input v-model="bidSettingsDlg.industryInput" placeholder="输入关键词" size="small" style="width:220px"
+                  @keyup.enter="addIndustryTerm" />
+                <el-button size="small" type="primary" @click="addIndustryTerm">添加</el-button>
+                <el-button size="small" @click="resetIndustryTerms">重置默认</el-button>
+              </div>
+            </div>
+          </div>
+        </el-tab-pane>
+        <el-tab-pane label="采集日志" name="logs">
+          <div style="min-height:120px">
+            <div style="margin-bottom:10px;display:flex;align-items:center;gap:8px">
+              <el-select v-model="bidSettingsDlg.logEngine" size="small" placeholder="引擎筛选" clearable style="width:130px" @change="loadCollectLogs">
+                <el-option label="全部" value="" />
+                <el-option label="Crawl4AI" value="crawl4ai" />
+                <el-option label="Scrapling" value="scrapling" />
+                <el-option label="乙方宝" value="woyaobid" />
+              </el-select>
+              <el-button size="small" @click="loadCollectLogs">刷新</el-button>
+            </div>
+            <el-table :data="bidSettingsDlg.collectLogs" size="small" max-height="280" stripe>
+              <el-table-column prop="engine" label="引擎" width="100">
+                <template #default="{row}">
+                  <el-tag size="small" :type="row.engine==='crawl4ai'?'primary':row.engine==='scrapling'?'warning':'success'">
+                    {{ row.engine==='crawl4ai'?'Crawl4AI':row.engine==='scrapling'?'Scrapling':'乙方宝' }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="found" label="发现" width="65" />
+              <el-table-column prop="inserted" label="新增" width="65" />
+              <el-table-column prop="status" label="状态" width="75">
+                <template #default="{row}">
+                  <el-tag size="small" :type="row.status==='success'?'success':'danger'">{{ row.status==='success'?'成功':'失败' }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="error_detail" label="错误" min-width="120" show-overflow-tooltip>
+                <template #default="{row}">
+                  <span v-if="row.error_detail" style="color:#e74c3c;font-size:12px">{{ row.error_detail }}</span>
+                  <span v-else style="color:#909399">-</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="duration_ms" label="耗时" width="85">
+                <template #default="{row}">
+                  <span v-if="row.duration_ms">{{ row.duration_ms > 60000 ? Math.round(row.duration_ms/60000)+'分' : Math.round(row.duration_ms/1000)+'秒' }}</span>
+                  <span v-else>-</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="created_at" label="时间" width="145" />
+              <el-table-column label="操作" width="60">
+                <template #default="{row}">
+                  <el-button size="small" text type="danger" @click="deleteCollectLog(row.id)">删除</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+            <div v-if="!bidSettingsDlg.collectLogs?.length" style="text-align:center;padding:20px;color:#909399">暂无采集日志</div>
+            <div style="margin-top:8px;display:flex;justify-content:center">
+              <el-pagination small layout="prev, pager, next" :total="bidSettingsDlg.collectLogTotal" :page-size="20"
+                v-model:current-page="bidSettingsDlg.collectLogPage" @current-change="loadCollectLogs" />
+            </div>
+          </div>
+        </el-tab-pane>
       </el-tabs>
       <template #footer>
         <el-button @click="bidSettingsDlg.visible=false">关闭</el-button>
@@ -611,7 +701,13 @@ const bidSettingsDlg = reactive({
   routes: [], sources: [],
   summary: { total_items: 0, new_items: 0, recent_7d: 0, zhongbiao_items: [], caiyou_items: [], txt_files: [] },
   woyaobid: { has_cookies: false, count: 0, updated_at: null },
-  woyaobidInput: '', woyaobidSaving: false, woyaobidLogging: false
+  woyaobidInput: '', woyaobidSaving: false, woyaobidLogging: false,
+  // 地区过滤
+  regionList: [], regionEnabled: true, regionInput: '',
+  // 行业筛选
+  industryList: [], industryEnabled: true, industryInput: '',
+  // 采集日志
+  collectLogs: [], collectLogTotal: 0, collectLogPage: 1, logEngine: ''
 })
 
 const sourceEditDlg = reactive({
@@ -622,37 +718,130 @@ const sourceEditDlg = reactive({
 async function openBidSettings() {
   bidSettingsDlg.visible = true
   bidSettingsDlg.loading = true
-  const [r1, r2] = await Promise.allSettled([
+  const results = await Promise.allSettled([
     request.get('/bid-agent/settings', { params: { timeRange: bidSettingsDlg.timeRange } }),
-    request.get('/bid-agent/woyaobid-cookies')
+    request.get('/bid-agent/woyaobid-cookies'),
+    request.get('/bid-agent/region-filter'),
+    request.get('/bid-agent/industry-terms')
   ])
-  if (r1.status === 'fulfilled' && r1.value.data.code === 200) {
-    const d = r1.value.data.data
+  if (results[0].status === 'fulfilled' && results[0].value.data.code === 200) {
+    const d = results[0].value.data.data
     bidSettingsDlg.routes = d.routes || []
     bidSettingsDlg.sources = d.sources || []
     bidSettingsDlg.summary = d.summary || { total_items: 0, new_items: 0, recent_7d: 0, zhongbiao_items: [], caiyou_items: [], txt_files: [] }
   }
-  if (r2.status === 'fulfilled' && r2.value.data.code === 200) {
-    bidSettingsDlg.woyaobid = r2.value.data.data
+  if (results[1].status === 'fulfilled' && results[1].value.data.code === 200) {
+    bidSettingsDlg.woyaobid = results[1].value.data.data
+  }
+  if (results[2].status === 'fulfilled' && results[2].value.data.code === 200) {
+    const rd = results[2].value.data.data
+    bidSettingsDlg.regionList = rd.regions || []
+    bidSettingsDlg.regionEnabled = rd.enabled
+  }
+  if (results[3].status === 'fulfilled' && results[3].value.data.code === 200) {
+    const id = results[3].value.data.data
+    bidSettingsDlg.industryList = id.terms || []
+    bidSettingsDlg.industryEnabled = id.enabled
   }
   bidSettingsDlg.loading = false
+  loadCollectLogs()
 }
 async function refreshBidSettings() {
   bidSettingsDlg.loading = true
-  const [r1, r2] = await Promise.allSettled([
+  const results = await Promise.allSettled([
     request.get('/bid-agent/settings', { params: { timeRange: bidSettingsDlg.timeRange } }),
-    request.get('/bid-agent/woyaobid-cookies')
+    request.get('/bid-agent/woyaobid-cookies'),
+    request.get('/bid-agent/region-filter'),
+    request.get('/bid-agent/industry-terms')
   ])
-  if (r1.status === 'fulfilled' && r1.value.data.code === 200) {
-    const d = r1.value.data.data
+  if (results[0].status === 'fulfilled' && results[0].value.data.code === 200) {
+    const d = results[0].value.data.data
     bidSettingsDlg.routes = d.routes || []
     bidSettingsDlg.sources = d.sources || []
     bidSettingsDlg.summary = d.summary || { total_items: 0, new_items: 0, recent_7d: 0, zhongbiao_items: [], caiyou_items: [], txt_files: [] }
   }
-  if (r2.status === 'fulfilled' && r2.value.data.code === 200) {
-    bidSettingsDlg.woyaobid = r2.value.data.data
+  if (results[1].status === 'fulfilled' && results[1].value.data.code === 200) {
+    bidSettingsDlg.woyaobid = results[1].value.data.data
+  }
+  if (results[2].status === 'fulfilled' && results[2].value.data.code === 200) {
+    const rd = results[2].value.data.data
+    bidSettingsDlg.regionList = rd.regions || []
+    bidSettingsDlg.regionEnabled = rd.enabled
+  }
+  if (results[3].status === 'fulfilled' && results[3].value.data.code === 200) {
+    const id = results[3].value.data.data
+    bidSettingsDlg.industryList = id.terms || []
+    bidSettingsDlg.industryEnabled = id.enabled
   }
   bidSettingsDlg.loading = false
+  loadCollectLogs()
+}
+
+// ── 地区过滤 ──
+async function saveRegionFilter() {
+  try {
+    await request.put('/bid-agent/region-filter', { regions: bidSettingsDlg.regionEnabled ? bidSettingsDlg.regionList : [] })
+  } catch (e) { ElMessage.error('保存失败') }
+}
+async function addRegion() {
+  const v = bidSettingsDlg.regionInput.trim()
+  if (!v) return
+  if (bidSettingsDlg.regionList.includes(v)) { ElMessage.warning('已存在'); return }
+  bidSettingsDlg.regionList.push(v)
+  bidSettingsDlg.regionInput = ''
+  await saveRegionFilter()
+}
+async function removeRegion(idx) {
+  bidSettingsDlg.regionList.splice(idx, 1)
+  await saveRegionFilter()
+}
+async function resetRegions() {
+  bidSettingsDlg.regionList = ['昆明','曲靖','玉溪','保山','昭通','丽江','普洱','临沧','楚雄','红河','文山','版纳','大理','德宏','怒江','迪庆','云南']
+  bidSettingsDlg.regionEnabled = true
+  await saveRegionFilter()
+}
+
+// ── 行业筛选 ──
+async function saveIndustryTerms() {
+  try {
+    await request.put('/bid-agent/industry-terms', { terms: bidSettingsDlg.industryEnabled ? bidSettingsDlg.industryList : [] })
+  } catch (e) { ElMessage.error('保存失败') }
+}
+async function addIndustryTerm() {
+  const v = bidSettingsDlg.industryInput.trim()
+  if (!v) return
+  if (bidSettingsDlg.industryList.includes(v)) { ElMessage.warning('已存在'); return }
+  bidSettingsDlg.industryList.push(v)
+  bidSettingsDlg.industryInput = ''
+  await saveIndustryTerms()
+}
+async function removeIndustryTerm(idx) {
+  bidSettingsDlg.industryList.splice(idx, 1)
+  await saveIndustryTerms()
+}
+async function resetIndustryTerms() {
+  bidSettingsDlg.industryList = ['网络安全','信息安全','数据安全','终端安全','系统集成','等级保护','等保测评','安全审计','安全运维','安全防护','应急响应','态势感知','渗透测试','漏洞扫描','入侵检测','身份认证','服务器','交换机','路由器','防火墙','堡垒机','加密机','信息系统','数据库','网络设备','硬件采购','软件采购','信息化设备','信息化平台','信息化系统','信息化建设','全光纤','智慧安防','安防系统','机房建设','数据中心','云平台','IT运维','网络安全建设','网络安全设备','智慧校园','智慧医院','智慧监管','智慧监所','智慧园区','智慧工厂','智慧体育','智慧种植','通信网','虚拟专网','信息发布系统','科技管控','调度系统','办公自动化','运维服务']
+  bidSettingsDlg.industryEnabled = true
+  await saveIndustryTerms()
+}
+
+// ── 采集日志 ──
+async function loadCollectLogs() {
+  try {
+    const { data } = await request.get('/bid-agent/collect-logs', {
+      params: { page: bidSettingsDlg.collectLogPage, engine: bidSettingsDlg.logEngine || undefined }
+    })
+    if (data.code === 200) {
+      bidSettingsDlg.collectLogs = data.data.rows || []
+      bidSettingsDlg.collectLogTotal = data.data.total || 0
+    }
+  } catch {}
+}
+async function deleteCollectLog(id) {
+  try {
+    await request.delete('/bid-agent/collect-logs/' + id)
+    loadCollectLogs()
+  } catch (e) { ElMessage.error('删除失败') }
 }
 
 // ── 采集网址 CRUD ──

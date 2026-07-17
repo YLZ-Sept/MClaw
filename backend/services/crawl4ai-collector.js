@@ -2,16 +2,28 @@
 // Connects to Crawl4AI MCP server, uses built-in stealth + structured extraction
 const { randomUUID } = require('crypto');
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 const db = require('../db');
 const { McpClient } = require('./mcp-client');
 const { saveToTxt } = require('./bid-excel-writer');
 
-// 云南地区城市列表（只采集云南地区数据）
-const YN_CITIES = ['昆明','曲靖','玉溪','保山','昭通','丽江','普洱','临沧','楚雄','红河','文山','版纳','大理','德宏','怒江','迪庆','云南'];
+const REGION_FILE = path.join(__dirname, '..', 'data', 'bid-region-filter.json');
 
-function isYunnan(region) {
+function loadRegionFilter() {
+  try {
+    if (fs.existsSync(REGION_FILE)) {
+      return JSON.parse(fs.readFileSync(REGION_FILE, 'utf-8'));
+    }
+  } catch {}
+  return ['昆明','曲靖','玉溪','保山','昭通','丽江','普洱','临沧','楚雄','红河','文山','版纳','大理','德宏','怒江','迪庆','云南'];
+}
+
+function isTargetRegion(region) {
+  const cities = loadRegionFilter();
+  if (!cities || cities.length === 0) return true; // 空列表 = 不过滤
   if (!region) return false;
-  for (const city of YN_CITIES) {
+  for (const city of cities) {
     if (region.includes(city)) return true;
   }
   return false;
@@ -233,7 +245,7 @@ async function collectFromSource(client, source, keywords) {
       // 云南地区过滤
       const region = detail?.region || null;
       const isYNSource = source.url && (source.url.includes('yngp') || source.url.includes('ggzy.yn'));
-      if (region && !isYunnan(region)) {
+      if (region && !isTargetRegion(region)) {
         console.log(`[crawl4ai] 跳过非云南: ${(detail?.title || item.title).substring(0, 40)} (${region})`);
         continue;
       }
@@ -272,6 +284,7 @@ async function collectFromSource(client, source, keywords) {
 }
 
 async function runCollect(opts = {}) {
+  const startTime = Date.now();
   const sources = db.prepare("SELECT * FROM bid_sources WHERE enabled=1 AND (source_type='web' OR source_type='crawl4ai') AND source_type!='woyaobid'").all();
   const keywords = db.prepare('SELECT keyword FROM bid_keywords').all().map(r => r.keyword);
 
@@ -334,16 +347,31 @@ async function runCollect(opts = {}) {
     saveToTxt('crawl4ai', allItems);
   }
 
+  // 记录采集日志
+  try {
+    db.prepare(`INSERT INTO bid_collect_logs (id, engine, source_name, found, inserted, status, duration_ms)
+      VALUES (?, 'crawl4ai', ?, ?, ?, 'success', ?)`).run(
+      randomUUID(), sources.map(s => s.name).join(',') || null, totalFound, totalInserted,
+      Date.now() - startTime
+    );
+  } catch {}
+
   console.log(`[crawl4ai] 共发现 ${totalFound}, 新增 ${totalInserted}`);
   return { found: totalFound, inserted: totalInserted };
 }
 
 let cronJob = null;
+function logCollectError(engine, error) {
+  try {
+    db.prepare(`INSERT INTO bid_collect_logs (id, engine, status, error_detail, duration_ms)
+      VALUES (?, ?, 'error', ?, ?)`).run(randomUUID(), engine, error.message?.slice(0, 500) || String(error).slice(0, 500), 0);
+  } catch {}
+}
 function startScheduler(intervalMs) {
   if (cronJob) return;
   console.log(`[crawl4ai] 定时器 ${Math.round(intervalMs / 60000)} 分钟`);
-  setTimeout(() => runCollect().catch(e => console.error('[crawl4ai] 初始化采集失败:', e.message)), 30000);
-  cronJob = setInterval(() => runCollect().catch(e => console.error('[crawl4ai] 采集失败:', e.message)), intervalMs);
+  setTimeout(() => runCollect().catch(e => { console.error('[crawl4ai] 初始化采集失败:', e.message); logCollectError('crawl4ai', e); }), 30000);
+  cronJob = setInterval(() => runCollect().catch(e => { console.error('[crawl4ai] 采集失败:', e.message); logCollectError('crawl4ai', e); }), intervalMs);
 }
 
 function stopScheduler() {

@@ -220,4 +220,90 @@ router.post('/woyaobid-login', async (req, res) => {
   }
 });
 
+// ── 地区过滤配置 ──
+const REGION_FILE = path.join(__dirname, '..', 'data', 'bid-region-filter.json');
+const DEFAULT_REGIONS = ['昆明','曲靖','玉溪','保山','昭通','丽江','普洱','临沧','楚雄','红河','文山','版纳','大理','德宏','怒江','迪庆','云南'];
+
+router.get('/region-filter', (req, res) => {
+  try {
+    if (fs.existsSync(REGION_FILE)) {
+      const regions = JSON.parse(fs.readFileSync(REGION_FILE, 'utf-8'));
+      return res.json({ code: 200, data: { regions, enabled: regions.length > 0 } });
+    }
+  } catch {}
+  res.json({ code: 200, data: { regions: DEFAULT_REGIONS, enabled: true } });
+});
+
+router.put('/region-filter', (req, res) => {
+  try {
+    const { regions } = req.body;
+    if (!Array.isArray(regions)) return res.status(400).json({ code: 400, message: 'regions 必须是数组' });
+    const dir = path.dirname(REGION_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(REGION_FILE, JSON.stringify(regions, null, 2));
+    res.json({ code: 200, data: { regions, enabled: regions.length > 0 } });
+  } catch (e) {
+    res.status(500).json({ code: 500, message: '保存失败: ' + e.message });
+  }
+});
+
+// ── 行业筛选配置 ──
+const INDUSTRY_FILE = path.join(__dirname, '..', 'data', 'bid-industry-terms.json');
+const DEFAULT_TERMS = [
+  '网络安全','信息安全','数据安全','终端安全','系统集成',
+  '等级保护','等保测评','安全审计','安全运维','安全防护',
+  '应急响应','态势感知','渗透测试','漏洞扫描','入侵检测',
+  '身份认证','服务器','交换机','路由器','防火墙','堡垒机',
+  '加密机','信息系统','数据库','网络设备','硬件采购',
+  '软件采购','信息化设备','信息化平台','信息化系统',
+  '信息化建设','全光纤','智慧安防','安防系统',
+  '机房建设','数据中心','云平台','IT运维',
+  '网络安全建设','网络安全设备','智慧校园','智慧医院',
+  '智慧监管','智慧监所','智慧园区','智慧工厂',
+  '智慧体育','智慧种植','通信网','虚拟专网',
+  '信息发布系统','科技管控','调度系统',
+  '办公自动化','运维服务'
+];
+
+router.get('/industry-terms', (req, res) => {
+  try {
+    if (fs.existsSync(INDUSTRY_FILE)) {
+      const terms = JSON.parse(fs.readFileSync(INDUSTRY_FILE, 'utf-8'));
+      return res.json({ code: 200, data: { terms, enabled: terms.length > 0 } });
+    }
+  } catch {}
+  res.json({ code: 200, data: { terms: DEFAULT_TERMS, enabled: true } });
+});
+
+router.put('/industry-terms', (req, res) => {
+  try {
+    const { terms } = req.body;
+    if (!Array.isArray(terms)) return res.status(400).json({ code: 400, message: 'terms 必须是数组' });
+    const dir = path.dirname(INDUSTRY_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(INDUSTRY_FILE, JSON.stringify(terms, null, 2));
+    res.json({ code: 200, data: { terms, enabled: terms.length > 0 } });
+  } catch (e) {
+    res.status(500).json({ code: 500, message: '保存失败: ' + e.message });
+  }
+});
+
+// ── 采集日志 ──
+router.get('/collect-logs', (req, res) => {
+  const { page = 1, pageSize = 20, engine } = req.query;
+  let sql = 'SELECT * FROM bid_collect_logs WHERE 1=1';
+  const params = [];
+  if (engine) { sql += ' AND engine=?'; params.push(engine); }
+  const total = db.prepare(sql.replace('SELECT *', 'SELECT COUNT(*) AS cnt')).get(...params)?.cnt || 0;
+  sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+  const offset = (Number(page) - 1) * Number(pageSize);
+  const rows = db.prepare(sql).all(...params, Number(pageSize), offset);
+  res.json({ code: 200, data: { rows, total, page: Number(page), pageSize: Number(pageSize) } });
+});
+
+router.delete('/collect-logs/:id', (req, res) => {
+  db.prepare('DELETE FROM bid_collect_logs WHERE id=?').run(req.params.id);
+  res.json({ code: 200 });
+});
+
 module.exports = router;
