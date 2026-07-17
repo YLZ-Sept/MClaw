@@ -26,6 +26,7 @@ const routes = [
       { path: 'trending', name: 'TrendTracker', component: () => import('../views/TrendTracker.vue'), meta: { perm: 'trending' } },
 
       { path: 'knowledge-base', name: 'KnowledgeBase', component: () => import('../views/KnowledgeBase.vue'), meta: { perm: 'knowledge' } },
+      { path: 'wiki', redirect: '/knowledge-base' },
       { path: 'skill-library', name: 'SkillLibrary', component: () => import('../views/SkillLibrary.vue'), meta: { perm: 'skills' } },
       { path: 'internal', name: 'InternalMgmt', component: () => import('../views/InternalManagement.vue'), meta: { perm: 'crm' } },
       { path: 'internal/sales', name: 'SalesMgmt', component: () => import('../views/internal/SalesManagement.vue'), meta: { perm: 'publish' } },

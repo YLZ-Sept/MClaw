@@ -87,11 +87,11 @@ function generateExcel(params) {
     // 数据行
     const dataStartRow = currentRow;
     for (const row of sheetDef.rows || []) {
-      if (sheetDef.columns) {
+      if (sheetDef.columns && sheetDef.columns.length > 0) {
         for (let c = 0; c < sheetDef.columns.length; c++) {
           const key = sheetDef.columns[c].key || sheetDef.columns[c].header;
           const cell = ws.getCell(currentRow, c + 1);
-          cell.value = row[key] !== undefined ? row[key] : '';
+          cell.value = row[key] !== undefined ? row[key] : (Array.isArray(row) ? (row[c] !== undefined ? row[c] : '') : '');
           cell.font = { name: 'Microsoft YaHei', size: 10.5 };
           cell.border = {
             top: { style: 'thin', color: { argb: 'FFE0E0E0' } },
@@ -99,12 +99,29 @@ function generateExcel(params) {
             left: { style: 'thin', color: { argb: 'FFE0E0E0' } },
             right: { style: 'thin', color: { argb: 'FFE0E0E0' } }
           };
-          // 斑马纹
           if ((currentRow - dataStartRow) % 2 === 1) {
             cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8F9FB' } };
           }
-          // 数值右对齐
-          if (typeof row[key] === 'number') {
+          if (typeof cell.value === 'number') {
+            cell.alignment = { horizontal: 'right' };
+          }
+        }
+      } else if (Array.isArray(row)) {
+        // 无 columns 定义时，直接将数组值写入各列
+        for (let c = 0; c < row.length; c++) {
+          const cell = ws.getCell(currentRow, c + 1);
+          cell.value = row[c] !== undefined ? row[c] : '';
+          cell.font = { name: 'Microsoft YaHei', size: 10.5 };
+          cell.border = {
+            top: { style: 'thin', color: { argb: 'FFE0E0E0' } },
+            bottom: { style: 'thin', color: { argb: 'FFE0E0E0' } },
+            left: { style: 'thin', color: { argb: 'FFE0E0E0' } },
+            right: { style: 'thin', color: { argb: 'FFE0E0E0' } }
+          };
+          if ((currentRow - dataStartRow) % 2 === 1) {
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8F9FB' } };
+          }
+          if (typeof cell.value === 'number') {
             cell.alignment = { horizontal: 'right' };
           }
         }

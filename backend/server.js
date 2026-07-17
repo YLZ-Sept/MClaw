@@ -73,6 +73,7 @@ const routePermMap = [
   { prefix: '/api/faq', perm: 'knowledge' },
   { prefix: '/api/knowledge-base', perm: 'knowledge' },
   { prefix: '/api/doc-import', perm: 'knowledge' },
+  { prefix: '/api/wiki', perm: 'knowledge' },
   { prefix: '/api/model-configs', perm: 'model' },
   { prefix: '/api/channel-accounts', perm: 'channels' },
   { prefix: '/api/channel-conversations', perm: 'channels' },
@@ -173,6 +174,7 @@ app.use('/api/model-configs', require('./routes/model-configs').router);
 app.use('/api/trending', require('./routes/trending'));
 app.use('/api/knowledge-base', require('./routes/knowledge-base'));
 app.use('/api/doc-import', require('./routes/doc-import'));
+app.use('/api/wiki', require('./routes/wiki'));
 app.use('/api/channel-accounts', require('./routes/channel-accounts'));
 app.use('/api/channel-conversations', require('./routes/channel-conversations'));
 
@@ -289,10 +291,55 @@ function matchFAQ(content) {
   } catch { return null; }
 }
 
-function makeMessages(config, history, faqMatches) {
+function matchWiki(content) {
+  try {
+    const db = require('./db');
+    // 中文 n-gram 分词（2-3字词组），同 vector-search.js 模式
+    const clean = content.replace(/[^一-龥a-zA-Z0-9]/g, '');
+    const grams = new Set();
+    for (let i = 0; i < clean.length - 1; i++) {
+      grams.add(clean.slice(i, i + 2));
+      if (i < clean.length - 2) grams.add(clean.slice(i, i + 3));
+    }
+    const keywords = [...grams].slice(0, 30);
+    if (!keywords.length) return null;
+
+    const allPages = db.prepare("SELECT id, title, summary, plain_content FROM wiki_pages WHERE status='published' ORDER BY updated_at DESC LIMIT 200").all();
+    if (!allPages.length) return null;
+
+    // 评分：标题命中 +3，摘要命中 +2，内容命中 +1
+    const scored = allPages.map(p => {
+      let score = 0;
+      const title = (p.title || '').toLowerCase();
+      const summary = (p.summary || '').toLowerCase();
+      const text = (p.plain_content || '').toLowerCase();
+      for (const kw of keywords) {
+        const k = kw.toLowerCase();
+        if (title.includes(k)) score += 3;
+        if (summary.includes(k)) score += 2;
+        if (text.includes(k)) score += 1;
+      }
+      return { ...p, score };
+    }).filter(p => p.score > 0).sort((a, b) => b.score - a.score).slice(0, 3);
+
+    if (scored.length > 0) {
+      return scored.map(p => ({
+        title: p.title,
+        summary: p.summary || '',
+        snippet: (p.plain_content || '').slice(0, 500)
+      }));
+    }
+    return null;
+  } catch(e) { console.log('[matchWiki] error:', e.message); return null; }
+}
+
+function makeMessages(config, history, faqMatches, wikiMatches) {
   let systemContent = config.systemPrompt;
   if (faqMatches) {
     systemContent += `\n\n【相关FAQ知识库】\n${faqMatches.map(m => `Q: ${m.question}\nA: ${m.answer}`).join('\n\n')}`;
+  }
+  if (wikiMatches) {
+    systemContent += `\n\n【相关Wiki知识】\n${wikiMatches.map(m => `## ${m.title}\n${m.summary ? '> ' + m.summary + '\n' : ''}${m.snippet}`).join('\n\n---\n\n')}`;
   }
   return [{ role: 'user', content: `[系统指令]\n${systemContent}` }, ...history.slice(-10)];
 }
@@ -354,7 +401,8 @@ app.post('/api/chat/send', requireAuth, async (req, res) => {
       if (session_id) saveSessionMessage(session_id, 'user', content);
 
       const faqMatches = matchFAQ(content);
-      const messages = makeMessages(config, history, faqMatches);
+      const wikiMatches = matchWiki(content);
+      const messages = makeMessages(config, history, faqMatches, wikiMatches);
 
       const callOpenClaw = async (msgs, tools, stream) => {
         const body = { model: 'openclaw', messages: msgs, stream };

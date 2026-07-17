@@ -27,25 +27,26 @@ router.get('/', (req, res) => {
 
 // 新增
 router.post('/', (req, res) => {
-  const { name, desc, icon, color, emoji, base_agent, system_prompt, kb_article_ids, kb_folder_paths } = req.body;
+  const { name, desc, icon, color, emoji, base_agent, system_prompt, kb_article_ids, kb_folder_paths, wiki_page_ids } = req.body;
   if (!name) return res.status(400).json({ code: 400, message: '名称必填' });
   const id = randomUUID();
-  db.prepare(`INSERT INTO agent_apps (id,name,desc,icon,color,emoji,base_agent,system_prompt,kb_article_ids,kb_folder_paths)
-    VALUES (?,?,?,?,?,?,?,?,?,?)`)
-    .run(id, name, desc || '', icon || 'Avatar', color || '', emoji || '🤖', base_agent || '', system_prompt || '', kb_article_ids || '', kb_folder_paths || '');
+  db.prepare(`INSERT INTO agent_apps (id,name,desc,icon,color,emoji,base_agent,system_prompt,kb_article_ids,kb_folder_paths,wiki_page_ids)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(id, name, desc || '', icon || 'Avatar', color || '', emoji || '🤖', base_agent || '', system_prompt || '', kb_article_ids || '', kb_folder_paths || '', wiki_page_ids || '');
   res.json({ code: 200, data: { id } });
 });
 
 // 更新
 router.put('/:id', (req, res) => {
-  const { name, desc, icon, color, emoji, base_agent, system_prompt, status, kb_article_ids, kb_folder_paths } = req.body;
+  const { name, desc, icon, color, emoji, base_agent, system_prompt, status, kb_article_ids, kb_folder_paths, wiki_page_ids } = req.body;
   db.prepare(`UPDATE agent_apps SET
     name=COALESCE(?,name), desc=COALESCE(?,desc), icon=COALESCE(?,icon),
     color=COALESCE(?,color), emoji=COALESCE(?,emoji), base_agent=COALESCE(?,base_agent),
     system_prompt=COALESCE(?,system_prompt), status=COALESCE(?,status),
     kb_article_ids=COALESCE(?,kb_article_ids),
-    kb_folder_paths=COALESCE(?,kb_folder_paths)
-    WHERE id=?`).run(name, desc, icon, color, emoji, base_agent, system_prompt, status, kb_article_ids, kb_folder_paths, req.params.id);
+    kb_folder_paths=COALESCE(?,kb_folder_paths),
+    wiki_page_ids=COALESCE(?,wiki_page_ids)
+    WHERE id=?`).run(name, desc, icon, color, emoji, base_agent, system_prompt, status, kb_article_ids, kb_folder_paths, wiki_page_ids, req.params.id);
   res.json({ code: 200 });
 });
 

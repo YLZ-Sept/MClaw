@@ -2,9 +2,52 @@
   <div class="kb-page">
     <div class="pg-hd">
       <span class="pg-title">知识库</span>
-      <span class="pg-sub">企业知识管理与智能检索</span>
+      <span class="pg-sub">企业知识管理 · 文档库 + AI Wiki</span>
+      <div style="margin-top:12px">
+        <el-radio-group v-model="viewMode" size="default">
+          <el-radio-button value="docs">📄 文档库</el-radio-button>
+          <el-radio-button value="wiki">📖 Wiki 网络</el-radio-button>
+        </el-radio-group>
+      </div>
     </div>
-    <div class="pg-body">
+
+    <!-- ═══ Wiki 视图 ═══ -->
+    <div v-if="viewMode==='wiki'" class="wiki-embed">
+      <div class="wiki-embed-body">
+        <div class="wiki-embed-sidebar">
+          <el-input v-model="wikiSearch" placeholder="搜索 Wiki..." size="small" clearable @input="onWikiSearch" style="margin-bottom:8px" />
+          <div class="wiki-embed-list">
+            <div v-for="p in wikiPages" :key="p.id" class="wiki-embed-item" :class="{ sel: wikiCurrent?.id===p.id }" @click="selectWikiPage(p)">
+              <div class="wei-title">{{ p.title }}</div>
+              <div class="wei-meta">v{{ p.version }} <span v-if="p.incoming_links">←{{ p.incoming_links }}</span></div>
+            </div>
+            <div v-if="!wikiPages.length" style="text-align:center;padding:20px;color:#b8aad0">暂无 Wiki 页面</div>
+          </div>
+        </div>
+        <div class="wiki-embed-main" v-if="wikiCurrent">
+          <div class="wem-hd">
+            <h3>{{ wikiCurrent.title }}</h3>
+            <div style="display:flex;gap:6px;align-items:center">
+              <el-tag size="small">v{{ wikiCurrent.version }}</el-tag>
+              <el-button size="small" @click="digestWikiAgain">🔄 重新消化</el-button>
+            </div>
+          </div>
+          <div v-if="wikiCurrent.summary" class="wem-summary">{{ wikiCurrent.summary }}</div>
+          <div class="wem-content" v-html="renderWikiMd(wikiCurrent.content)"></div>
+          <div v-if="wikiCurrent.linked_kb?.length" class="wem-kb">
+            <div style="font-weight:600;color:#4a3f5e;margin-bottom:4px">📚 来源知识库文章</div>
+            <a v-for="a in wikiCurrent.linked_kb" :key="a.id" class="wem-kb-link" @click="viewMode='docs';selectCat(a.category)">{{ a.title }}</a>
+          </div>
+        </div>
+        <div v-else class="wiki-embed-main wiki-embed-empty">
+          <div style="font-size:48px">📖</div>
+          <div style="color:#909399;margin-top:8px">选择左侧 Wiki 页面查看</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ 文档库视图 ═══ -->
+    <div v-show="viewMode==='docs'" class="pg-body">
       <!-- 统计 -->
       <div class="stat-row">
         <div class="stat-card" style="--glow:#7c3aed">
@@ -55,6 +98,7 @@
               <template #prefix><el-icon><Search /></el-icon></template>
             </el-input>
             <el-button type="primary" @click="openImport">导入文档</el-button>
+            <el-button type="success" plain @click="batchDigest" :loading="batchDigesting">🧠 批量消化</el-button>
           </div>
           <div v-if="articles.length" class="kb-list">
             <div v-for="a in articles" :key="a.id" class="kb-item" @click="openView(a)">
@@ -70,6 +114,16 @@
                 <div class="kbi-preview">{{ stripContent(a.content) }}</div>
               </div>
               <div class="kbi-actions" @click.stop>
+                <el-popconfirm v-if="a.wiki_page_id" title="切换到 Wiki 网络查看？" @confirm="goWikiPage(a.wiki_page_id, a.wiki_title)">
+                  <template #reference>
+                    <el-tag size="small" type="success" effect="plain" style="cursor:pointer">
+                      📖 {{ a.wiki_title || 'Wiki' }}
+                    </el-tag>
+                  </template>
+                </el-popconfirm>
+                <el-button size="small" text type="primary" :loading="a._digesting" @click="digestArticle(a)" :disabled="!a.content">
+                  {{ a.wiki_page_id ? '🔄' : '🧠 消化' }}
+                </el-button>
                 <el-button size="small" text @click="openEdit(a)">编辑</el-button>
                 <el-button size="small" text type="danger" @click="delArticle(a.id)">删除</el-button>
               </div>
@@ -242,12 +296,14 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Plus, Edit, Close, UploadFilled, Loading, Document, Collection, FolderOpened } from '@element-plus/icons-vue'
 import { marked } from 'marked'
 import request from '../api/index.js'
 import { downloadFile } from '../utils/download'
+
+const viewMode = ref('docs')
 
 const categories = ref([])
 const articles = ref([])
@@ -255,6 +311,72 @@ const activeCat = ref('通用')
 const keyword = ref('')
 const catOptions = computed(() => categories.value.map(c => c.name))
 const dlg = ref({ visible: false, isEdit: false, viewMode: false, importMode: false, form: {} })
+
+// ── Wiki 内嵌 ──
+const wikiPages = ref([])
+const wikiCurrent = ref(null)
+const wikiSearch = ref('')
+
+function renderWikiMd(content) {
+  if (!content) return ''
+  let html = content
+  html = html.replace(/\[\[([^\]|]+?)\]\]/g, (_, title) => `<a href="javascript:void(0)" class="wiki-link" data-title="${title.trim()}">${title.trim()}</a>`)
+  html = html.replace(/\[\[([^\]]+?)\|([^\]]+?)\]\]/g, (_, title, display) => `<a href="javascript:void(0)" class="wiki-link" data-title="${title.trim()}">${display.trim()}</a>`)
+  html = html.replace(/\[source:\s*([^\]]*?)\]/gi, (_, src) => `<sup class="source-tag" title="${src.trim()}">[源]</sup>`)
+  return marked(html)
+}
+
+let wikiSearchTimer = null
+function onWikiSearch() {
+  clearTimeout(wikiSearchTimer)
+  wikiSearchTimer = setTimeout(() => loadWikiPages(), 300)
+}
+
+async function loadWikiPages() {
+  try {
+    const { data } = await request.get('/wiki/pages', { params: { keyword: wikiSearch.value || undefined, pageSize: 30 } })
+    if (data.code === 200) wikiPages.value = data.data.rows
+  } catch {}
+}
+
+async function selectWikiPage(p) {
+  try {
+    const { data } = await request.get('/wiki/pages/' + p.id)
+    if (data.code === 200) wikiCurrent.value = data.data
+  } catch {}
+}
+
+async function digestWikiAgain() {
+  if (!wikiCurrent.value) return
+  try {
+    await ElMessageBox.confirm('将从原始来源重新消化生成，当前版本保存为快照。确认？', '重新消化', { type: 'info' })
+    const { data } = await request.post('/wiki/regenerate/' + wikiCurrent.value.id)
+    if (data.code === 200) {
+      ElMessage.success('重新消化完成')
+      selectWikiPage({ id: wikiCurrent.value.id })
+    }
+  } catch (e) { if (e !== 'cancel') ElMessage.error('失败') }
+}
+
+function selectCat(cat) {
+  activeCat.value = cat  // watch 会自动触发 load()
+}
+
+// 初始化时预加载 wiki 页面列表
+onMounted(() => { loadWikiPages() })
+
+// Wiki 链接点击导航（挂载时注册，卸载时清理）
+const wikiLinkHandler = (e) => {
+  const link = e.target.closest('.wiki-link')
+  if (link) {
+    e.preventDefault()
+    const title = link.dataset.title
+    const page = wikiPages.value.find(p => p.title === title)
+    if (page) { selectWikiPage(page) } else { ElMessage.info('「' + title + '」页面尚未创建') }
+  }
+}
+onMounted(() => document.addEventListener('click', wikiLinkHandler))
+onUnmounted(() => document.removeEventListener('click', wikiLinkHandler))
 const catDlg = ref({ visible: false, isEdit: false, id: '', name: '' })
 
 // 导入相关
@@ -489,6 +611,48 @@ async function delArticle(id) {
   }
 }
 
+// ── Wiki 集成 ──
+const batchDigesting = ref(false)
+
+function goWikiPage(wikiId, wikiTitle) {
+  viewMode.value = 'wiki'
+  loadWikiPages().then(() => {
+    const p = wikiPages.value.find(x => x.id === wikiId || x.title === wikiTitle)
+    if (p) selectWikiPage(p)
+  })
+}
+
+async function digestArticle(a) {
+  if (!a.content) return ElMessage.warning('文章内容为空')
+  a._digesting = true
+  try {
+    const { data } = await request.post('/knowledge-base/' + a.id + '/digest-to-wiki')
+    if (data.code === 200 && data.data?.totalPages > 0) {
+      ElMessage.success(`AI 消化完成，生成 ${data.data.totalPages} 个 Wiki 页面`)
+      await load()
+    } else {
+      ElMessage.info(data.data?.message || 'AI 未提取到结构化知识点')
+    }
+  } catch (e) {
+    ElMessage.error(e.response?.data?.message || '消化失败')
+  }
+  a._digesting = false
+}
+
+async function batchDigest() {
+  batchDigesting.value = true
+  try {
+    const { data } = await request.post('/knowledge-base/batch-digest', { category: activeCat.value || undefined })
+    if (data.code === 200) {
+      ElMessage.success(`批量消化完成：处理 ${data.data.processed}/${data.data.total} 篇`)
+      await load()
+    }
+  } catch (e) {
+    ElMessage.error('批量消化失败')
+  }
+  batchDigesting.value = false
+}
+
 // 分类管理
 function openAddCat() { catDlg.value = { visible: true, isEdit: false, id: '', name: '' } }
 function openEditCat(c) { catDlg.value = { visible: true, isEdit: true, id: c.id, name: c.name } }
@@ -620,4 +784,32 @@ onMounted(async () => { await loadCategories(); await load() })
 .batch-list { background: #fafafe; border: 1px solid #f0ecfc; border-radius: 8px; padding: 10px; max-height: 200px; overflow-y: auto; }
 .batch-count { font-size: 12px; font-weight: 600; color: #7c3aed; margin-bottom: 6px; }
 .batch-url { font-size: 11px; color: #6b5f80; padding: 2px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── Wiki 嵌入 ── */
+.wiki-embed { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.wiki-embed-body { flex: 1; display: flex; overflow: hidden; border-radius: 12px; border: 1px solid #f0ecfc; background: #fff; }
+.wiki-embed-sidebar { width: 240px; flex-shrink: 0; border-right: 1px solid #f0ecfc; padding: 12px; display: flex; flex-direction: column; }
+.wiki-embed-list { flex: 1; overflow-y: auto; }
+.wiki-embed-item { padding: 8px 10px; border-radius: 8px; cursor: pointer; margin-bottom: 2px; transition: background .15s; }
+.wiki-embed-item:hover { background: #f5f3ff; }
+.wiki-embed-item.sel { background: #ede9fe; }
+.wei-title { font-size: 13px; font-weight: 500; color: #4a3f5e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wei-meta { font-size: 11px; color: #b8aad0; }
+.wiki-embed-main { flex: 1; overflow-y: auto; padding: 20px 24px; }
+.wiki-embed-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.wem-hd { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
+.wem-hd h3 { margin: 0; font-size: 18px; color: #1e293b; }
+.wem-summary { padding: 10px 14px; background: #f5f3ff; border-left: 3px solid #7c3aed; border-radius: 0 6px 6px 0; font-size: 13px; color: #4a3f5e; margin-bottom: 14px; }
+.wem-content :deep(h2) { font-size: 1.2em; margin: 14px 0 6px; }
+.wem-content :deep(h3) { font-size: 1.05em; margin: 12px 0 4px; }
+.wem-content :deep(p) { margin: 8px 0; line-height: 1.7; }
+.wem-content :deep(ul), .wem-content :deep(ol) { padding-left: 18px; margin: 6px 0; }
+.wem-content :deep(.wiki-link) { color: #7c3aed; text-decoration: none; border-bottom: 1px dashed #a78bfa; cursor: pointer; }
+.wem-content :deep(.wiki-link:hover) { color: #5b21b6; }
+.wem-content :deep(code) { background: #f5f3ff; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+.wem-content :deep(pre) { background: #1e1e2e; color: #cdd6f4; padding: 14px; border-radius: 8px; overflow-x: auto; }
+.wem-content :deep(pre code) { background: none; padding: 0; color: inherit; }
+.wem-kb { margin-top: 20px; padding-top: 14px; border-top: 1px solid #f0ecfc; }
+.wem-kb-link { display: block; padding: 4px 0; font-size: 13px; color: #7c3aed; cursor: pointer; }
+.wem-kb-link:hover { text-decoration: underline; }
 </style>

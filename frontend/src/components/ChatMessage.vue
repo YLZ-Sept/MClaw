@@ -12,10 +12,9 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted, onUnmounted } from 'vue'
 import { marked } from 'marked'
 
-// marked 配置
 marked.setOptions({ breaks: true, gfm: true })
 
 const props = defineProps({
@@ -28,12 +27,9 @@ const isStatus = computed(() => props.role === 'tool' || props.content.startsWit
 const rendered = computed(() => {
   try {
     let text = props.content || ''
-    // 自动将下载链接转为可点击的 markdown 链接（跳过已在链接中的 URL）
     text = text.replace(/(?<!\]\()(\/api\/download\/(?:ppt|excel|pdf|docx|diagram|openclaw)\/[\w.-]+)/g, '[$1]($1)')
     let html = marked.parse(text)
-    // 所有链接新标签打开，避免 SPA 路由拦截
     html = html.replace(/<a /g, '<a target="_blank" rel="noopener" ')
-    // 下载链接注入 token，避免新标签页打开时 401
     const token = localStorage.getItem('token')
     if (token) {
       html = html.replace(/href="(\/api\/download\/(?:ppt|excel|pdf|docx|diagram|openclaw)\/[\w.-]+)"/g, (_, url) => `href="${url}?token=${encodeURIComponent(token)}"`)
@@ -43,6 +39,33 @@ const rendered = computed(() => {
     return props.content
   }
 })
+
+// 下载链接拦截：用 blob 下载替代新标签页打开
+function handleDownloadClick(e) {
+  const link = e.target.closest('a')
+  if (!link) return
+  const href = link.getAttribute('href') || ''
+  if (!/\/api\/download\/(excel|ppt|pdf|docx|diagram|openclaw)\//.test(href)) return
+  e.preventDefault()
+  const token = localStorage.getItem('token')
+  const url = href.includes('?token=') ? href : `${href}${href.includes('?') ? '&' : '?'}token=${encodeURIComponent(token || '')}`
+  fetch(url).then(res => {
+    if (!res.ok) throw new Error('下载失败')
+    return res.blob()
+  }).then(blob => {
+    const filename = href.split('/').pop() || 'download'
+    const downloadUrl = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = downloadUrl; a.download = filename
+    document.body.appendChild(a); a.click(); a.remove()
+    URL.revokeObjectURL(downloadUrl)
+  }).catch(() => {
+    // fallback: 直接打开链接
+    window.open(url, '_blank')
+  })
+}
+onMounted(() => document.addEventListener('click', handleDownloadClick))
+onUnmounted(() => document.removeEventListener('click', handleDownloadClick))
 </script>
 
 <style scoped>

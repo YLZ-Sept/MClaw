@@ -400,6 +400,54 @@ db.exec(`
     created_at TEXT DEFAULT (datetime('now','localtime'))
   );
 
+  CREATE TABLE IF NOT EXISTS wiki_pages (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    content TEXT NOT NULL DEFAULT '',
+    plain_content TEXT NOT NULL DEFAULT '',
+    summary TEXT DEFAULT '',
+    key_concepts TEXT DEFAULT '[]',
+    category TEXT DEFAULT '通用',
+    status TEXT DEFAULT 'published',
+    version INTEGER DEFAULT 1,
+    view_count INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now','localtime')),
+    updated_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+
+  CREATE TABLE IF NOT EXISTS wiki_sources (
+    id TEXT PRIMARY KEY,
+    wiki_page_id TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    source_name TEXT NOT NULL,
+    source_path TEXT DEFAULT '',
+    source_content TEXT DEFAULT '',
+    source_hash TEXT DEFAULT '',
+    source_chunk_index INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+
+  CREATE TABLE IF NOT EXISTS wiki_links (
+    id TEXT PRIMARY KEY,
+    source_page_id TEXT NOT NULL,
+    target_page_id TEXT NOT NULL,
+    target_title TEXT NOT NULL DEFAULT '',
+    context TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_wiki_links_src ON wiki_links(source_page_id);
+  CREATE INDEX IF NOT EXISTS idx_wiki_links_tgt ON wiki_links(target_page_id);
+
+  CREATE TABLE IF NOT EXISTS wiki_page_versions (
+    id TEXT PRIMARY KEY,
+    wiki_page_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    summary TEXT DEFAULT '',
+    change_description TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+
   CREATE TABLE IF NOT EXISTS bid_items (
     id TEXT PRIMARY KEY, source_id TEXT REFERENCES bid_sources(id),
     title TEXT NOT NULL,                    -- 项目名称
@@ -911,6 +959,11 @@ try { db.exec('ALTER TABLE agent_apps ADD COLUMN category TEXT'); } catch {}
 try { db.exec('ALTER TABLE agent_apps ADD COLUMN is_expert INTEGER DEFAULT 0'); } catch {}
 try { db.exec('ALTER TABLE agent_apps ADD COLUMN permission_tier TEXT DEFAULT \'low\''); } catch {}
 try { db.exec('ALTER TABLE agent_apps ADD COLUMN skill_bindings TEXT DEFAULT \'[]\''); } catch {}
+try { db.exec('ALTER TABLE agent_apps ADD COLUMN wiki_page_ids TEXT'); } catch {}
+
+// kb_articles ↔ wiki 关联
+try { db.exec('ALTER TABLE kb_articles ADD COLUMN wiki_page_id TEXT'); } catch {}
+try { db.exec('ALTER TABLE kb_articles ADD COLUMN digested INTEGER DEFAULT 0'); } catch {}
 
 function seedExperts() {
   const expected = 50;

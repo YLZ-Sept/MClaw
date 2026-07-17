@@ -7,7 +7,8 @@ async function chat(messages, temperature = 0.7) {
   const res = await fetch(`${config.api_base}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.api_key}` },
-    body: JSON.stringify({ model: config.model, messages, temperature, max_tokens: 4096 })
+    body: JSON.stringify({ model: config.model, messages, temperature, max_tokens: 4096 }),
+    signal: AbortSignal.timeout(120000) // 2分钟超时
   });
   if (!res.ok) { const err = await res.text().catch(() => ''); throw new Error(`LLM ${res.status}: ${err.slice(0, 300)}`); }
   const data = await res.json();

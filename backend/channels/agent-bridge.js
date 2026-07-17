@@ -427,6 +427,27 @@ function loadAgentConfig(agent) {
     }
   } catch {}
 
+  // 绑定的 LLM Wiki 页面（所有 agent_app 行）
+  try {
+    const allWikiIds = allDbRows
+      .map(r => r.wiki_page_ids)
+      .filter(Boolean)
+      .flatMap(s => s.split(',').filter(Boolean));
+    const uniqueWikiIds = [...new Set(allWikiIds)];
+    if (uniqueWikiIds.length) {
+      const placeholders = uniqueWikiIds.map(() => '?').join(',');
+      const wikiPages = db.prepare(
+        `SELECT title, summary, content FROM wiki_pages WHERE id IN (${placeholders}) AND status='published'`
+      ).all(...uniqueWikiIds);
+      if (wikiPages.length) {
+        const wikiPrompt = wikiPages.map(p =>
+          `## [Wiki] ${p.title}\n摘要：${p.summary || ''}\n\n${(p.content || '').slice(0, 3000)}`
+        ).join('\n\n---\n\n');
+        systemPrompt += '\n\n---\n\n# 参考 LLM Wiki\n' + wikiPrompt;
+      }
+    }
+  } catch {}
+
   // 绑定的本地文件夹/文件引用（所有 agent_app 行）
   try {
     const allFolderPaths = allDbRows
@@ -573,47 +594,9 @@ function loadAgentConfig(agent) {
   }
 
   
-  // 内置文档生成工具（原本地技能迁移）
-  if (!seenToolNames.has('generate_pptx')) {
-    mergedTools.push({
-      type: 'function',
-      function: {
-        name: 'generate_pptx',
-        description: '生成专业 PowerPoint 演示文稿。参数: theme(business/modern/tech/minimal), slides(每页含layout/type/title/content/chart/table等)。',
-        parameters: { type: 'object', properties: { theme: { type: 'string' }, slides: { type: 'array', items: { type: 'object' } } }, required: [] }
-      }
-    });
-  }
-  if (!seenToolNames.has('generate_excel')) {
-    mergedTools.push({
-      type: 'function',
-      function: {
-        name: 'generate_excel',
-        description: '生成专业 Excel 报表，支持多 Sheet、标题、表头样式、斑马纹。参数: title, author, sheets(每sheet含name/title/columns/rows)。',
-        parameters: { type: 'object', properties: { title: { type: 'string' }, author: { type: 'string' }, sheets: { type: 'array', items: { type: 'object' } } }, required: [] }
-      }
-    });
-  }
-  if (!seenToolNames.has('generate_pdf')) {
-    mergedTools.push({
-      type: 'function',
-      function: {
-        name: 'generate_pdf',
-        description: '生成 PDF 文档，支持表格、列表、水印。参数: title, author, content(段落数组), page_size(A4/A3/LETTER), orientation(portrait/landscape), watermark。',
-        parameters: { type: 'object', properties: { title: { type: 'string' }, author: { type: 'string' }, content: { type: 'array' }, page_size: { type: 'string' }, orientation: { type: 'string' }, watermark: { type: 'string' } }, required: [] }
-      }
-    });
-  }
-  if (!seenToolNames.has('generate_docx')) {
-    mergedTools.push({
-      type: 'function',
-      function: {
-        name: 'generate_docx',
-        description: '生成 Word (.docx) 文档，支持多级标题、段落、要点列表。参数: title, author, sections(每section含heading/level/paragraphs/bullets/table), footer。',
-        parameters: { type: 'object', properties: { title: { type: 'string' }, author: { type: 'string' }, sections: { type: 'array', items: { type: 'object' } }, footer: { type: 'string' } }, required: [] }
-      }
-    });
-  }
+  // 文档生成已迁移到 OpenClaw Skills（mclaw-excel-gen / mclaw-pptx-gen / mclaw-pdf-gen / mclaw-docx-gen）
+  // 通过 execute_command 工具调用
+
   if (!seenToolNames.has('generate_diagram')) {
     mergedTools.push({
       type: 'function',

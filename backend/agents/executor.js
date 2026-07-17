@@ -496,48 +496,10 @@ async function exec(toolName, args, context) {
         return { published_contents: contents, draft_contents: drafts, total_leads: leads, videos_generated: videos, videos_generating: generating };
       }
 
-      // ─── PPT 生成 ───
-      case 'generate_pptx': {
-        const { generatePPTX } = require('../services/ppt-generator');
-        const result = await generatePPTX({ theme: args.theme || 'business', slides: args.slides || [] });
-        return { filename: result.filename, download_url: `/api/download/ppt/${result.filename}`, message: `PPT 生成成功！\n\n[📥 点击下载 PPT](/api/download/ppt/${result.filename})` };
-      }
-
-      // ─── Excel 报表 ───
-      case 'generate_excel': {
-        const { generateExcel } = require('../services/excel-generator');
-        const result = await generateExcel({
-          sheets: args.sheets || [{ name: 'Sheet1', title: args.title || '报表', columns: args.columns || [], rows: args.rows || [] }],
-          author: args.author || 'MClaw'
-        });
-        return { filename: result.filename, download_url: `/api/download/excel/${result.filename}`, message: `Excel 生成成功！\n\n[📥 点击下载](/api/download/excel/${result.filename})` };
-      }
-
-      // ─── PDF 文档 ───
-      case 'generate_pdf': {
-        const { generatePDF } = require('../services/pdf-generator');
-        const result = await generatePDF({
-          title: args.title || 'PDF 文档',
-          author: args.author || 'MClaw',
-          content: args.content || [{ text: args.text || '文档内容', style: 'body' }],
-          pageSize: args.page_size || 'A4',
-          orientation: args.orientation || 'portrait',
-          watermark: args.watermark || null
-        });
-        return { filename: result.filename, download_url: `/api/download/pdf/${result.filename}`, message: `PDF 生成成功！\n\n[📥 点击下载](/api/download/pdf/${result.filename})` };
-      }
-
-      // ─── Word 文档 ───
-      case 'generate_docx': {
-        const { generateDocx } = require('../services/docx-generator');
-        const result = await generateDocx({
-          title: args.title || 'Word 文档',
-          author: args.author || 'MClaw',
-          sections: args.sections || [{ heading: '内容', paragraphs: [args.text || '文档正文'] }],
-          footer: args.footer || ''
-        });
-        return { filename: result.filename, download_url: `/api/download/docx/${result.filename}`, message: `Word 文档生成成功！\n\n[📥 点击下载](/api/download/docx/${result.filename})` };
-      }
+      // ─── 文档生成已迁移到 OpenClaw Skills ───
+      // generate_pptx → mclaw-pptx-gen  |  generate_excel → mclaw-excel-gen
+      // generate_pdf  → mclaw-pdf-gen   |  generate_docx  → mclaw-docx-gen
+      // 这些工具现在通过 execute_command 调用 Python 脚本，不再走本地 Node.js
 
       // ─── 图表/流程图 ───
       case 'generate_diagram': {
