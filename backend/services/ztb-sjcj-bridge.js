@@ -38,7 +38,8 @@ function classifyIndustry(title, content) {
 function runPython(script, args = [], opts = {}) {
   return new Promise((resolve, reject) => {
     const pyArgs = [path.join(SKILL_DIR, script), ...args];
-    const proc = spawn('python', pyArgs, {
+    const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+    const proc = spawn(pythonCmd, pyArgs, {
       cwd: SKILL_DIR,
       env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
       stdio: ['pipe', 'pipe', 'pipe'],
