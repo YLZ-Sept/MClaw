@@ -259,11 +259,8 @@ async function streamReply(ocRes, res) {
   return rewriteOpenClawUrls(fullText);
 }
 
-// 将 OpenClaw 本地文件 URL 替换为 MClaw 代理下载
-function rewriteOpenClawUrls(text) {
-  if (!text) return text;
-  return text.replace(/https?:\/\/localhost:7071\/api\/download\//g, '/api/download/openclaw/');
-}
+// 将本地文件绝对 URL 替换为相对路径（远程用户可下载）
+const { rewriteDownloadUrls: rewriteOpenClawUrls } = require('./shared/rewrite-download-urls');
 
 // ── MClaw 聊天辅助 ──
 const { getHistory, addToHistory, clearHistory } = require('./shared/chat-history');

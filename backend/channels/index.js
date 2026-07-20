@@ -4,6 +4,7 @@ const db = require('../db');
 const { loadAgentConfig, callLLM, execTool, polishReply, scoreAgentForMessage } = require('./agent-bridge');
 const { setExecutionContext } = require('../shared/execution-context');
 const { broadcast } = require('./event-bus');
+const { rewriteDownloadUrls } = require('../shared/rewrite-download-urls');
 
 // ─── 内部缓存：WebSocket 连接 ───
 const channelSockets = {}; // { account_id: ws }
@@ -165,12 +166,14 @@ async function generateAIReply(conversationId, platform, agentId) {
       reply = dsData2.choices?.[0]?.message?.content || reply;
     }
 
-    // 润色
+    // 润色（polishReply 内部已做 URL 重写）
     try {
       const polished = await polishReply(reply);
       if (polished && polished.length > 10) reply = polished;
     } catch {}
 
+    // 兜底 URL 重写：确保远程用户可下载生成的文件
+    reply = rewriteDownloadUrls(reply);
     return reply;
   } catch (err) {
     console.error('[channels] AI reply error:', err.message);

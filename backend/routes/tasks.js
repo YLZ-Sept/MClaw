@@ -7,6 +7,7 @@ const wsClient = require('../openclaw/ws-client');
 const { addToHistory } = require('../shared/chat-history');
 const { parseSchedule } = require('../shared/schedule');
 const { setExecutionContext } = require('../shared/execution-context');
+const { rewriteDownloadUrls } = require('../shared/rewrite-download-urls');
 const db = require('../db');
 const crypto = require('crypto');
 
@@ -138,6 +139,8 @@ router.post('/:id/run', async (req, res) => {
         msg = dsData.choices?.[0]?.message;
       }
       content = msg?.content || '';
+      // URL 重写：确保远程用户可下载生成文件
+      content = rewriteDownloadUrls(content);
 
       try {
         const polished = await polishReply(content);
@@ -158,6 +161,7 @@ router.post('/:id/run', async (req, res) => {
       }
       const chatData = await chatRes.json();
       content = chatData.choices?.[0]?.message?.content || '';
+      content = rewriteDownloadUrls(content);
     }
 
     // 保存执行结果到聊天记录（内存 + DB 双写，重启不丢失）

@@ -4,6 +4,7 @@ const path = require('path');
 const db = require('../db');
 const { getActiveConfig } = require('../routes/model-configs');
 const { exec: execTool } = require('../agents/executor');
+const { rewriteDownloadUrls } = require('../shared/rewrite-download-urls');
 
 // 文件夹引用：可读文本扩展名
 const TEXT_EXTS = new Set(['txt','md','markdown','json','yaml','yml','xml','html','htm','css','js','ts','jsx','tsx','vue','py','go','rs','java','c','cpp','h','sh','bat','ps1','sql','csv','log','env','cfg','ini','toml','rst','tex']);
@@ -710,9 +711,10 @@ async function polishReply(rawReply) {
     const dsRes = await callLLM([{ role: 'user', content: polishPrompt }], null, false);
     const dsData = await dsRes.json();
     const polished = dsData.choices?.[0]?.message?.content;
-    return polished && polished.length > 20 ? polished : rawReply;
+    const result = polished && polished.length > 20 ? polished : rawReply;
+    return rewriteDownloadUrls(result);
   } catch {
-    return rawReply;
+    return rewriteDownloadUrls(rawReply);
   }
 }
 
