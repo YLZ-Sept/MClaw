@@ -439,6 +439,7 @@ app.post('/api/chat/send', requireAuth, async (req, res) => {
       let ocData = await ocRes.json();
       let msg = ocData.choices?.[0]?.message;
       let loop = 0;
+      let deGeneratedFiles = [];
       setExecutionContext(agent);
       while (msg?.tool_calls && msg.tool_calls.length > 0 && loop < 2) {
         loop++;
@@ -448,6 +449,7 @@ app.post('/api/chat/send', requireAuth, async (req, res) => {
           try { args = JSON.parse(tc.function.arguments || '{}'); } catch { args = {}; }
           console.log(`[tool] ${tc.function.name} args:`, JSON.stringify(args).slice(0, 200));
           const result = await execTool(tc.function.name, args);
+          if (result?.download_url) deGeneratedFiles.push(result);
           messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) });
         }
         ocRes = await callOpenClaw(messages, config.tools, false);
@@ -461,6 +463,12 @@ app.post('/api/chat/send', requireAuth, async (req, res) => {
 
       let reply = msg?.content || '未返回有效回复';
       reply = rewriteOpenClawUrls(reply);
+      // 追加文件下载链接
+      if (deGeneratedFiles.length > 0) {
+        reply += deGeneratedFiles.map(f =>
+          `\n\n---\n📥 **下载链接**：[${f.filename}](${f.download_url})`
+        ).join('');
+      }
 
       history.push({ role: 'assistant', content: reply });
       if (session_id) saveSessionMessage(session_id, 'assistant', reply);
