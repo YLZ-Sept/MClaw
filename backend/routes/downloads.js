@@ -23,6 +23,47 @@ function authByToken(req, res, next) {
   return res.status(401).json({ code: 401, message: '未登录或登录已过期' });
 }
 
+// ★ OpenClaw workspace 文件下载必须在 /:type/:filename 之前注册，
+// 否则 Express 会将 "openclaw" 匹配为 :type
+// OpenClaw workspace 文件下载：/api/download/openclaw/:filename
+// 直接从 ~/.openclaw/workspace/ 读取文件
+const os = require('os');
+const OC_WORKSPACE = require('path').join(os.homedir(), '.openclaw', 'workspace');
+
+router.get('/openclaw/:filename', authByToken, (req, res) => {
+  const { filename } = req.params;
+  if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+    return res.status(400).json({ code: 400, message: '无效文件名' });
+  }
+  const filepath = require('path').join(OC_WORKSPACE, filename);
+  if (!filepath.startsWith(OC_WORKSPACE)) {
+    return res.status(400).json({ code: 400, message: '无效文件路径' });
+  }
+  if (!require('fs').existsSync(filepath)) {
+    return res.status(404).json({ code: 404, message: '文件不存在或已被清理' });
+  }
+  const ext = require('path').extname(filename).toLowerCase();
+  const mimeMap = {
+    '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    '.xls': 'application/vnd.ms-excel',
+    '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    '.pdf': 'application/pdf',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.doc': 'application/msword',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.svg': 'image/svg+xml',
+    '.html': 'text/html',
+    '.txt': 'text/plain',
+    '.csv': 'text/csv',
+  };
+  res.setHeader('Content-Type', mimeMap[ext] || 'application/octet-stream');
+  res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+  res.sendFile(filepath);
+});
+
 // 统一文件下载：/api/download/:type/:filename
 // type: ppt | excel | pdf | docx | diagram | kb
 router.get('/:type/:filename', authByToken, (req, res) => {
@@ -69,44 +110,6 @@ router.get('/:type/:filename', authByToken, (req, res) => {
   res.setHeader('Content-Type', mimeMap[type] || 'application/octet-stream');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.sendFile(filepath);
-});
-
-// 代理 OpenClaw workspace 文件下载：/api/download/openclaw/:filename
-// OpenClaw 内置技能生成的文件存在其 workspace，通过此路由代理下载
-const http = require('http');
-const os = require('os');
-
-function getOpenClawGatewayConfig() {
-  try {
-    const raw = require('fs').readFileSync(require('path').join(os.homedir(), '.openclaw', 'openclaw.json'), 'utf8').replace(/^﻿/, '');
-    const cfg = JSON.parse(raw);
-    return {
-      port: cfg.gateway?.port || 18622,
-      token: cfg.gateway?.auth?.token || ''
-    };
-  } catch { return { port: 18622, token: '' }; }
-}
-
-router.get('/openclaw/:filename', authByToken, (req, res) => {
-  const { filename } = req.params;
-  if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
-    return res.status(400).json({ code: 400, message: '无效文件名' });
-  }
-  // 代理到 OpenClaw gateway 文件服务（版本 2026.7+ 文件下载在 gateway 端口而非 7071）
-  const gw = getOpenClawGatewayConfig();
-  const ocUrl = `http://127.0.0.1:${gw.port}/api/download/${encodeURIComponent(filename)}`;
-  const headers = {};
-  if (gw.token) headers['Authorization'] = `Bearer ${gw.token}`;
-  http.get(ocUrl, { headers }, (ocRes) => {
-    if (ocRes.statusCode !== 200) {
-      return res.status(ocRes.statusCode).json({ code: ocRes.statusCode, message: 'OpenClaw 文件不存在' });
-    }
-    res.setHeader('Content-Type', ocRes.headers['content-type'] || 'application/octet-stream');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    ocRes.pipe(res);
-  }).on('error', () => {
-    res.status(502).json({ code: 502, message: 'OpenClaw 文件服务不可达' });
-  });
 });
 
 module.exports = router;
