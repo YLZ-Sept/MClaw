@@ -403,7 +403,7 @@ if (Test-Path (Join-Path $frontendDir "package.json")) {
 # ============================================================
 Write-Step "安装 OpenClaw Gateway (技能市场/Agent 运行时)"
 
-$ocVersion = "2026.6.6"
+$ocVersion = "2026.7.1-2"
 $ocInstalled = $false
 
 if (Test-Command openclaw) {
@@ -753,7 +753,7 @@ if ($backendNM -and $frontendNM -and $frontendDist -and $nodeOK) {
 if (-not $ocOK) {
     Write-Host ""
     Write-Warn "OpenClaw 未安装，技能市场和 OpenClaw Agent 功能将不可用"
-    Write-Warn "如需此功能，请确保 npm 可用后运行: npm install -g openclaw@2026.6.6 && openclaw setup --accept-risk --non-interactive --mode local"
+    Write-Warn "如需此功能，请确保 npm 可用后运行: npm install -g openclaw@2026.7.1-2 && openclaw setup --accept-risk --non-interactive --mode local"
 }
 
 Write-Host ""

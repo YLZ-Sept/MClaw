@@ -33,7 +33,7 @@
 - 安装 Python 3.12.9
 - 后端 `npm install` (backend/)
 - 前端 `npm install` (frontend/)
-- 安装 OpenClaw Gateway (`npm install -g openclaw@2026.6.6` + 初始化设备身份)
+- 安装 OpenClaw Gateway (`npm install -g openclaw@2026.7.1-2` + 初始化设备身份)
 - Python 依赖 (fastapi, playwright, uvicorn 等)
 - Playwright Chromium 浏览器
 - 前端 `npm run build`
