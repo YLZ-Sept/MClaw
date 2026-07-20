@@ -439,7 +439,6 @@ app.post('/api/chat/send', requireAuth, async (req, res) => {
       let ocData = await ocRes.json();
       let msg = ocData.choices?.[0]?.message;
       let loop = 0;
-      let deGeneratedFiles = [];
       setExecutionContext(agent);
       while (msg?.tool_calls && msg.tool_calls.length > 0 && loop < 2) {
         loop++;
@@ -449,7 +448,6 @@ app.post('/api/chat/send', requireAuth, async (req, res) => {
           try { args = JSON.parse(tc.function.arguments || '{}'); } catch { args = {}; }
           console.log(`[tool] ${tc.function.name} args:`, JSON.stringify(args).slice(0, 200));
           const result = await execTool(tc.function.name, args);
-          if (result?.download_url) deGeneratedFiles.push(result);
           messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) });
         }
         ocRes = await callOpenClaw(messages, config.tools, false);
@@ -463,12 +461,6 @@ app.post('/api/chat/send', requireAuth, async (req, res) => {
 
       let reply = msg?.content || '未返回有效回复';
       reply = rewriteOpenClawUrls(reply);
-      // 追加文件下载链接
-      if (deGeneratedFiles.length > 0) {
-        reply += deGeneratedFiles.map(f =>
-          `\n\n---\n📥 **下载链接**：[${f.filename}](${f.download_url})`
-        ).join('');
-      }
 
       history.push({ role: 'assistant', content: reply });
       if (session_id) saveSessionMessage(session_id, 'assistant', reply);
@@ -506,31 +498,6 @@ app.post('/api/chat/send', requireAuth, async (req, res) => {
         console.log(`[chat] Expert → OpenClaw name="${expertName}" newConv=${isNewConversation} promptChars=${config.systemPrompt.length}`);
       } else {
         msgs = [...history];
-        // 通用聊天注入 generate_file 工具
-        tools = [{
-          type: 'function',
-          function: {
-            name: 'generate_file',
-            description: '生成文档文件。支持 Excel(xlsx)/CSV/PPT(pptx)/Word(docx)。\n'
-              + '表格(excel/csv): 需要 headers(表头数组) + rows(数据行数组)\n'
-              + 'PPT(pptx): 需要 slides(页面数组，每页{title, content:[文本行]})\n'
-              + 'Word(docx): 需要 paragraphs(段落数组)',
-            parameters: {
-              type: 'object',
-              properties: {
-                type: { type: 'string', description: '文件类型：excel, csv, pptx, docx' },
-                filename: { type: 'string', description: '文件名' },
-                title: { type: 'string', description: '标题（可选）' },
-                sheet_name: { type: 'string', description: '工作表名（仅Excel）' },
-                headers: { type: 'array', items: { type: 'string' }, description: '表头（Excel/CSV）' },
-                rows: { type: 'array', items: { type: 'array' }, description: '数据行（Excel/CSV）' },
-                slides: { type: 'array', items: { type: 'object', properties: { title: { type: 'string' }, content: { type: 'array', items: { type: 'string' } } } }, description: '幻灯片页（PPT）' },
-                paragraphs: { type: 'array', items: { type: 'string' }, description: '段落（Word）' }
-              },
-              required: ['type', 'filename']
-            }
-          }
-        }];
       }
 
       // 带工具的非流式首轮调用（检测 tool_calls）
@@ -553,7 +520,6 @@ app.post('/api/chat/send', requireAuth, async (req, res) => {
       let msg = ocData.choices?.[0]?.message;
 
       let hadToolCalls = false;
-      let generatedFiles = []; // 收集工具生成的文件下载链接
       // 工具调用循环（最多1轮）
       if (msg?.tool_calls && msg.tool_calls.length > 0) {
         hadToolCalls = true;
@@ -563,7 +529,6 @@ app.post('/api/chat/send', requireAuth, async (req, res) => {
           try { args = JSON.parse(tc.function.arguments || '{}'); } catch { args = {}; }
           console.log(`[chat] general tool: ${tc.function.name} args:`, JSON.stringify(args).slice(0, 200));
           const result = await execTool(tc.function.name, args);
-          if (result?.download_url) generatedFiles.push(result);
           msgs.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) });
         }
         // 第二轮调用：生成最终回复
@@ -586,25 +551,12 @@ app.post('/api/chat/send', requireAuth, async (req, res) => {
         // 有工具调用：需要重新读取 body（第二轮响应）
         if (isStream) {
           reply = await streamReply(ocRes, res);
-          // 追加文件下载链接
-          if (generatedFiles.length > 0) {
-            const dlLinks = generatedFiles.map(f =>
-              `\n\n---\n📥 **下载链接**：[${f.filename}](${f.download_url})`
-            ).join('');
-            sse(res, 'text', { content: dlLinks });
-          }
           sse(res, 'done', {});
           res.end();
         } else {
           const data = await ocRes.json();
           reply = data.choices?.[0]?.message?.content || '';
           reply = rewriteOpenClawUrls(reply);
-          // 追加文件下载链接
-          if (generatedFiles.length > 0) {
-            reply += generatedFiles.map(f =>
-              `\n\n---\n📥 **下载链接**：[${f.filename}](${f.download_url})`
-            ).join('');
-          }
           res.json({ code: 200, data: { content: reply } });
         }
       } else {

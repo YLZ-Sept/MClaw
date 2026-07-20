@@ -594,47 +594,6 @@ function loadAgentConfig(agent) {
     });
   }
 
-  
-  // 文档生成：优先使用 generate_file 工具（直接生成到 workspace）
-  if (!seenToolNames.has('generate_file')) {
-    mergedTools.push({
-      type: 'function',
-      function: {
-        name: 'generate_file',
-        description: '生成文档文件到 workspace 并提供下载链接。支持 Excel(xlsx)/CSV/PPT(pptx)/Word(docx)。\n'
-          + 'Excel/CSV: 需 headers(表头) + rows(数据行)\n'
-          + 'PPT: 需 slides([{title, content}])\n'
-          + 'Word: 需 paragraphs([文本段落])\n'
-          + '生成后给用户 /api/download/openclaw/文件名 下载链接。',
-        parameters: {
-          type: 'object',
-          properties: {
-            type: { type: 'string', description: '文件类型: excel, csv, pptx, docx' },
-            filename: { type: 'string', description: '文件名' },
-            title: { type: 'string', description: '标题' },
-            sheet_name: { type: 'string', description: '工作表名(Excel)' },
-            headers: { type: 'array', items: { type: 'string' }, description: '表头(Excel/CSV)' },
-            rows: { type: 'array', items: { type: 'array' }, description: '数据(Excel/CSV)' },
-            slides: { type: 'array', items: { type: 'object' }, description: '幻灯片(PPT)' },
-            paragraphs: { type: 'array', items: { type: 'string' }, description: '段落(Word)' }
-          },
-          required: ['type', 'filename']
-        }
-      }
-    });
-  }
-
-  if (!seenToolNames.has('generate_diagram')) {
-    mergedTools.push({
-      type: 'function',
-      function: {
-        name: 'generate_diagram',
-        description: '使用 Mermaid 语法生成流程图、时序图、甘特图、类图、状态图。参数: code(Mermaid代码), theme(default/forest/dark/neutral), format(png/svg)。',
-        parameters: { type: 'object', properties: { code: { type: 'string' }, theme: { type: 'string' }, format: { type: 'string' } }, required: ['code'] }
-      }
-    });
-  }
-
   // 注入已勾选的 OpenClaw 技能 + agent_apps.skill_bindings 技能（prompt + openclaw_exec 工具）
   try {
     // 从 agent_openclaw_skills 表收集
