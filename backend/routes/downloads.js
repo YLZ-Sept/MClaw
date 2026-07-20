@@ -74,14 +74,30 @@ router.get('/:type/:filename', authByToken, (req, res) => {
 // 代理 OpenClaw workspace 文件下载：/api/download/openclaw/:filename
 // OpenClaw 内置技能生成的文件存在其 workspace，通过此路由代理下载
 const http = require('http');
+const os = require('os');
+
+function getOpenClawGatewayConfig() {
+  try {
+    const raw = require('fs').readFileSync(require('path').join(os.homedir(), '.openclaw', 'openclaw.json'), 'utf8').replace(/^﻿/, '');
+    const cfg = JSON.parse(raw);
+    return {
+      port: cfg.gateway?.port || 18622,
+      token: cfg.gateway?.auth?.token || ''
+    };
+  } catch { return { port: 18622, token: '' }; }
+}
+
 router.get('/openclaw/:filename', authByToken, (req, res) => {
   const { filename } = req.params;
   if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
     return res.status(400).json({ code: 400, message: '无效文件名' });
   }
-  // 代理到 OpenClaw 本地文件服务
-  const ocUrl = `http://127.0.0.1:7071/api/download/${encodeURIComponent(filename)}`;
-  http.get(ocUrl, (ocRes) => {
+  // 代理到 OpenClaw gateway 文件服务（版本 2026.7+ 文件下载在 gateway 端口而非 7071）
+  const gw = getOpenClawGatewayConfig();
+  const ocUrl = `http://127.0.0.1:${gw.port}/api/download/${encodeURIComponent(filename)}`;
+  const headers = {};
+  if (gw.token) headers['Authorization'] = `Bearer ${gw.token}`;
+  http.get(ocUrl, { headers }, (ocRes) => {
     if (ocRes.statusCode !== 200) {
       return res.status(ocRes.statusCode).json({ code: ocRes.statusCode, message: 'OpenClaw 文件不存在' });
     }

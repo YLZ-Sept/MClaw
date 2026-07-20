@@ -14,15 +14,23 @@
 var LOCALHOST_RE = /https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::(\d{1,5}))?(\/[^\s"'<>]*)/gi;
 
 function rewriteLocalhostUrl(match, port, urlPath) {
-  if (/^\/api\/download\//.test(urlPath)) {
-    return urlPath;
+  // OpenClaw gateway (18622) 上的 /api/download/ → 走 openclaw 文件代理
+  if (port === '18622' && /^\/api\/download\//.test(urlPath)) {
+    return '/api/download/openclaw/' + urlPath.replace(/^\/api\/download\//, '');
   }
+  // OpenClaw gateway (18622) 上的其他路径 → 通用代理
   if (port === '18622') {
     return '/api/openclaw-proxy' + urlPath;
   }
+  // 旧版 OpenClaw file server (7071)
   if (port === '7071' && /^\/api\/download\//.test(urlPath)) {
     return '/api/download/openclaw/' + urlPath.replace(/^\/api\/download\//, '');
   }
+  // MClaw 自身 (18621) 上的 /api/download/ → 相对路径
+  if (/^\/api\/download\//.test(urlPath)) {
+    return urlPath;
+  }
+  // MClaw 自身 (18621) 上的其他路径
   if (port === '18621') {
     return urlPath;
   }
