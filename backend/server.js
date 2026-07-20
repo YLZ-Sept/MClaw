@@ -197,6 +197,23 @@ app.use('/api/hot-chanjing', require('./routes/hot-chanjing'));
 app.use('/api/social-acquisition', require('./routes/social-acquisition'));
 app.use('/api/download', require('./routes/downloads'));
 
+// 代理 OpenClaw Gateway 资源（canvas 等静态文件）：/api/openclaw-proxy/* → http://127.0.0.1:18622/*
+app.use('/api/openclaw-proxy', (req, res) => {
+  const targetUrl = 'http://127.0.0.1:18622' + req.originalUrl.replace('/api/openclaw-proxy', '');
+  const http = require('http');
+  http.get(targetUrl, (proxyRes) => {
+    res.status(proxyRes.statusCode);
+    Object.keys(proxyRes.headers).forEach(k => {
+      if (!['transfer-encoding', 'connection'].includes(k.toLowerCase())) {
+        res.setHeader(k, proxyRes.headers[k]);
+      }
+    });
+    proxyRes.pipe(res);
+  }).on('error', () => {
+    res.status(502).json({ code: 502, message: 'OpenClaw Gateway 不可达' });
+  });
+});
+
 // 多平台发布 (抖音/小红书/微信视频号)
 app.use('/api/publish', require('./routes/multi-publish'));
 
