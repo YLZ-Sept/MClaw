@@ -533,6 +533,82 @@ async function exec(toolName, args, context) {
         return { success: true, message: `定时任务「${args.name}」创建成功`, task_id: result.id, schedule: args.schedule };
       }
 
+      // ─── 文件生成 ───
+      case 'generate_file': {
+        const os = require('os');
+        const fs = require('fs');
+        const path = require('path');
+        const wsDir = path.join(os.homedir(), '.openclaw', 'workspace');
+        const filename = args.filename;
+        const fileType = (args.type || 'excel').toLowerCase();
+
+        if (!filename) return { error: '缺少 filename 参数' };
+        if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+          return { error: '无效文件名' };
+        }
+
+        const filePath = path.join(wsDir, filename);
+
+        if (fileType === 'excel' || fileType === 'xlsx') {
+          const headers = args.headers || [];
+          const rows = args.rows || [];
+          const sheetName = args.sheet_name || 'Sheet1';
+          const title = args.title || '';
+          try {
+            const ExcelJS = require('exceljs');
+            const wb = new ExcelJS.Workbook();
+            wb.creator = 'MClaw';
+            const ws = wb.addWorksheet(sheetName);
+
+            let rowIdx = 1;
+            if (title) {
+              ws.addRow([title]);
+              ws.mergeCells(1, 1, 1, headers.length || 1);
+              ws.getRow(1).font = { bold: true, size: 14, color: { argb: 'FFFFFFFF' } };
+              ws.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E79' } };
+              ws.getRow(1).alignment = { horizontal: 'center' };
+              rowIdx++;
+            }
+
+            if (headers.length) {
+              const hr = ws.addRow(headers);
+              hr.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+              hr.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2E75B6' } };
+              hr.alignment = { horizontal: 'center' };
+              rowIdx++;
+            }
+
+            for (const row of rows) {
+              ws.addRow(Array.isArray(row) ? row : [row]);
+            }
+
+            ws.columns = headers.map(h => ({ width: Math.max(String(h).length * 2, 12) }));
+            await wb.xlsx.writeFile(filePath);
+            return { success: true, filename, download_url: `/api/download/openclaw/${encodeURIComponent(filename)}`, message: `Excel 文件已生成！请点击下载：[${filename}](/api/download/openclaw/${encodeURIComponent(filename)})（${rows.length} 行数据）` };
+          } catch (err) {
+            return { error: 'Excel 生成失败: ' + err.message };
+          }
+        }
+
+        if (fileType === 'csv') {
+          const columns = args.columns || args.headers || [];
+          const rows = args.rows || [];
+          try {
+            let csv = '';
+            if (columns.length) csv += columns.join(',') + '\n';
+            for (const row of rows) {
+              csv += (Array.isArray(row) ? row.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',') : String(row)) + '\n';
+            }
+            fs.writeFileSync(filePath, csv, 'utf-8');
+            return { success: true, filename, download_url: `/api/download/openclaw/${encodeURIComponent(filename)}`, message: `CSV 文件已生成：${filename}（${rows.length} 行数据）` };
+          } catch (err) {
+            return { error: 'CSV 生成失败: ' + err.message };
+          }
+        }
+
+        return { error: `不支持的文件类型: ${fileType}，支持: excel, csv` };
+      }
+
       // ─── OpenClaw 命令执行 ───
       case 'execute_command': {
         const wsClient = require('../openclaw/ws-client');
