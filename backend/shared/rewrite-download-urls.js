@@ -29,48 +29,57 @@ function rewriteLocalhostUrl(match, port, urlPath) {
   return urlPath;
 }
 
-// workspace 文件路径 → 下载 URL
-// 策略：反斜杠统一转正斜杠，用正则匹配 .openclaw/workspace/FILENAME，
-//       然后往前找路径开头，整体替换
+// workspace 文件/目录路径 → MClaw 下载 URL
+// 策略：反斜杠统一转正斜杠，用正则匹配 .openclaw/workspace(可选的/FILENAME)
+//       然后往前找路径开头，整体替换为下载链接
 function rewriteWorkspacePaths(text) {
   var norm = text.replace(/\\/g, '/');
 
-  // 匹配 .openclaw/workspace/FILENAME（仅捕获文件名）
-  var WS_RE = /\.openclaw\/workspace\/([^\s"'<>)]+)/gi;
+  // 匹配 .openclaw/workspace 或 /.openclaw/workspace/FILENAME（可带前缀 /）
+  var WS_RE = /\/?\.openclaw\/workspace(\/([^\s"'<>)]+))?/gi;
+
+  // 先收集匹配位置（避免后续替换干扰索引）
+  var matches = [];
   var m;
-
-  // 收集所有需要替换的位置（从后往前替换避免索引偏移）
-  var replacements = [];
   while ((m = WS_RE.exec(norm)) !== null) {
-    var filename = m[1];
-    var wsStart = m.index;           // .openclaw/workspace/... 的起始位置
-    var wsEnd = wsStart + m[0].length; // ...的结束位置
+    var filename = m[2] || null;
+    var wsStart = m.index;
+    var wsEnd = wsStart + m[0].length;
 
-    // 往前找到路径的开始（空格、引号、换行、行首等）
+    // 往前找路径开始：遇到空格/引号/换行或中英文标点即停止
     var pathStart = wsStart;
     while (pathStart > 0) {
       var ch = norm[pathStart - 1];
-      if (ch === ' ' || ch === '\n' || ch === '\r' || ch === '"' || ch === "'" || ch === '<' || ch === '>' || ch === '(') {
+      // 停止条件：ASCII 控制字符、空格、引号、括号、中英文标点
+      if (ch === ' ' || ch === '\n' || ch === '\r' || ch === '\t' ||
+          ch === '"' || ch === "'" || ch === '<' || ch === '>' ||
+          ch === '(' || ch === ')' || ch === '[' || ch === ']' ||
+          ch === '：' || ch === '：' || ch === '，' || ch === '。' ||
+          ch === '！' || ch === '？' || ch === '、' || ch === '；' ||
+          ch === '《' || ch === '》' || ch === '“' || ch === '”') {
         break;
       }
       pathStart--;
     }
 
-    replacements.push({
-      start: pathStart,
-      end: wsEnd,
-      replacement: '/api/download/openclaw/' + filename
-    });
+    matches.push({ start: pathStart, end: wsEnd, filename: filename });
   }
 
-  // 从后往前替换（避免索引偏移）
-  replacements.sort(function(a, b) { return b.start - a.start; });
-  for (var i = 0; i < replacements.length; i++) {
-    var r = replacements[i];
-    text = text.slice(0, r.start) + r.replacement + text.slice(r.end);
+  // 从后往前替换
+  matches.sort(function(a, b) { return b.start - a.start; });
+  var result = text;
+  for (var i = 0; i < matches.length; i++) {
+    var r = matches[i];
+    var replacement;
+    if (r.filename) {
+      replacement = '/api/download/openclaw/' + r.filename;
+    } else {
+      replacement = '(OpenClaw workspace 目录)';
+    }
+    result = result.slice(0, r.start) + replacement + result.slice(r.end);
   }
 
-  return text;
+  return result;
 }
 
 function rewriteDownloadUrls(text) {
