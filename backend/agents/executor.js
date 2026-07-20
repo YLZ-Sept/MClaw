@@ -606,7 +606,88 @@ async function exec(toolName, args, context) {
           }
         }
 
-        return { error: `不支持的文件类型: ${fileType}，支持: excel, csv` };
+        if (fileType === 'pptx' || fileType === 'ppt') {
+          const slides = args.slides || [];
+          const title = args.title || '';
+          try {
+            const { execSync } = require('child_process');
+            // 数据写入JSON文件避免转义问题
+            const dataFile = path.join(wsDir, '_gen_data.json');
+            fs.writeFileSync(dataFile, JSON.stringify({ title, slides }), 'utf-8');
+            const pyScript = `
+import json
+from pptx import Presentation
+from pptx.util import Inches, Pt
+
+with open(r'${dataFile.replace(/\\/g, '\\\\')}', 'r', encoding='utf-8') as f:
+    data = json.load(f)
+prs = Presentation()
+prs.slide_width = Inches(13.333)
+prs.slide_height = Inches(7.5)
+
+for i, slide_data in enumerate(data.get('slides', [])):
+    layout_idx = 0 if i == 0 else 1
+    slide = prs.slides.add_slide(prs.slide_layouts[layout_idx])
+    title_box = slide.shapes.title
+    if title_box:
+        title_box.text = slide_data.get('title', '')
+        for p in title_box.text_frame.paragraphs:
+            p.font.size = Pt(36)
+            p.font.bold = True
+    if slide.placeholders and len(slide.placeholders) > 1:
+        tf = slide.placeholders[1].text_frame
+        tf.clear()
+        for line in slide_data.get('content', []):
+            p = tf.add_paragraph()
+            p.text = line
+            p.font.size = Pt(20)
+            p.space_after = Pt(12)
+
+prs.save(r'${filePath.replace(/\\/g, '\\\\')}')
+print('OK')
+`;
+            const pyFile = path.join(wsDir, '_gen_pptx.py');
+            fs.writeFileSync(pyFile, pyScript, 'utf-8');
+            execSync(`python "${pyFile}"`, { timeout: 30000, encoding: 'utf-8' });
+            try { fs.unlinkSync(pyFile); fs.unlinkSync(dataFile); } catch {}
+            return { success: true, filename, download_url: `/api/download/openclaw/${encodeURIComponent(filename)}`, message: `PPT 已生成！请点击下载：[${filename}](/api/download/openclaw/${encodeURIComponent(filename)})（${slides.length} 页）` };
+          } catch (err) {
+            return { error: 'PPT 生成失败: ' + (err.stderr || err.message || err.toString()) };
+          }
+        }
+
+        if (fileType === 'docx' || fileType === 'doc' || fileType === 'word') {
+          const paragraphs = args.paragraphs || [];
+          const title = args.title || '';
+          try {
+            const { execSync } = require('child_process');
+            const dataFile = path.join(wsDir, '_gen_data.json');
+            fs.writeFileSync(dataFile, JSON.stringify({ title, paragraphs }), 'utf-8');
+            const pyScript = `
+import json
+from docx import Document
+from docx.shared import Pt
+
+with open(r'${dataFile.replace(/\\/g, '\\\\')}', 'r', encoding='utf-8') as f:
+    data = json.load(f)
+doc = Document()
+doc.add_heading(data.get('title', ''), 0)
+for p in data.get('paragraphs', []):
+    doc.add_paragraph(p)
+doc.save(r'${filePath.replace(/\\/g, '\\\\')}')
+print('OK')
+`;
+            const pyFile = path.join(wsDir, '_gen_docx.py');
+            fs.writeFileSync(pyFile, pyScript, 'utf-8');
+            execSync(`python "${pyFile}"`, { timeout: 30000, encoding: 'utf-8' });
+            try { fs.unlinkSync(pyFile); fs.unlinkSync(dataFile); } catch {}
+            return { success: true, filename, download_url: `/api/download/openclaw/${encodeURIComponent(filename)}`, message: `Word 文档已生成！请点击下载：[${filename}](/api/download/openclaw/${encodeURIComponent(filename)})` };
+          } catch (err) {
+            return { error: 'Word 生成失败: ' + (err.stderr || err.message || err.toString()) };
+          }
+        }
+
+        return { error: `不支持的文件类型: ${fileType}，支持: excel, csv, pptx, docx` };
       }
 
       // ─── OpenClaw 命令执行 ───

@@ -498,24 +498,28 @@ app.post('/api/chat/send', requireAuth, async (req, res) => {
         console.log(`[chat] Expert → OpenClaw name="${expertName}" newConv=${isNewConversation} promptChars=${config.systemPrompt.length}`);
       } else {
         msgs = [...history];
-        // 通用聊天注入 generate_file 工具以支持文件生成
+        // 通用聊天注入 generate_file 工具
         tools = [{
           type: 'function',
           function: {
             name: 'generate_file',
-            description: '生成Excel/CSV文件。当用户要求生成表格、导出数据、创建Excel文件时必须调用。支持 Excel(xlsx)和 CSV 格式。\n'
-              + '重要：工具返回结果中包含 download_url 字段，你必须在回复中包含此链接，格式为：[点击下载](download_url值)。不要只说"文件已生成"而不给链接。',
+            description: '生成文档文件。支持 Excel(xlsx)/CSV/PPT(pptx)/Word(docx)。\n'
+              + '表格(excel/csv): 需要 headers(表头数组) + rows(数据行数组)\n'
+              + 'PPT(pptx): 需要 slides(页面数组，每页{title, content:[文本行]})\n'
+              + 'Word(docx): 需要 paragraphs(段落数组)',
             parameters: {
               type: 'object',
               properties: {
-                type: { type: 'string', description: '文件类型：excel 或 csv' },
-                filename: { type: 'string', description: '文件名，如 测试数据.xlsx' },
-                title: { type: 'string', description: '表格标题（可选）' },
-                sheet_name: { type: 'string', description: '工作表名称（可选，默认Sheet1）' },
-                headers: { type: 'array', items: { type: 'string' }, description: '表头列名数组' },
-                rows: { type: 'array', items: { type: 'array' }, description: '数据行数组，每行是一个数组' }
+                type: { type: 'string', description: '文件类型：excel, csv, pptx, docx' },
+                filename: { type: 'string', description: '文件名' },
+                title: { type: 'string', description: '标题（可选）' },
+                sheet_name: { type: 'string', description: '工作表名（仅Excel）' },
+                headers: { type: 'array', items: { type: 'string' }, description: '表头（Excel/CSV）' },
+                rows: { type: 'array', items: { type: 'array' }, description: '数据行（Excel/CSV）' },
+                slides: { type: 'array', items: { type: 'object', properties: { title: { type: 'string' }, content: { type: 'array', items: { type: 'string' } } } }, description: '幻灯片页（PPT）' },
+                paragraphs: { type: 'array', items: { type: 'string' }, description: '段落（Word）' }
               },
-              required: ['type', 'filename', 'headers', 'rows']
+              required: ['type', 'filename']
             }
           }
         }];
