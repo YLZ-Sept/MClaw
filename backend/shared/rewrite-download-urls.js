@@ -9,8 +9,8 @@
  */
 
 // 匹配 localhost/127.0.0.1/[::1] 上的绝对下载 URL
-// 组1: 协议, 组2: 主机:端口, 组3: 路径前缀, 组4: 文件名
-const ABS_DOWNLOAD_RE = /https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::(\d{1,5}))?\/api\/download\/(openclaw\/[\w.\-]+|[\w.\-]+\/[\w.\-]+)/gi;
+// filename 段：[^/\s"'<>)]+ 覆盖中英文、URL编码等任意合法文件名字符
+const ABS_DOWNLOAD_RE = /https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d{1,5})?\/api\/download\/(openclaw\/[^/\s"'<>)]+|[a-z]+\/[^/\s"'<>)]+)/gi;
 
 /**
  * 将文本中所有 localhost 绝对下载 URL 替换为相对路径
@@ -21,12 +21,14 @@ const ABS_DOWNLOAD_RE = /https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::(\d{1,
  *   http://localhost:18621/api/download/excel/xxx   → /api/download/excel/xxx
  *   http://127.0.0.1:18621/api/download/ppt/xxx     → /api/download/ppt/xxx
  *
+ *   xxx 支持中英文、数字、URL编码（%20）等任意合法文件名字符
+ *
  * @param {string} text - 原始文本
  * @returns {string} 替换后的文本
  */
 function rewriteDownloadUrls(text) {
   if (!text || typeof text !== 'string') return text;
-  return text.replace(ABS_DOWNLOAD_RE, (match, port, path) => {
+  return text.replace(ABS_DOWNLOAD_RE, (match, path) => {
     // 无论原端口是什么，都转为相对路径
     return `/api/download/${path}`;
   });
