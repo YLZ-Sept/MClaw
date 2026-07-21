@@ -201,6 +201,14 @@ function extractExternalId(platform, raw_data, extra) {
 // ─── 处理 incoming 消息的完整流程 ───
 // 返回值：{ conversation, message, aiSuggestion }
 async function handleIncoming({ account_id, platform, contact_name, contact_avatar, content, raw_data, extra }) {
+  // 打字指示器：通知渠道"正在输入..."
+  let typingAdapter = null;
+  try {
+    const { channelManager } = require('./manager');
+    typingAdapter = channelManager.get(account_id);
+    if (typingAdapter) typingAdapter.sendTyping(extra?.targetId || contact_external_id || '');
+  } catch {}
+
   const contact_external_id = extractExternalId(platform, raw_data, extra);
 
   // 1. 获取或创建会话（账号不存在则跳过）
@@ -299,6 +307,9 @@ async function sendReply(conversationId, content, replyMode) {
 
   // 标记会话已读
   db.prepare('UPDATE channel_conversations SET unread_count=0 WHERE id=?').run(conv.id);
+
+  // 清除打字指示器
+  if (typingAdapter) try { typingAdapter.cancelTyping(extra?.targetId || contact_external_id || ''); } catch {}
 
   return msg;
 }

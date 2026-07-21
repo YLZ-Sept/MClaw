@@ -19,6 +19,7 @@ const routes = [
     component: MainLayout,
     redirect: '/chat',
     children: [
+      { path: '', name: 'Dashboard', component: () => import('../views/Dashboard.vue'), meta: { perm: 'chat' } },
       { path: 'chat', name: 'RealtimeChat', component: () => import('../views/RealtimeChat.vue'), meta: { perm: 'chat' } },
       { path: 'digital-human', name: 'DigitalHuman', component: () => import('../views/DigitalHuman.vue'), meta: { perm: 'digital' } },
       { path: 'digital', name: 'DigitalManagement', component: () => import('../views/AgentManagement.vue'), meta: { perm: 'digital' } },
@@ -40,7 +41,8 @@ const routes = [
       { path: 'model-config', name: 'ModelConfig', component: () => import('../views/ModelConfig.vue'), meta: { perm: 'model' } },
       { path: 'channels', name: 'MessageChannels', component: () => import('../views/MessageChannels.vue'), meta: { perm: 'channels' } },
       { path: 'users', name: 'UserManagement', component: () => import('../views/UserManagement.vue'), meta: { perm: ['security_users','security_roles','security_permissions'] } },
-      { path: 'security', name: 'SecuritySettings', component: () => import('../views/SecuritySettings.vue'), meta: { perm: ['security','security_config','security_sessions','security_maintain','security_logs'] } }
+      { path: 'security', name: 'SecuritySettings', component: () => import('../views/SecuritySettings.vue'), meta: { perm: ['security','security_config','security_sessions','security_maintain','security_logs'] } },
+      { path: 'memory', name: 'MemoryManagement', component: () => import('../views/MemoryManagement.vue'), meta: { perm: 'system' } }
     ]
   }
 ]

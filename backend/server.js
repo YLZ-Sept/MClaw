@@ -92,6 +92,11 @@ function guardByRoute(req, res, next) {
 }
 app.use(guardByRoute);
 
+// ── 生产中间件（速率限制 + 请求日志）──
+const { rateLimit, requestLogger } = require('./services/middleware');
+app.use(requestLogger());
+app.use('/api/', rateLimit({ windowMs: 60_000, max: 120 }));
+
 // CRM
 app.use('/api/customers', require('./routes/customers'));
 app.use('/api/contacts', require('./routes/crm-contacts'));
@@ -117,6 +122,9 @@ app.use('/api/finance', require('./routes/finance'));
 const { requireAuth, requirePermission } = require('./routes/auth');
 
 app.use('/uploads', requireAuth, express.static(path.join(__dirname, 'uploads')));
+
+// WebChat 嵌入式聊天组件（公开访问）
+app.use('/webchat', express.static(path.join(__dirname, '..', 'frontend', 'public', 'webchat')));
 
 app.get('/api/info', (req, res) => {
   res.json({ code: 200, data: { version: 'v2026.6.16', engine: 'OpenClaw', status: 'running' } });
@@ -251,6 +259,39 @@ function sse(res, event, data) {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
+function summarizeToolResult(toolName, result) {
+  if (!result) return '无返回';
+  if (result.error) return result.error.slice(0, 120);
+  if (result.message) return result.message.slice(0, 120);
+  const str = JSON.stringify(result);
+  return str.length > 200 ? str.slice(0, 200) + '...' : str;
+}
+
+// 从工具结果中提取引用的文件路径（来源证据账本）
+function extractSourceEvidence(result) {
+  const paths = new Set();
+  if (!result) return [];
+  const str = typeof result === 'string' ? result : JSON.stringify(result);
+
+  // 匹配常见文件路径模式
+  const patterns = [
+    /(?:path|file|filePath|file_path)["\s:]+([^\s",;{}]+)/gi,
+    /(["'])((?:[A-Za-z]:)?[\\/\w\s.-]+\.[a-zA-Z0-9]{2,5})\1/g,
+    /(?:uploads|workspace|videos|templates)[\\/][^\s"',;{}]+/gi,
+    /\/tmp\/[^\s"',;{}]+/gi
+  ];
+
+  for (const pattern of patterns) {
+    let match;
+    while ((match = pattern.exec(str)) !== null) {
+      const p = (match[1] || match[0]).replace(/^["']|["']$/g, '').trim();
+      if (p.length > 3 && p.length < 300) paths.add(p);
+    }
+  }
+
+  return [...paths].slice(0, 10); // 最多 10 条
+}
+
 async function streamReply(ocRes, res) {
   const reader = ocRes.body.getReader();
   const decoder = new TextDecoder();
@@ -281,6 +322,18 @@ const { rewriteDownloadUrls: rewriteOpenClawUrls } = require('./shared/rewrite-d
 
 // ── MClaw 聊天辅助 ──
 const { getHistory, addToHistory, clearHistory } = require('./shared/chat-history');
+
+// ── 新增：工具循环守护 ──
+const { evaluate: evaluateToolLoop, createStats } = require('./agents/tool-loop-guard');
+
+// ── 新增：上下文窗口管理 ──
+const { truncateToolResult, spillLargeResult, checkContextBudget, buildMessagesWithBudget, smartCompress, recoverFromPTL, ensureToolPairIntegrity, preserveFirstUserAnchor } = require('./services/context-window');
+
+// ── 新增：记忆系统 ──
+const { loadMemoryContext, extractAndUpdateMemory } = require('./services/memory');
+
+// ── 新增：LLM 容错 ──
+const { callWithFailover, streamCallWithFailover, getHealthSnapshot } = require('./services/llm-failover');
 
 function loadSessionHistory(sessionId) {
   const rows = db.prepare('SELECT id, role, content FROM chat_messages WHERE session_id=? ORDER BY created_at ASC LIMIT 50').all(sessionId);
@@ -347,15 +400,8 @@ function matchWiki(content) {
   } catch(e) { console.log('[matchWiki] error:', e.message); return null; }
 }
 
-function makeMessages(config, history, faqMatches, wikiMatches) {
-  let systemContent = config.systemPrompt;
-  if (faqMatches) {
-    systemContent += `\n\n【相关FAQ知识库】\n${faqMatches.map(m => `Q: ${m.question}\nA: ${m.answer}`).join('\n\n')}`;
-  }
-  if (wikiMatches) {
-    systemContent += `\n\n【相关Wiki知识】\n${wikiMatches.map(m => `## ${m.title}\n${m.summary ? '> ' + m.summary + '\n' : ''}${m.snippet}`).join('\n\n---\n\n')}`;
-  }
-  return [{ role: 'user', content: `[系统指令]\n${systemContent}` }, ...history.slice(-10)];
+async function makeMessages(config, history, faqMatches, wikiMatches) {
+  return buildMessagesWithBudget(config.systemPrompt, history, faqMatches, wikiMatches, config.tools || []);
 }
 
 // ── 聊天路由 ──
@@ -417,46 +463,179 @@ app.post('/api/chat/send', requireAuth, async (req, res) => {
 
       const faqMatches = matchFAQ(content);
       const wikiMatches = matchWiki(content);
-      const messages = makeMessages(config, history, faqMatches, wikiMatches);
+
+      // 注入记忆上下文
+      const memoryContext = loadMemoryContext(agent, content);
+      const configWithMemory = memoryContext
+        ? { ...config, systemPrompt: config.systemPrompt + memoryContext }
+        : config;
+
+      const messages = await makeMessages(configWithMemory, history, faqMatches, wikiMatches);
 
       const callOpenClaw = async (msgs, tools, stream) => {
-        const body = { model: 'openclaw', messages: msgs, stream };
-        if (tools && tools.length) { body.tools = tools; body.tool_choice = 'auto'; }
-        if (session_id) body.user = session_id;
-        return fetch(`${gw.url}/v1/chat/completions`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${gw.token}` },
-          body: JSON.stringify(body)
-        });
+        const doCall = async () => {
+          const body = { model: 'openclaw', messages: msgs, stream };
+          if (tools && tools.length) { body.tools = tools; body.tool_choice = 'auto'; }
+          if (session_id) body.user = session_id;
+          return fetch(`${gw.url}/v1/chat/completions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${gw.token}` },
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(120000)
+          });
+        };
+        return callWithFailover(doCall, { providerId: 'openclaw' });
       };
 
-      // 工具调用轮（非流式，最多2轮）
-      let ocRes = await callOpenClaw(messages, config.tools, false);
-      if (!ocRes.ok) {
-        const errText = await ocRes.text();
-        throw new Error(`OpenClaw ${ocRes.status}: ${errText.slice(0, 300)}`);
-      }
+      // PTL 恢复：捕获上下文过长错误，压缩后重试一次
+      const callOpenClawWithPTLRecovery = async (msgs, tools, stream) => {
+        try {
+          return await callOpenClaw(msgs, tools, stream);
+        } catch (e) {
+          if (e.errorType === 'PROMPT_TOO_LONG') {
+            console.log('[chat] PTL 恢复：检测到 PROMPT_TOO_LONG，执行激进压缩...');
+            const recovered = recoverFromPTL(msgs, tools);
+            if (recovered.recovered) {
+              messages.length = 0;
+              messages.push(...recovered.messages);
+              // msgs 参数已由引用更新，但为确保安全重新复制
+              const newMsgs = [...recovered.messages];
+              return await callOpenClaw(newMsgs, tools, stream);
+            }
+          }
+          throw e;
+        }
+      };
+
+      // ── 增强版工具调用循环（含循环守护 + 并发执行 + 上下文预算）──
+      const { execBatch } = require('./agents/executor');
+      const loopStats = createStats();
+      const MAX_LOOPS = 8; // 从硬编码 2 轮提升到 8 轮（有循环守护兜底）
+
+      let ocRes = await callOpenClawWithPTLRecovery(messages, config.tools, false);
       let ocData = await ocRes.json();
       let msg = ocData.choices?.[0]?.message;
       let loop = 0;
       setExecutionContext(agent);
-      while (msg?.tool_calls && msg.tool_calls.length > 0 && loop < 2) {
+
+      while (msg?.tool_calls && msg.tool_calls.length > 0 && loop < MAX_LOOPS) {
         loop++;
+
+        // 上下文预算检查（每 2 轮检查一次）
+        if (loop % 2 === 0) {
+          const budget = checkContextBudget(messages, config.tools);
+          if (budget.needsCompression) {
+            console.log(`[chat] 上下文压缩 loop=${loop} tokens=${budget.currentTokens}/${budget.budget} severity=${budget.severity}`);
+            const llmSummarize = async (msgs) => {
+              const res = await callOpenClaw(msgs, [], false);
+              if (!res.ok) throw new Error('summary call failed');
+              const data = await res.json();
+              return data.choices?.[0]?.message?.content || '';
+            };
+            const compressed = await smartCompress(messages, config.tools, null, llmSummarize);
+            messages = compressed.messages;
+          }
+        }
+
+        // 追加 assistant 消息（含 tool_calls）
         messages.push({ role: 'assistant', content: null, tool_calls: msg.tool_calls });
-        for (const tc of msg.tool_calls) {
-          let args;
-          try { args = JSON.parse(tc.function.arguments || '{}'); } catch { args = {}; }
-          console.log(`[tool] ${tc.function.name} args:`, JSON.stringify(args).slice(0, 200));
-          const result = await execTool(tc.function.name, args);
-          messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) });
+
+        // SSE: 工具开始执行
+        if (isStream) {
+          for (const tc of msg.tool_calls) {
+            sse(res, 'tool_start', { tool_call_id: tc.id, name: tc.function?.name, arguments: (tc.function?.arguments || '').slice(0, 200) });
+          }
         }
-        ocRes = await callOpenClaw(messages, config.tools, false);
-        if (!ocRes.ok) {
-          const errText = await ocRes.text();
-          throw new Error(`OpenClaw ${ocRes.status}: ${errText.slice(0, 300)}`);
+
+        // 并发执行工具（只读工具并行，写工具顺序执行）
+        const toolResults = await execBatch(msg.tool_calls, null);
+
+        // 循环检测
+        const loopEval = evaluateToolLoop(loopStats, msg.tool_calls, toolResults);
+        Object.assign(loopStats, loopEval.stats);
+
+        // 追加工具结果（含截断 + 来源证据 + 溢出）
+        for (let i = 0; i < msg.tool_calls.length; i++) {
+          const tc = msg.tool_calls[i];
+          const rawResult = toolResults[i];
+          let resultContent = JSON.stringify(rawResult);
+
+          // 来源证据账本：截断前提取引用的文件路径
+          const evidencePaths = extractSourceEvidence(rawResult);
+
+          // 超大结果溢写磁盘
+          if (resultContent.length > 50000) {
+            const spillPath = `/tmp/spill_${tc.function?.name}_${Date.now()}.json`;
+            try {
+              require('fs').writeFileSync(spillPath, resultContent, 'utf8');
+              resultContent = spillLargeResult(resultContent, tc.function?.name, spillPath);
+              console.log(`[chat] 结果溢出: ${tc.function?.name} ${(resultContent.length/1000).toFixed(0)}KB → ${spillPath}`);
+            } catch {}
+          } else if (resultContent.length > 8000) {
+            // 截断大型工具结果
+            resultContent = truncateToolResult(resultContent, tc.function?.name);
+          }
+
+          // 追加来源证据到截断结果末尾
+          if (evidencePaths.length > 0) {
+            resultContent += `\n\n[引用文件: ${evidencePaths.join(', ')}]`;
+          }
+
+          // 循环警告注入到 observation 中
+          if (loopEval.warnings.length > 0 && i === 0) {
+            resultContent = loopEval.warnings.join('\n') + '\n\n' + resultContent;
+          }
+
+          messages.push({ role: 'tool', tool_call_id: tc.id, content: resultContent });
         }
+
+        // SSE: 工具执行结果
+        if (isStream) {
+          for (let i = 0; i < msg.tool_calls.length; i++) {
+            const tc = msg.tool_calls[i];
+            const rawResult = toolResults[i];
+            sse(res, 'tool_result', {
+              tool_call_id: tc.id,
+              name: tc.function?.name,
+              success: !!(rawResult && !rawResult.error),
+              summary: summarizeToolResult(tc.function?.name, rawResult)
+            });
+          }
+        }
+
+        // 循环检测 → 强制终止
+        if (loopEval.haltReason) {
+          console.log(`[chat] 循环守护终止: ${loopEval.haltReason}`);
+          messages.push({
+            role: 'user',
+            content: `[系统提示] ${loopEval.haltReason}。请基于已获得的结果，用中文向用户总结当前进展和已完成的工作，说明哪些部分已完成、哪些因循环终止而未完成。`
+          });
+          // 最后一轮调用（不传工具）
+          ocRes = await callOpenClaw(messages, [], false);
+          if (ocRes.ok) {
+            ocData = await ocRes.json();
+            msg = ocData.choices?.[0]?.message;
+          }
+          break; // 退出循环
+        }
+
+        // 再次调用 LLM
+        ocRes = await callOpenClawWithPTLRecovery(messages, config.tools, false);
         ocData = await ocRes.json();
         msg = ocData.choices?.[0]?.message;
+      }
+
+      // 如果因达到 MAX_LOOPS 退出而非自然结束
+      if (loop >= MAX_LOOPS && msg?.tool_calls?.length > 0) {
+        messages.push({
+          role: 'user',
+          content: `[系统提示] 已达到最大工具调用轮数 (${MAX_LOOPS})。请基于已获得的所有结果，用中文向用户详细总结当前进展。列出已完成的工作、关键发现、以及因轮数限制而未完成的部分。`
+        });
+        ocRes = await callOpenClaw(messages, [], false);
+        if (ocRes.ok) {
+          ocData = await ocRes.json();
+          msg = ocData.choices?.[0]?.message;
+        }
       }
 
       let reply = msg?.content || '未返回有效回复';
@@ -464,6 +643,13 @@ app.post('/api/chat/send', requireAuth, async (req, res) => {
 
       history.push({ role: 'assistant', content: reply });
       if (session_id) saveSessionMessage(session_id, 'assistant', reply);
+
+      // 异步提取记忆（不阻塞回复）
+      if (agent) {
+        extractAndUpdateMemory(agent, messages, { sessionId: session_id })
+          .then(result => { if (result.extracted) console.log(`[chat] 记忆已更新: ${agent}`); })
+          .catch(() => {});
+      }
 
       if (isStream) {
         sse(res, 'text', { content: reply });
@@ -500,22 +686,24 @@ app.post('/api/chat/send', requireAuth, async (req, res) => {
         msgs = [...history];
       }
 
+      // LLM 调用工厂（专家/通用路径）
+      const doFetch = async (msgs, stream = false, toolsOverride) => {
+        const b = { model: 'openclaw', messages: msgs, stream };
+        if (toolsOverride && toolsOverride.length) { b.tools = toolsOverride; b.tool_choice = 'auto'; }
+        if (session_id) b.user = session_id;
+        return fetch(`${gw.url}/v1/chat/completions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${gw.token}` },
+          body: JSON.stringify(b),
+          signal: AbortSignal.timeout(stream ? 180000 : 120000)
+        });
+      };
+
       // 带工具的非流式首轮调用（检测 tool_calls）
-      const body = { model: 'openclaw', messages: msgs, stream: false };
-      if (tools && tools.length) { body.tools = tools; body.tool_choice = 'auto'; }
-      if (session_id) body.user = session_id;
-
-      let ocRes = await fetch(`${gw.url}/v1/chat/completions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${gw.token}` },
-        body: JSON.stringify(body)
-      });
-
-      if (!ocRes.ok) {
-        const errText = await ocRes.text();
-        throw new Error(`OpenClaw ${ocRes.status}: ${errText.slice(0, 300)}`);
-      }
-
+      let ocRes = await callWithFailover(
+        () => doFetch(msgs, false, tools),
+        { providerId: 'openclaw' }
+      );
       let ocData = await ocRes.json();
       let msg = ocData.choices?.[0]?.message;
 
@@ -531,18 +719,17 @@ app.post('/api/chat/send', requireAuth, async (req, res) => {
           const result = await execTool(tc.function.name, args);
           msgs.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) });
         }
-        // 第二轮调用：生成最终回复
-        body.messages = msgs;
-        body.stream = isStream;
-        delete body.tools; delete body.tool_choice;
-        ocRes = await fetch(`${gw.url}/v1/chat/completions`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${gw.token}` },
-          body: JSON.stringify(body)
-        });
-        if (!ocRes.ok) {
-          const errText = await ocRes.text();
-          throw new Error(`OpenClaw ${ocRes.status}: ${errText.slice(0, 300)}`);
+        // 第二轮调用：生成最终回复（流式或非流式）
+        if (isStream) {
+          ocRes = await streamCallWithFailover(
+            () => doFetch(msgs, true),
+            { providerId: 'openclaw' }
+          );
+        } else {
+          ocRes = await callWithFailover(
+            () => doFetch(msgs, false),
+            { providerId: 'openclaw' }
+          );
         }
       }
 
@@ -619,6 +806,137 @@ app.get('/api/status', async (req, res) => {
   });
 });
 
+// ── Provider 健康状态 ──
+app.get('/api/llm/health', requireAuth, (req, res) => {
+  res.json({ code: 200, data: getHealthSnapshot() });
+});
+
+// ── 渠道预检验证 ──
+app.post('/api/channels/preflight', requireAuth, express.json(), async (req, res) => {
+  const { platform, config } = req.body;
+  const { verify } = require('./channels/verifier');
+  const result = await verify(platform, config);
+  res.json({ code: 200, data: result });
+});
+
+// ── 渠道健康状态 ──
+const { monitor: channelMonitor } = require('./channels/health');
+app.get('/api/channels/health', requireAuth, (req, res) => {
+  res.json({ code: 200, data: channelMonitor.snapshot() });
+});
+// 渠道管理器状态（mateclaw 架构）
+app.get('/api/channels/manager', requireAuth, (req, res) => {
+  const { channelManager } = require('./channels/manager');
+  res.json({ code: 200, data: channelManager.healthSnapshot() });
+});
+
+// ── 记忆管理 ──
+const { getMemoryStats, clearMemory, readMemoryFile } = require('./services/memory');
+app.get('/api/memory/:agentId', requireAuth, (req, res) => {
+  res.json({ code: 200, data: getMemoryStats(req.params.agentId) });
+});
+app.get('/api/memory/:agentId/content', requireAuth, (req, res) => {
+  const content = readMemoryFile(req.params.agentId, req.query.file || 'MEMORY.md');
+  res.json({ code: 200, data: { content } });
+});
+app.put('/api/memory/:agentId', requireAuth, express.json(), (req, res) => {
+  try {
+    const { writeMemoryFile } = require('./services/memory');
+    writeMemoryFile(req.params.agentId, req.body.content || '', req.body.file || 'MEMORY.md');
+    res.json({ code: 200, data: { success: true } });
+  } catch (e) { res.status(500).json({ code: 500, message: e.message }); }
+});
+app.delete('/api/memory/:agentId', requireAuth, (req, res) => {
+  res.json({ code: 200, data: clearMemory(req.params.agentId) });
+});
+
+// ── 工具审批 ──
+const { approve, deny, getPendingApprovals } = require('./agents/tool-guard');
+app.get('/api/approval/pending', requireAuth, (req, res) => {
+  res.json({ code: 200, data: getPendingApprovals() });
+});
+app.post('/api/approval/:id/approve', requireAuth, (req, res) => {
+  const result = approve(req.params.id);
+  res.json({ code: result.success ? 200 : 404, data: result });
+});
+app.post('/api/approval/:id/deny', requireAuth, (req, res) => {
+  const result = deny(req.params.id);
+  res.json({ code: result.success ? 200 : 404, data: result });
+});
+
+// ── 审计日志 ──
+const { queryAudit, auditStats } = require('./services/audit');
+app.get('/api/audit', requireAuth, (req, res) => {
+  const rows = queryAudit({
+    eventType: req.query.eventType,
+    toolName: req.query.toolName,
+    limit: parseInt(req.query.limit) || 100
+  });
+  res.json({ code: 200, data: rows });
+});
+app.get('/api/audit/stats', requireAuth, (req, res) => {
+  res.json({ code: 200, data: auditStats() });
+});
+
+// ── 插件管理 ──
+app.get('/api/plugins', requireAuth, (req, res) => {
+  const { list } = require('./agents/plugin-manager');
+  const { list: listTools, count } = require('./agents/tool-registry');
+  res.json({ code: 200, data: { plugins: list(), tools: { count: count(), items: listTools() } } });
+});
+app.post('/api/plugins/:name/reload', requireAuth, (req, res) => {
+  const { reload } = require('./agents/plugin-manager');
+  const ok = reload(req.params.name);
+  res.json({ code: ok ? 200 : 404, data: { success: ok } });
+});
+
+// ── 仪表盘专用：模型配置摘要（不限 model 权限）──
+app.get('/api/dashboard/models', requireAuth, (req, res) => {
+  const rows = require('./db').prepare('SELECT id, name, provider, model, is_active, is_default FROM model_configs ORDER BY is_default DESC').all();
+  res.json({ code: 200, data: rows });
+});
+
+// ── 工具指标 ──
+app.get('/api/metrics/tools', requireAuth, (req, res) => {
+  const { summary, recent, slowest } = require('./services/tool-metrics');
+  const hours = parseInt(req.query.hours) || 24;
+  res.json({ code: 200, data: { summary: summary(hours), recent: recent(20), slowest: slowest(10, hours) } });
+});
+
+// ── 导出 API ──
+app.get('/api/export/:type', requireAuth, (req, res) => {
+  const type = req.params.type;
+  let data;
+  if (type === 'audit') {
+    const { queryAudit } = require('./services/audit');
+    data = queryAudit({ limit: 1000 });
+  } else if (type === 'metrics') {
+    const { recent } = require('./services/tool-metrics');
+    data = recent(1000);
+  } else if (type === 'memory') {
+    const { readMemoryFile } = require('./services/memory');
+    data = { content: readMemoryFile(req.query.agentId || 'internal-agent') };
+  } else {
+    return res.status(400).json({ code: 400, message: 'Unknown export type: ' + type });
+  }
+  if (req.query.format === 'csv') {
+    res.set('Content-Type', 'text/csv');
+    if (data.length) {
+      const keys = Object.keys(data[0]);
+      const csv = [keys.join(','), ...data.map(r => keys.map(k => JSON.stringify(r[k] || '')).join(','))].join('\n');
+      res.send(csv);
+    } else res.send('');
+  } else {
+    res.set('Content-Disposition', `attachment; filename="${type}_export.json"`);
+    res.json({ code: 200, data });
+  }
+});
+
+// ── 健康检查（公开，无需认证）──
+app.get('/healthz', (req, res) => {
+  res.json({ status: 'ok', uptime: process.uptime(), time: new Date().toISOString() });
+});
+
 // SPA fallback：非 API 请求返回 index.html（生产模式）
 if (fs.existsSync(frontendDist)) {
   app.get(/^\/(?!api\/|ws\/).*/, (req, res) => {
@@ -647,6 +965,90 @@ try { require('./channels/ws-server').startWSServer(server); } catch (e) { conso
 
 server.listen(PORT, () => {
   console.log(`MClaw 后端运行在 http://localhost:${PORT}`);
+
+  // 启动渠道管理器（mateclaw 架构）
+  try {
+    const { channelManager } = require('./channels/manager');
+    // 注册适配器工厂
+    channelManager.registerFactory((config) => {
+      const { ChannelAdapter } = require('./channels/adapter');
+      // 根据平台类型创建对应的适配器包装
+      const platform = config.platform || config.channelType;
+      const adapter = new ChannelAdapter(config);
+      adapter.channelType = platform;
+
+      // 为已有后端实现的渠道注入 doStart
+      if (platform === 'wechat' || platform === 'weixin') {
+        adapter.doStart = async () => {
+          // 微信 Bot 由 wechat-bot.js 的 startAllBots 管理
+          const { startAllBots } = require('./channels/wechat-bot');
+          startAllBots();
+        };
+        adapter.doStop = async () => {};
+      } else if (platform === 'wecom') {
+        adapter.doStart = async () => {}; // wecom 是 webhook 被动接收
+        adapter.doStop = async () => {};
+      } else if (platform === 'feishu') {
+        adapter.doStart = async () => {}; // feishu 是 webhook 被动接收
+        adapter.doStop = async () => {};
+      } else if (platform === 'telegram') {
+        const { TelegramChannelAdapter } = require('./channels/telegram');
+        return new TelegramChannelAdapter(config);
+      } else if (platform === 'discord') {
+        const { DiscordChannelAdapter } = require('./channels/discord');
+        return new DiscordChannelAdapter(config);
+      } else {
+        // 未实现后端，占位
+        adapter.doStart = async () => {};
+        adapter.doStop = async () => {};
+      }
+
+      // 连接实际的事件
+      if (platform === 'wechat') {
+        const { startAllBots, ensureWechatAccount } = require('./channels/wechat-bot');
+        ensureWechatAccount();
+      }
+
+      return adapter;
+    });
+
+    channelManager.init().then(() => {
+      console.log('[server] ChannelManager 已初始化');
+    });
+  } catch (e) { console.log('[server] ChannelManager 启动失败:', e.message); }
+
+  // 启动渠道健康监控（兼容旧代码）
+  try {
+    const { monitor: chMonitor } = require('./channels/health');
+    chMonitor.register('wecom', { type: 'wecom', name: '企业微信' });
+    chMonitor.register('wecom-kf', { type: 'wecom_kf', name: '企微客服' });
+    chMonitor.register('feishu', { type: 'feishu', name: '飞书' });
+    chMonitor.register('wechat', { type: 'wechat', name: '微信 iLink Bot' });
+    chMonitor.start();
+    console.log('[server] 渠道健康监控已启动');
+  } catch (e) { console.log('[server] 渠道健康监控启动失败:', e.message); }
+
+  // 加载插件系统
+  try {
+    const { loadAll } = require('./agents/plugin-manager');
+    const count = loadAll().length;
+    console.log(`[server] 插件系统已加载 ${count} 个插件`);
+  } catch (e) { console.log('[server] 插件加载失败:', e.message); }
+
+  // Provider 启动健康探测
+  const gw = getOpenClawGateway();
+  if (gw.url && gw.token) {
+    fetch(`${gw.url}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${gw.token}` },
+      body: JSON.stringify({ model: 'openclaw', messages: [{ role: 'user', content: 'ping' }], stream: false, max_tokens: 5 }),
+      signal: AbortSignal.timeout(15000)
+    }).then(r => {
+      if (r.ok) console.log('[probe] OpenClaw gateway 健康 ✓');
+      else console.warn('[probe] OpenClaw gateway 响应异常:', r.status);
+    }).catch(e => console.warn('[probe] OpenClaw gateway 不可达:', e.message));
+  }
+
   // 同步模型配置到 OpenClaw
   try { syncModelConfig(getActiveConfig()); } catch (e) { console.log('[server] model-sync 失败:', e.message); }
   // 启动 OpenClaw 网关（如果未运行）

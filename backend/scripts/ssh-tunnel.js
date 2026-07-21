@@ -6,7 +6,7 @@ const net = require('net');
 const REMOTE_HOST = '115.159.191.117';
 const REMOTE_PORT = 22;
 const REMOTE_USER = 'root';
-const REMOTE_PASS = '1qaz@WSX';
+const REMOTE_PASS = 'yqdkygb911...';
 const TUNNEL_PORT = 18621; // port on cloud server to forward to local
 
 const conn = new Client();

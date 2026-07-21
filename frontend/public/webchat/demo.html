@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MClaw WebChat — 嵌入式聊天演示</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .demo-container {
+      background: #fff; border-radius: 20px; padding: 40px;
+      max-width: 600px; width: 90%;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+      text-align: center;
+    }
+    h1 { font-size: 28px; color: #333; margin-bottom: 8px; }
+    p { color: #666; margin-bottom: 24px; line-height: 1.6; }
+    .config-panel {
+      background: #f8f9fa; border-radius: 12px; padding: 20px;
+      margin-bottom: 24px; text-align: left;
+    }
+    .config-panel label {
+      display: block; font-size: 13px; color: #666; margin-bottom: 4px;
+      font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .config-panel input, .config-panel select {
+      width: 100%; padding: 10px 14px; border: 1px solid #e0e0e0;
+      border-radius: 8px; font-size: 14px; margin-bottom: 14px;
+      outline: none; transition: border-color 0.2s;
+    }
+    .config-panel input:focus, .config-panel select:focus { border-color: #3b82f6; }
+    .code-block {
+      background: #1a1a2e; color: #a0ffa0; border-radius: 10px;
+      padding: 16px; font-size: 13px; font-family: 'Courier New', monospace;
+      text-align: left; overflow-x: auto; margin-bottom: 24px;
+      line-height: 1.6;
+    }
+    .btn {
+      display: inline-block; padding: 12px 28px; border-radius: 8px;
+      font-size: 15px; font-weight: 600; cursor: pointer; border: none;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+    .btn-primary { background: #3b82f6; color: #fff; }
+    .note {
+      margin-top: 16px; font-size: 12px; color: #999;
+    }
+  </style>
+</head>
+<body>
+  <div class="demo-container">
+    <h1>💬 MClaw WebChat</h1>
+    <p>一行代码，将智能助手嵌入你的网站。<br>右下角的聊天气泡就是它👇</p>
+
+    <div class="config-panel">
+      <label>服务器地址</label>
+      <input type="text" id="serverUrl" value="" placeholder="http://localhost:18621">
+
+      <label>数字员工 ID（可选）</label>
+      <input type="text" id="agentId" value="" placeholder="留空则使用通用助手">
+
+      <label>主题</label>
+      <select id="theme">
+        <option value="light">浅色</option>
+        <option value="dark">深色</option>
+      </select>
+
+      <label>位置</label>
+      <select id="position">
+        <option value="right">右下角</option>
+        <option value="left">左下角</option>
+      </select>
+    </div>
+
+    <div class="code-block" id="codeSnippet">
+      &lt;script src="http://localhost:18621/webchat/embed.js"&gt;&lt;/script&gt;
+    </div>
+
+    <button class="btn btn-primary" onclick="applyConfig()">更新配置</button>
+    <p class="note">更改配置后，点击右下角气泡即可开始对话</p>
+  </div>
+
+  <script>
+    // 默认值
+    document.getElementById('serverUrl').value = window.location.origin.replace(/:\d+$/, '') + ':18621';
+
+    function applyConfig() {
+      const server = document.getElementById('serverUrl').value;
+      const agentId = document.getElementById('agentId').value;
+      const theme = document.getElementById('theme').value;
+      const position = document.getElementById('position').value;
+
+      // 移除旧脚本和 DOM
+      const oldScript = document.querySelector('script[data-mclaw]');
+      if (oldScript) oldScript.remove();
+      const oldBubble = document.querySelector('.mclaw-wc-bubble');
+      if (oldBubble) oldBubble.parentElement.remove();
+      const oldWindow = document.querySelector('.mclaw-wc-window');
+      if (oldWindow) oldWindow.parentElement.remove();
+      const oldStyle = document.querySelector('style');
+      // 只移除 webchat 相关 style（简单处理：移除所有动态添加的）
+      document.querySelectorAll('style').forEach(s => {
+        if (s.textContent.includes('mclaw-wc-')) s.remove();
+      });
+
+      // 更新代码片段
+      let snippet = '&lt;script src="' + server + '/webchat/embed.js"';
+      if (agentId) snippet += '\n  data-agent="' + agentId + '"';
+      if (theme !== 'light') snippet += '\n  data-theme="' + theme + '"';
+      if (position !== 'right') snippet += '\n  data-position="' + position + '"';
+      snippet += '&gt;&lt;/script&gt;';
+      document.getElementById('codeSnippet').innerHTML = snippet;
+
+      // 重新加载脚本
+      const script = document.createElement('script');
+      script.src = server + '/webchat/embed.js';
+      script.setAttribute('data-server', server);
+      script.setAttribute('data-mclaw', '1');
+      if (agentId) script.setAttribute('data-agent', agentId);
+      script.setAttribute('data-theme', theme);
+      script.setAttribute('data-position', position);
+      document.body.appendChild(script);
+    }
+  </script>
+
+  <!-- 默认加载 -->
+  <script>
+    const defaultServer = window.location.origin.replace(/:\d+$/, '') + ':18621';
+    document.write('<script src="' + defaultServer + '/webchat/embed.js" data-server="' + defaultServer + '" data-mclaw="1"><\/script>');
+  </script>
+</body>
+</html>

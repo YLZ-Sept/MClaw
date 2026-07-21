@@ -14,6 +14,9 @@
       <nav class="sidebar-nav">
         <div class="nav-group">
           <div class="nav-group-title">对话</div>
+          <router-link v-if="hasPerm('chat')" to="/" class="nav-item" active-class="active" style="margin-bottom:2px">
+            <el-icon><DataAnalysis /></el-icon><span>仪表盘</span>
+          </router-link>
           <div class="nav-item-wrapper" v-if="hasPerm('chat')">
             <a class="nav-item" :class="{ active: isChatActive }" href="#" @click.prevent="toggleChatSessions" style="flex:1">
               <el-icon><ChatDotSquare /></el-icon><span>实时聊天</span>
@@ -78,6 +81,9 @@
           <div class="nav-group-title">配置</div>
           <router-link v-if="hasPerm('model')" to="/model-config" class="nav-item" active-class="active">
             <el-icon><Cpu /></el-icon><span>模型配置</span>
+          </router-link>
+          <router-link v-if="hasPerm('system')" to="/memory" class="nav-item" active-class="active">
+            <el-icon><FolderOpened /></el-icon><span>记忆管理</span>
           </router-link>
           <router-link v-if="hasAnyPerm('security','security_config','security_sessions','security_maintain','security_logs')" to="/services" class="nav-item" active-class="active">
             <el-icon><Setting /></el-icon><span>服务管理</span>
@@ -230,7 +236,8 @@ import { ElMessageBox, ElMessage } from 'element-plus'
 import {
   ChatDotSquare, DataAnalysis, List,
   Cpu, Setting, ChatLineSquare, Lock, UserFilled, Avatar, Stamp,
-  ArrowDown, ArrowUp, Close, Plus, MoreFilled, TrendCharts, Collection, MagicStick, Phone, Service
+  ArrowDown, ArrowUp, Close, Plus, MoreFilled, TrendCharts, Collection, MagicStick, Phone, Service,
+  FolderOpened
 } from '@element-plus/icons-vue'
 import request, { logout } from '../api/index.js'
 

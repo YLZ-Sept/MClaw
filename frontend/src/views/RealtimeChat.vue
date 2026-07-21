@@ -17,7 +17,7 @@
     </div>
 
     <div class="chat-messages" ref="messagesRef">
-      <ChatMessage v-for="(msg, i) in messages" :key="i" :role="msg.role" :content="msg.content" />
+      <ChatMessage v-for="(msg, i) in messages" :key="i" :role="msg.role" :content="msg.content" :toolCalls="msg.toolCalls || []" />
       <div v-if="streaming" class="typing-indicator">
         <span class="dot"></span><span class="dot"></span><span class="dot"></span>
       </div>
@@ -229,6 +229,18 @@ async function streamResponse(body, aiIdx) {
           rawText += data.content; messages.value[aiIdx].content = rawText; scrollToBottom()
         } else if (eventType === 'error') {
           messages.value[aiIdx].content = '抱歉，服务出现错误：' + (data.message || '未知错误')
+        } else if (eventType === 'tool_start') {
+          messages.value[aiIdx].toolCalls = messages.value[aiIdx].toolCalls || []
+          messages.value[aiIdx].toolCalls.push({ status: 'running', name: data.name })
+          scrollToBottom()
+        } else if (eventType === 'tool_result') {
+          const tcs = messages.value[aiIdx].toolCalls || []
+          const tc = tcs.find(t => t.tool_call_id === data.tool_call_id || (t.name === data.name && t.status === 'running'))
+          if (tc) {
+            tc.status = data.success ? 'done' : 'error'
+            tc.summary = data.summary
+          }
+          scrollToBottom()
         }
         eventType = 'message'
       }

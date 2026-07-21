@@ -1,1193 +1,496 @@
 <template>
-  <div class="mc-layout">
-    <!-- 左侧会话列表 -->
-    <aside class="mc-sidebar">
-      <div class="mc-sidebar-hd">
-        <span class="mc-title">消息中心</span>
-        <el-button size="small" text @click="showAccountDlg = true"><el-icon><Plus /></el-icon></el-button>
+  <div class="page-container">
+    <div class="page-hd">
+      <div>
+        <span class="page-title">消息渠道</span>
+        <p class="page-desc">连接企业微信、飞书、微信 Bot 等平台，统一管理消息收发</p>
       </div>
+      <el-button type="primary" size="small" round @click="showTypePicker = true"><el-icon><Plus /></el-icon>添加渠道</el-button>
+    </div>
 
-      <!-- 账号筛选 -->
-      <div class="mc-filter">
-        <el-select v-model="filterAccount" placeholder="全部账号" size="small" clearable style="width:100%">
-          <el-option v-for="a in accounts" :key="a.id" :label="a.account_name" :value="a.id" />
-        </el-select>
+    <!-- 统计栏 -->
+    <div class="stats-bar" v-if="accounts.length">
+      <div class="stat-chip stat-active"><span class="stat-dot active"></span>{{ activeCount }} 活跃</div>
+      <div class="stat-chip stat-errors" v-if="errorCount"><span class="stat-dot error"></span>{{ errorCount }} 异常</div>
+      <div class="stat-chip stat-disabled" v-if="disabledCount"><span class="stat-dot disabled"></span>{{ disabledCount }} 停用</div>
+    </div>
+
+    <!-- 加载骨架 -->
+    <div class="channel-grid" v-if="loading">
+      <div v-for="i in 3" :key="i" class="channel-card skeleton">
+        <el-skeleton animated><template #template><el-skeleton-item variant="image" style="width:48px;height:48px;border-radius:14px"/></template></el-skeleton>
+        <el-skeleton animated :rows="2" />
       </div>
+    </div>
 
-      <!-- 平台筛选 -->
-      <div class="mc-tabs">
-        <span :class="{ active: filterPlatform==='' }" @click="filterPlatform=''">全部</span>
-        <span :class="{ active: filterPlatform==='wechat' }" @click="filterPlatform='wechat'"><i class="mc-dot wechat"></i>微信</span>
-        <span :class="{ active: filterPlatform==='wecom' }" @click="filterPlatform='wecom'"><i class="mc-dot wecom"></i>企微</span>
-        <span :class="{ active: filterPlatform==='feishu' }" @click="filterPlatform='feishu'"><i class="mc-dot feishu"></i>飞书</span>
-        <span :class="{ active: filterPlatform==='douyin' }" @click="filterPlatform='douyin'"><i class="mc-dot douyin"></i>抖音</span>
-      </div>
+    <!-- 空状态 -->
+    <div class="empty-hero" v-else-if="!accounts.length && !loading">
+      <div class="empty-icon"><el-icon :size="48"><ChatDotSquare /></el-icon></div>
+      <h3>还没有渠道</h3>
+      <p>连接第一个消息平台，开始统一管理消息</p>
+      <el-button type="primary" round @click="showTypePicker = true">连接第一个渠道</el-button>
+    </div>
 
-      <!-- 会话列表 -->
-      <div class="mc-conv-list" v-loading="convLoading">
-        <div
-          v-for="c in filteredConvs" :key="c.id"
-          class="mc-conv-item"
-          :class="{ active: activeConv?.id === c.id }"
-          @click="selectConv(c)"
-        >
-          <div class="mc-conv-avatar">
-            <el-avatar :size="40" :src="c.contact_avatar">{{ c.contact_name?.[0] || '联' }}</el-avatar>
-            <span class="mc-online-dot" v-if="onlineAccounts.has(c.account_id)"></span>
-            <span class="mc-platform-badge" :class="c.platform">{{ platShort(c.platform) }}</span>
+    <!-- 渠道卡片网格 -->
+    <div class="channel-grid" v-else>
+      <div v-for="a in sortedAccounts" :key="a.id" class="channel-card" @click="viewChannel(a)">
+        <!-- 卡片头部 -->
+        <div class="card-hd">
+          <div class="card-platform" :style="{ background: platformColor(a.platform) }">
+            <span class="platform-emoji">{{ platformEmoji(a.platform) }}</span>
           </div>
-          <div class="mc-conv-body">
-            <div class="mc-conv-top" @dblclick.stop="startRename(c)">
-              <span class="mc-conv-name" v-if="renamingId !== c.id">{{ c.contact_name }}</span>
-              <el-input
-                v-else
-                v-model="renameText"
-                size="small"
-                class="mc-rename-input"
-                @blur="finishRename(c)"
-                @keydown.enter="finishRename(c)"
-                @keydown.escape="renamingId=null"
-                @click.stop
-              />
-              <span class="mc-conv-time">{{ fmtTime(c.updated_at || c.last_message_at) }}</span>
-            </div>
-            <div class="mc-conv-bottom">
-              <span class="mc-conv-preview">{{ c.last_message || '暂无消息' }}</span>
-              <el-badge v-if="c.unread_count > 0" :value="c.unread_count" class="mc-unread" />
-            </div>
-            <div class="mc-conv-meta">
-              <el-tag size="small" :type="modeType(c.reply_mode)">{{ modeLabel(c.reply_mode) }}</el-tag>
-              <span class="mc-conv-agent">{{ agentName(c.agent_id) }}</span>
-            </div>
+          <div class="card-title">
+            <span class="card-name">{{ a.account_name }}</span>
+            <span class="card-type">{{ platformLabel(a.platform) }}</span>
           </div>
-          <el-button class="mc-conv-del" size="small" text type="danger" @click.stop="delConv(c.id)" title="删除会话">
-            <el-icon><Delete /></el-icon>
+          <div class="card-status" :class="healthClass(a)">
+            <span class="pulse-dot" :class="healthDotClass(a)"></span>
+            <span>{{ healthLabel(a) }}</span>
+          </div>
+        </div>
+
+        <!-- 身份信息 -->
+        <div class="card-body" v-if="a.identity_desc">
+          <p>{{ a.identity_desc || '未获取到身份信息' }}</p>
+        </div>
+
+        <!-- 元数据 -->
+        <div class="card-meta">
+          <span v-if="a.agent_id"><el-icon size="12"><MagicStick /></el-icon> {{ a.agent_name || a.agent_id }}</span>
+          <span v-if="a.desc">{{ a.desc }}</span>
+        </div>
+
+        <!-- 操作 -->
+        <div class="card-actions" @click.stop>
+          <el-button size="small" text @click="editAccount(a)"><el-icon><Edit /></el-icon>配置</el-button>
+          <el-button size="small" text :type="a.status==='active'?'warning':'success'" @click="toggleAccount(a)">
+            {{ a.status === 'active' ? '停用' : '启用' }}
           </el-button>
+          <el-button size="small" text type="danger" @click="delAccount(a.id)"><el-icon><Delete /></el-icon></el-button>
         </div>
-        <el-empty v-if="filteredConvs.length===0&&!convLoading" description="暂无会话" :image-size="60" />
       </div>
-    </aside>
 
-    <!-- 右侧聊天区 -->
-    <main class="mc-main">
-      <template v-if="!activeConv">
-        <div class="mc-empty">
-          <el-empty description="选择一个会话开始聊天" :image-size="120" />
-          <div class="mc-empty-hint">
-            <p>支持平台：微信 · 企业微信 · 飞书 · 抖音</p>
-            <p>微信/抖音需要 <b>Sightflow</b> 桌面端运行，企微/飞书走官方 API</p>
+      <!-- 添加卡片 -->
+      <div class="channel-card add-card" @click="showTypePicker = true">
+        <el-icon :size="28"><Plus /></el-icon>
+        <span>添加渠道</span>
+      </div>
+    </div>
+
+    <!-- 健康条 -->
+    <div class="health-bar" v-if="channelHealth?.channels?.length">
+      <span v-for="ch in channelHealth.channels" :key="ch.id" class="health-chip" :class="ch.status">
+        <span class="health-dot" :class="ch.status"></span>{{ ch.name }}
+      </span>
+      <span class="health-summary">{{ healthSummary.healthy }}/{{ healthSummary.total }} 正常</span>
+    </div>
+
+    <!-- 渠道类型选择器 -->
+    <el-dialog v-model="showTypePicker" title="选择平台" width="560px" destroy-on-close>
+      <div class="type-grid">
+        <div v-for="pt in platformTypes" :key="pt.value" class="type-card" :class="{ 'type-disabled': !pt.ready }" @click="pt.ready && startCreate(pt)">
+          <span class="type-emoji">{{ pt.emoji }}</span>
+          <div class="type-info">
+            <span class="type-name">{{ pt.label }}</span>
+            <span class="type-desc">{{ pt.desc }}</span>
           </div>
+          <el-tag v-if="!pt.ready" size="small" type="info" round>即将推出</el-tag>
         </div>
-      </template>
-
-      <template v-else>
-        <!-- 聊天头部 -->
-        <div class="mc-chat-hd">
-          <div class="mc-chat-contact">
-            <el-avatar :size="36" :src="activeConv.contact_avatar">{{ activeConv.contact_name?.[0] }}</el-avatar>
-            <div>
-              <div class="mc-chat-name">{{ activeConv.contact_name }}</div>
-              <div class="mc-chat-platform">{{ platLabel(activeConv.platform) }} · {{ activeConv.account_id?.slice(0,8) }}</div>
-            </div>
-          </div>
-          <el-popconfirm title="确定清空该会话的所有聊天记录？" @confirm="clearMessages">
-            <template #reference>
-              <el-button size="small" text type="danger">清空记录</el-button>
-            </template>
-          </el-popconfirm>
-        </div>
-
-        <!-- 消息列表 -->
-        <div class="mc-msg-list" ref="msgListRef" v-loading="msgLoading">
-          <template v-for="(m, i) in messages" :key="m.id">
-            <div v-if="i===0 || fmtDate(m.created_at)!==fmtDate(messages[i-1].created_at)" class="mc-date-sep">{{ fmtDate(m.created_at) }}</div>
-            <div class="mc-msg-row" :class="m.direction">
-              <div class="mc-msg-bubble" :class="m.direction">
-                <div class="mc-msg-text">{{ m.content }}</div>
-                <div v-if="getAttachments(m).length" class="mc-msg-attachments">
-                  <div v-for="(att, ai) in getAttachments(m)" :key="ai" class="mc-attach-item">
-                    <img v-if="att.type?.startsWith('image/')" :src="att.url" class="mc-attach-img" @click="previewImg=att.url" />
-                    <a v-else :href="att.url" target="_blank" class="mc-attach-file">
-                      <el-icon><Document /></el-icon> {{ att.name }}
-                    </a>
-                  </div>
-                </div>
-                <div class="mc-msg-time">{{ fmtTime(m.created_at) }}</div>
-                <el-tag v-if="m.reply_mode!=='manual'" size="small" :type="m.reply_mode==='auto'?'success':'warning'" class="mc-msg-mode-tag">
-                  {{ m.reply_mode==='auto'?'AI':'协同' }}
-                </el-tag>
-              </div>
-            </div>
-          </template>
-          <div v-if="messages.length===0&&!msgLoading" class="mc-msg-empty">暂无消息</div>
-        </div>
-
-        <!-- AI 建议（协同模式） -->
-        <div v-if="activeConv.reply_mode==='assisted' && aiSuggestion" class="mc-suggestion">
-          <div class="mc-suggestion-hd">
-            <el-icon><MagicStick /></el-icon> AI 建议回复
-            <el-button size="small" text @click="useSuggestion">采纳并发送</el-button>
-            <el-button size="small" text @click="editSuggestion">编辑后发送</el-button>
-            <el-button size="small" text @click="aiSuggestion=''">忽略</el-button>
-          </div>
-          <div class="mc-suggestion-body">{{ aiSuggestion }}</div>
-        </div>
-
-        <!-- 底部控制栏 -->
-        <div class="mc-bottom-bar">
-          <div class="mc-bottom-agent">
-            <span class="mc-mode-label">智能体</span>
-            <el-select v-model="activeConvAgentId" size="small" style="width:170px" @change="changeAgent" :disabled="!activeConv">
-              <el-option v-for="opt in currentAccountAgentOptions" :key="opt.id" :label="opt.name" :value="opt.id" />
-            </el-select>
-          </div>
-          <div class="mc-bottom-mode">
-            <span class="mc-mode-label">回复模式</span>
-            <el-radio-group v-model="activeConv.reply_mode" size="small" @change="changeMode">
-              <el-radio-button value="auto">AI 托管</el-radio-button>
-              <el-radio-button value="assisted">协同</el-radio-button>
-              <el-radio-button value="manual">手动</el-radio-button>
-            </el-radio-group>
-          </div>
-        </div>
-
-        <!-- 输入区 -->
-        <div class="mc-input-area">
-          <el-input
-            v-model="inputText"
-            type="textarea"
-            :rows="3"
-            placeholder="输入回复..."
-            resize="none"
-            @keydown.enter.ctrl="sendReply"
-          />
-          <div class="mc-input-actions">
-            <div style="display:flex;align-items:center;gap:8px">
-              <label class="mc-upload-btn" title="上传文件">
-                <el-icon :size="18"><UploadFilled /></el-icon>
-                <input type="file" hidden @change="onFileSelected" ref="fileInputRef" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip" />
-              </label>
-              <span v-if="uploading" style="font-size:11px;color:var(--mc-primary)">上传中...</span>
-              <span v-else-if="pendingFile" style="font-size:11px;color:#10b981">{{ pendingFile.name }}</span>
-              <span v-else class="mc-input-hint">Ctrl+Enter 发送</span>
-            </div>
-            <div>
-              <el-button v-if="activeConv.reply_mode==='assisted'" size="small" @click="getSuggestion" :loading="suggestLoading">
-                <el-icon><MagicStick /></el-icon> 获取建议
-              </el-button>
-              <el-button type="primary" size="small" @click="sendReply" :loading="sendLoading">
-                <el-icon><Promotion /></el-icon> 发送
-              </el-button>
-            </div>
-          </div>
-        </div>
-      </template>
-    </main>
-
-    <!-- 账号管理对话框 -->
-    <el-dialog v-model="showAccountDlg" title="渠道账号管理" width="860px" destroy-on-close>
-      <el-table :data="accounts" size="small">
-        <el-table-column prop="platform" label="平台" width="80">
-          <template #default="{row}">{{ platLabel(row.platform) }}</template>
-        </el-table-column>
-        <el-table-column prop="account_name" label="账号名称" width="140" />
-        <el-table-column label="账号 ID" width="120">
-          <template #default="{row}">
-            <el-tooltip :content="row.id" placement="top">
-              <span class="mc-id-text">{{ row.id.slice(0,12) }}...</span>
-            </el-tooltip>
-          </template>
-        </el-table-column>
-        <el-table-column label="绑定智能体" width="200">
-          <template #default="{row}">
-            <template v-if="row.agent_ids?.length">
-              <el-tag v-for="aid in row.agent_ids" :key="aid" size="small" type="primary" effect="plain" style="margin:1px 2px">{{ agentName(aid) }}</el-tag>
-            </template>
-            <span v-else style="color:#c0c4cc">未设置</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="default_reply_mode" label="默认模式" width="90">
-          <template #default="{row}"><el-tag size="small" :type="modeType(row.default_reply_mode)">{{ modeLabel(row.default_reply_mode) }}</el-tag></template>
-        </el-table-column>
-        <el-table-column label="状态" width="90">
-          <template #default="{row}">
-            <span class="mc-status-dot" :class="{ online: onlineAccounts.has(row.id) }"></span>
-            <span>{{ onlineAccounts.has(row.id) ? '在线' : (row.status==='active'?'离线':'停用') }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="140">
-          <template #default="{row}">
-            <el-button size="small" text @click="editAccount(row)">编辑</el-button>
-            <el-button size="small" text type="danger" @click="delAccount(row.id)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-      <template #footer>
-        <el-button @click="showAccountDlg=false">关闭</el-button>
-        <el-button type="primary" @click="editAccount()">添加账号</el-button>
-      </template>
+      </div>
     </el-dialog>
 
-    <!-- 账号编辑对话框 -->
-    <el-dialog v-model="showEditDlg" :title="editingAccount?.id ? '编辑账号' : '添加账号'" width="520px" destroy-on-close>
-      <el-form :model="editForm" label-width="90px" size="small">
-        <el-form-item label="平台" required>
-          <el-select v-model="editForm.platform" style="width:100%">
-            <el-option label="微信 (iLink Bot)" value="wechat" />
-            <el-option label="企业微信 (官方 API)" value="wecom" />
-            <el-option label="飞书 (官方 API)" value="feishu" />
-            <el-option label="抖音 (Sightflow 桌面端)" value="douyin" />
-          </el-select>
+    <!-- 创建/编辑对话框 -->
+    <el-dialog v-model="showEditDlg" :title="editingId ? '编辑渠道' : '新建渠道'" width="560px" destroy-on-close @closed="resetEdit">
+      <el-form :model="editForm" label-position="top" size="default">
+        <el-form-item label="平台">
+          <el-input :model-value="platformLabel(editForm.platform)" disabled />
         </el-form-item>
         <el-form-item label="账号名称" required>
-          <el-input v-model="editForm.account_name" placeholder="如：张三的微信" />
-          <template v-if="editForm.platform==='wechat'||editForm.platform==='douyin'">
-            <span class="mc-form-hint" v-if="editForm.platform==='douyin'">需在对应电脑上运行 Sightflow 桌面端，启动时使用此账号 ID 连接</span>
-          </template>
+          <el-input v-model="editForm.account_name" placeholder="例如：公司企微助手" />
         </el-form-item>
-        <template v-if="editForm.platform==='wechat'">
-          <el-divider content-position="left">iLink Bot API 配置</el-divider>
-          <el-form-item>
-            <div v-if="!qrState" style="display:flex;gap:8px;align-items:center">
-              <el-button type="primary" plain size="small" @click="startQRAuth" :loading="qrLoading">
-                扫码获取 Token
-              </el-button>
-              <span style="font-size:12px;color:#909399">点击后将弹出二维码页面，用微信扫码即可自动填入</span>
-            </div>
-            <div v-else-if="qrState==='scanning'" style="display:flex;align-items:center;gap:8px">
-              <el-icon class="is-loading" :size="16"><Loading /></el-icon>
-              <span style="font-size:13px;color:#7c3aed;font-weight:600">等待扫码确认...</span>
-              <span style="font-size:12px;color:#909399">{{ qrCountdown }}s 后过期</span>
-              <el-button size="small" text type="primary" @click="startQRAuth">重新打开</el-button>
-            </div>
-            <div v-else-if="qrState==='confirmed'" style="text-align:left">
-              <span style="color:#10b981;font-size:14px;font-weight:600">&#10003; 扫码成功，Token 和 User ID 已自动填入</span>
-            </div>
-            <div v-else-if="qrState==='expired'" style="display:flex;align-items:center;gap:8px">
-              <span style="color:#f56c6c;font-size:13px">二维码已过期</span>
-              <el-button size="small" text type="primary" @click="startQRAuth">重新获取</el-button>
-            </div>
-            <div v-else-if="qrState==='error'" style="display:flex;align-items:center;gap:8px">
-              <span style="color:#f56c6c;font-size:13px">{{ qrErrorMsg }}</span>
-              <el-button size="small" text type="primary" @click="startQRAuth">重试</el-button>
-            </div>
-          </el-form-item>
-          <el-form-item label="Bot Token">
-            <el-input v-model="editForm.config_ilink_token" type="password" placeholder="扫码自动填入，也可手动粘贴（必填）" />
-          </el-form-item>
-          <el-form-item label="User ID">
-            <el-input v-model="editForm.config_ilink_userid" placeholder="扫码自动填入，也可手动粘贴（必填）" />
-          </el-form-item>
-        </template>
-        <el-form-item label="绑定智能体">
-          <el-select v-model="editForm.agent_ids" multiple clearable style="width:100%" placeholder="选择数字人或智能体">
-            <el-option-group v-if="digitalEmployees.length" label="数字人">
-              <el-option v-for="d in digitalEmployees" :key="d.id" :label="d.name" :value="d.id">
-                <span>{{ d.avatar_emoji || '\u{1F9D1}' }} {{ d.name }}</span>
-                <span style="float:right;color:#909399;font-size:12px">{{ d.role }}</span>
-              </el-option>
-            </el-option-group>
-            <el-option-group label="智能体">
-              <el-option v-for="a in agentApps" :key="a.id" :label="a.name" :value="a.id">
-                <span>{{ a.emoji }} {{ a.name }}</span>
-                <span style="float:right;color:#909399;font-size:12px">{{ a.base_agent }}</span>
-              </el-option>
-            </el-option-group>
+        <el-form-item label="说明">
+          <el-input v-model="editForm.desc" placeholder="可选，备注用途" />
+        </el-form-item>
+        <el-form-item label="绑定 Agent">
+          <el-select v-model="editForm.agent_id" placeholder="选择 Agent" clearable style="width:100%">
+            <el-option v-for="ag in agentApps" :key="ag.id" :label="ag.name" :value="ag.id" />
           </el-select>
-          <span class="mc-form-hint">可选择多个数字人或智能体，新建会话默认使用第一个</span>
         </el-form-item>
-        <el-form-item label="默认回复模式">
-          <el-radio-group v-model="editForm.default_reply_mode">
-            <el-radio value="auto">AI 托管</el-radio>
-            <el-radio value="assisted">协同</el-radio>
-            <el-radio value="manual">手动</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <template v-if="editForm.platform==='wecom'">
-          <el-divider content-position="left">企业微信 API 配置</el-divider>
+        <template v-if="editForm.platform === 'wecom'">
           <el-form-item label="Corp ID">
-            <el-input v-model="editForm.config_corp_id" placeholder="企业 ID（必填）" />
-          </el-form-item>
-          <el-form-item label="Agent ID">
-            <el-input v-model="editForm.config_agent_id" placeholder="应用 AgentID（必填，如 1000002）" />
-          </el-form-item>
-          <el-form-item label="App Secret">
-            <el-input v-model="editForm.app_secret" type="password" placeholder="应用 Secret（必填）" />
+            <el-input v-model="editForm.corp_id" placeholder="企业微信 Corp ID" />
           </el-form-item>
           <el-form-item label="Token">
-            <el-input v-model="editForm.config_token" placeholder="回调 Token（必填，10-32位）" />
+            <el-input v-model="editForm.token" placeholder="回调 Token" />
           </el-form-item>
           <el-form-item label="Encoding AES Key">
-            <el-input v-model="editForm.config_aes_key" placeholder="消息加解密密钥（必填，43位）" />
+            <el-input v-model="editForm.encoding_aes_key" placeholder="回调加密 Key" />
           </el-form-item>
         </template>
-        <template v-if="editForm.platform==='feishu'">
-          <el-divider content-position="left">飞书 API 配置</el-divider>
+        <template v-if="editForm.platform === 'feishu'">
           <el-form-item label="App ID">
-            <el-input v-model="editForm.config_app_id" placeholder="应用 App ID（必填）" />
+            <el-input v-model="editForm.app_id" placeholder="飞书 App ID" />
           </el-form-item>
           <el-form-item label="App Secret">
-            <el-input v-model="editForm.app_secret" type="password" placeholder="应用 Secret（必填）" />
-          </el-form-item>
-          <el-form-item label="Encrypt Key">
-            <el-input v-model="editForm.config_encrypt_key" placeholder="加密密钥（可选）" />
-          </el-form-item>
-          <el-form-item label="Verification Token">
-            <el-input v-model="editForm.config_verification_token" placeholder="验证令牌（可选）" />
+            <el-input v-model="editForm.app_secret" placeholder="飞书 App Secret" type="password" show-password />
           </el-form-item>
         </template>
-        <el-form-item label="状态">
-          <el-switch v-model="editForm.status_active" active-text="启用" inactive-text="停用" />
+        <template v-if="editForm.platform === 'wechat'">
+          <el-form-item label="Bot ID">
+            <el-input v-model="editForm.bot_id" placeholder="微信 iLink Bot ID" />
+          </el-form-item>
+        </template>
+        <el-divider>访问控制</el-divider>
+        <el-form-item label="私聊策略">
+          <el-select v-model="editForm.dm_policy" style="width:100%">
+            <el-option label="开放（所有人可私聊）" value="open" />
+            <el-option label="关闭（禁止私聊）" value="closed" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="群聊策略">
+          <el-select v-model="editForm.group_policy" style="width:100%">
+            <el-option label="开放（所有群消息）" value="open" />
+            <el-option label="需前缀（@Bot 触发）" value="prefix" />
+            <el-option label="关闭（禁止群聊）" value="closed" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="Bot 前缀" v-if="editForm.group_policy==='prefix'">
+          <el-input v-model="editForm.bot_prefix" placeholder="例如: @小助手" />
+        </el-form-item>
+        <el-form-item label="白名单（逗号分隔）">
+          <el-input v-model="editForm.allow_from" placeholder="用户ID，逗号分隔，留空=不限" />
+        </el-form-item>
+        <el-form-item label="拒绝提示语">
+          <el-input v-model="editForm.deny_message" placeholder="无权限时的回复" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="showEditDlg=false">取消</el-button>
-        <el-button type="primary" @click="saveAccount" :loading="saveAcctLoading">保存</el-button>
+        <el-button @click="showEditDlg = false">取消</el-button>
+        <el-button type="primary" @click="saveAccount" :loading="saving">{{ editingId ? '保存' : '创建' }}</el-button>
       </template>
     </el-dialog>
+
+    <!-- 会话面板（点击渠道卡片打开） -->
+    <el-drawer v-model="showConversations" :title="activeAccount?.account_name" size="420px" destroy-on-close>
+      <div class="conv-list" v-loading="convLoading">
+        <div v-for="c in accountConvs" :key="c.id" class="conv-item" @click="openConv(c)">
+          <el-avatar :size="40" :src="c.contact_avatar">{{ c.contact_name?.[0] }}</el-avatar>
+          <div class="conv-body">
+            <div class="conv-top">
+              <span class="conv-name">{{ c.contact_name }}</span>
+              <span class="conv-time">{{ fmtTime(c.last_message_at) }}</span>
+            </div>
+            <div class="conv-preview">{{ c.last_message || '暂无消息' }}</div>
+            <el-tag size="small" :type="c.reply_mode==='auto'?'success':'info'">{{ c.reply_mode==='auto'?'自动':'人工' }}</el-tag>
+          </div>
+        </div>
+        <el-empty v-if="!accountConvs.length" description="暂无会话" :image-size="60" />
+      </div>
+    </el-drawer>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, MagicStick, Promotion, Delete, Loading, UploadFilled, Document } from '@element-plus/icons-vue'
-import { channelAccountsApi, channelConversationsApi, agentAppsApi, digitalEmployeesApi } from '../api/channels'
+import { Plus, Edit, Delete, MagicStick, ChatDotSquare } from '@element-plus/icons-vue'
+import { channelAccountsApi, channelConversationsApi, agentAppsApi } from '../api/channels'
+import { channelHealthApi } from '../api/health'
+import request from '../api/index.js'
 
-// ─── 数据 ───
+const loading = ref(true)
 const accounts = ref([])
 const agentApps = ref([])
-const digitalEmployees = ref([])
-const conversations = ref([])
-const activeConv = ref(null)
-const messages = ref([])
-const inputText = ref('')
-const aiSuggestion = ref('')
-
-const filterAccount = ref('')
-const filterPlatform = ref('')
-
-const convLoading = ref(false)
-const msgLoading = ref(false)
-const sendLoading = ref(false)
-const suggestLoading = ref(false)
-
-const showAccountDlg = ref(false)
+const channelHealth = ref(null)
+const showTypePicker = ref(false)
 const showEditDlg = ref(false)
-const editingAccount = ref(null)
-const saveAcctLoading = ref(false)
+const showConversations = ref(false)
+const editingId = ref(null)
 const editForm = ref({})
-const msgListRef = ref(null)
-const activeConvAgentId = ref('')
-const renamingId = ref(null)
-const renameText = ref('')
-const fileInputRef = ref(null)
-const pendingFile = ref(null)
-const uploading = ref(false)
-const previewImg = ref(null)
+const saving = ref(false)
+const activeAccount = ref(null)
+const accountConvs = ref([])
+const convLoading = ref(false)
+let timer = null
 
-// 当前会话对应账号绑定的 Agent 选项
-const currentAccountAgentOptions = computed(() => {
-  if (!activeConv.value) return []
-  const account = accounts.value.find(a => a.id === activeConv.value.account_id)
-  if (!account?.agent_ids?.length) return []
-  return bindingOptions.value.filter(o => account.agent_ids.includes(o.id))
-})
+const sortedAccounts = computed(() => [...accounts.value].sort((a, b) => {
+  if (a.status === 'active' && b.status !== 'active') return -1
+  if (a.status !== 'active' && b.status === 'active') return 1
+  return 0
+}))
 
-let pollTimer = null
-let wsEvents = null
-let qrPollTimer = null
-const onlineAccounts = ref(new Set())
+const activeCount = computed(() => accounts.value.filter(a => a.status === 'active').length)
+const errorCount = computed(() => accounts.value.filter(a => a._health === 'unhealthy').length)
+const disabledCount = computed(() => accounts.value.filter(a => a.status !== 'active').length)
+const healthSummary = computed(() => channelHealth.value?.summary || { total: 0, healthy: 0 })
 
-// ─── 微信扫码获取凭证 ───
-const qrState = ref(null)       // null | scanning | confirmed | expired | error
-const qrCountdown = ref(120)
-const qrLoading = ref(false)
-const qrErrorMsg = ref('')
+const platformTypes = [
+  { value: 'wecom', label: '企业微信', emoji: '💬', desc: '企业微信回调接入', ready: true },
+  { value: 'feishu', label: '飞书', emoji: '🐦', desc: '飞书应用消息接入', ready: true },
+  { value: 'wechat', label: '微信 Bot', emoji: '💚', desc: 'iLink Bot 长轮询', ready: true },
+  { value: 'dingtalk', label: '钉钉', emoji: '📌', desc: '钉钉机器人接入', ready: false },
+  { value: 'telegram', label: 'Telegram', emoji: '✈️', desc: 'Telegram Bot API', ready: false },
+  { value: 'discord', label: 'Discord', emoji: '🎮', desc: 'Discord Bot 接入', ready: false },
+  { value: 'slack', label: 'Slack', emoji: '💬', desc: 'Slack Bot 接入', ready: false },
+  { value: 'qq', label: 'QQ', emoji: '🐧', desc: 'QQ Bot 接入', ready: false },
+  { value: 'webchat', label: '网页聊天', emoji: '🌐', desc: '嵌入式 WebChat 挂件', ready: true },
+  { value: 'webhook', label: 'Webhook', emoji: '🪝', desc: '通用 Webhook 接入', ready: false },
+  { value: 'douyin', label: '抖音', emoji: '🎵', desc: '抖音私信接入', ready: false },
+]
 
-async function startQRAuth() {
-  qrLoading.value = true
-  qrState.value = null
-  try {
-    const { data } = await channelAccountsApi.wechatQrcode()
-    const qrData = data.data
-    if (!qrData) { qrState.value = 'error'; qrErrorMsg.value = '获取二维码失败'; return }
-    // 在新窗口打开二维码页面
-    window.open(qrData.img_url, '_blank', 'width=400,height=500')
-    qrCountdown.value = 120
-    qrState.value = 'scanning'
-    // 倒计时
-    const countdownTimer = setInterval(() => {
-      qrCountdown.value--
-      if (qrCountdown.value <= 0) { clearInterval(countdownTimer); if (qrState.value === 'scanning') qrState.value = 'expired' }
-    }, 1000)
-    // 轮询扫码状态
-    if (qrPollTimer) clearInterval(qrPollTimer)
-    qrPollTimer = setInterval(async () => {
-      if (qrState.value !== 'scanning') { clearInterval(countdownTimer); clearInterval(qrPollTimer); return }
-      try {
-        const res = await channelAccountsApi.wechatQrcodeStatus(qrData.qrcode)
-        const statusData = res.data.data
-        if (statusData.status === 'confirmed') {
-          clearInterval(countdownTimer)
-          clearInterval(qrPollTimer)
-          qrState.value = 'confirmed'
-          editForm.value.config_ilink_token = statusData.token || ''
-          editForm.value.config_ilink_userid = statusData.userId || ''
-        } else if (statusData.status === 'expired') {
-          clearInterval(countdownTimer)
-          clearInterval(qrPollTimer)
-          qrState.value = 'expired'
-        }
-      } catch {}
-    }, 3000)
-  } catch { qrState.value = 'error'; qrErrorMsg.value = '请求失败' }
-  qrLoading.value = false
+const PLAT_MAP = {
+  wecom:    { emoji:'💬', label:'企业微信', color:'#e8f5e9' },
+  feishu:   { emoji:'🐦', label:'飞书',     color:'#e3f2fd' },
+  wechat:   { emoji:'💚', label:'微信Bot',  color:'#f1f8e9' },
+  dingtalk: { emoji:'📌', label:'钉钉',     color:'#e3f2fd' },
+  telegram: { emoji:'✈️', label:'Telegram', color:'#e0f2fe' },
+  discord:  { emoji:'🎮', label:'Discord',  color:'#ede9fe' },
+  slack:    { emoji:'💬', label:'Slack',    color:'#fce4ec' },
+  qq:       { emoji:'🐧', label:'QQ',       color:'#e0f2fe' },
+  webchat:  { emoji:'🌐', label:'WebChat',  color:'#fef3c7' },
+  webhook:  { emoji:'🪝', label:'Webhook',  color:'#f0ecf8' },
+  douyin:   { emoji:'🎵', label:'抖音',     color:'#fce4ec' }
+}
+function platformEmoji(p) { return PLAT_MAP[p]?.emoji || '📡' }
+function platformLabel(p) { return PLAT_MAP[p]?.label || p }
+function platformColor(p) { return PLAT_MAP[p]?.color || '#f5f3ff' }
+
+function healthClass(a) {
+  if (a.status !== 'active') return 'status-off'
+  const h = a._health
+  if (h === 'healthy') return 'conn-healthy'
+  if (h === 'unhealthy') return 'conn-error'
+  return 'conn-unknown'
+}
+function healthDotClass(a) {
+  if (a.status !== 'active') return 'stopped'
+  const h = a._health
+  if (h === 'healthy') return 'running'
+  if (h === 'unhealthy') return 'stopped'
+  return ''
+}
+function healthLabel(a) {
+  if (a.status !== 'active') return '已停用'
+  const h = a._health
+  if (h === 'healthy') return '已连接'
+  if (h === 'unhealthy') return '异常'
+  return '未知'
 }
 
-// ─── 平台/模式标签 ───
-const platLabel = (p) => ({ wechat: '微信', wecom: '企微', feishu: '飞书', douyin: '抖音' }[p] || p)
-const platShort = (p) => ({ wechat: '微', wecom: '企', feishu: '飞', douyin: '抖' }[p] || p?.charAt(0))
-const modeLabel = (m) => ({ auto: 'AI托管', assisted: '协同', manual: '手动' }[m] || m)
-const modeType = (m) => ({ auto: 'success', assisted: 'warning', manual: 'info' }[m] || '')
+function fmtTime(t) { if (!t) return ''; const d = new Date(t); return d.toLocaleDateString() + ' ' + d.toTimeString().slice(0,5) }
 
-function agentName(id) {
-  if (!id) return ''
-  const de = digitalEmployees.value.find(d => d.id === id)
-  if (de) return (de.avatar_emoji || '\u{1F9D1}') + ' ' + de.name
-  const app = agentApps.value.find(a => a.id === id)
-  if (app) return (app.emoji || '') + ' ' + app.name
-  const sys = { 'internal-agent': '小内', 'sales-agent': '小销', 'support-agent': '小客' }
-  return sys[id] || id
+function resetEdit() {
+  editingId.value = null
+  editForm.value = {}
 }
 
-// 合并数字人+智能体，用于下拉选项
-const bindingOptions = computed(() => {
-  const options = []
-  // 智能体分组
-  for (const a of agentApps.value) {
-    options.push({ id: a.id, name: (a.emoji || '') + ' ' + a.name, type: '智能体', base: a.base_agent })
-  }
-  // 数字人分组
-  for (const d of digitalEmployees.value) {
-    options.push({ id: d.id, name: (d.avatar_emoji || '\u{1F9D1}') + ' ' + d.name, type: '数字人', base: d.role })
-  }
-  return options
-})
-
-function fmtTime(t) {
-  if (!t) return ''
-  const d = new Date(t + (t.length <= 19 ? '+08:00' : ''))
-  const now = new Date()
-  const isToday = d.toDateString() === now.toDateString()
-  const hh = String(d.getHours()).padStart(2, '0')
-  const mm = String(d.getMinutes()).padStart(2, '0')
-  if (isToday) return `${hh}:${mm}`
-  return `${d.getMonth() + 1}/${d.getDate()} ${hh}:${mm}`
+function startCreate(pt) {
+  showTypePicker.value = false
+  editingId.value = null
+  editForm.value = { platform: pt.value, account_name: '', desc: '', agent_id: '', corp_id: '', token: '', encoding_aes_key: '', app_id: '', app_secret: '', bot_id: '' }
+  showEditDlg.value = true
 }
 
-function fmtDate(t) {
-  if (!t) return ''
-  const d = new Date(t + (t.length <= 19 ? '+08:00' : ''))
-  const now = new Date()
-  const isToday = d.toDateString() === now.toDateString()
-  const yesterday = new Date(now.getTime() - 86400000)
-  const isYesterday = d.toDateString() === yesterday.toDateString()
-  if (isToday) return '今天'
-  if (isYesterday) return '昨天'
-  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`
-}
-
-// ─── 筛选会话 ───
-const filteredConvs = computed(() => {
-  let list = conversations.value
-  if (filterAccount.value) list = list.filter(c => c.account_id === filterAccount.value)
-  if (filterPlatform.value) list = list.filter(c => c.platform === filterPlatform.value)
-  return list
-})
-
-// ─── 加载账号 + 会话 ───
-async function loadAccounts() {
-  try {
-    const { data } = await channelAccountsApi.list()
-    accounts.value = data.data || []
-  } catch { /* ignore */ }
-}
-
-async function loadAgentApps() {
-  try {
-    const { data } = await agentAppsApi.list()
-    agentApps.value = data.data || []
-  } catch { /* ignore */ }
-}
-
-async function loadDigitalEmployees() {
-  try {
-    const { data } = await digitalEmployeesApi.list()
-    digitalEmployees.value = data.data || []
-  } catch { /* ignore */ }
-}
-
-async function loadConversations() {
-  convLoading.value = true
-  try {
-    const params = { limit: 200 }
-    if (filterAccount.value) params.account_id = filterAccount.value
-    if (filterPlatform.value) params.platform = filterPlatform.value
-    const { data } = await channelConversationsApi.list(params)
-    conversations.value = data.data?.list || []
-    // 保持选中状态
-    if (activeConv.value) {
-      const updated = conversations.value.find(c => c.id === activeConv.value.id)
-      if (updated) activeConv.value = updated
-    }
-  } catch { /* ignore */ }
-  convLoading.value = false
-}
-
-async function loadMessages() {
-  if (!activeConv.value) return
-  msgLoading.value = true
-  try {
-    const { data } = await channelConversationsApi.messages(activeConv.value.id)
-    messages.value = data.data || []
-    await nextTick()
-    scrollBottom()
-  } catch { /* ignore */ }
-  msgLoading.value = false
-}
-
-function selectConv(c) {
-  activeConv.value = c
-  activeConvAgentId.value = c.agent_id || ''
-  messages.value = []
-  aiSuggestion.value = ''
-  loadMessages()
-}
-
-async function changeMode(mode) {
-  if (!activeConv.value) return
-  try {
-    await channelConversationsApi.setMode(activeConv.value.id, mode)
-    ElMessage.success(`已切换为${modeLabel(mode)}模式`)
-    aiSuggestion.value = ''
-    // 同步本地
-    const idx = conversations.value.findIndex(c => c.id === activeConv.value.id)
-    if (idx >= 0) conversations.value[idx].reply_mode = mode
-  } catch { ElMessage.error('切换失败') }
-}
-
-async function changeAgent(agentId) {
-  if (!activeConv.value || !agentId) return
-  try {
-    await channelConversationsApi.setAgent(activeConv.value.id, agentId)
-    activeConv.value.agent_id = agentId
-    const idx = conversations.value.findIndex(c => c.id === activeConv.value.id)
-    if (idx >= 0) conversations.value[idx].agent_id = agentId
-    ElMessage.success('已切换智能体')
-  } catch { ElMessage.error('切换失败') }
-}
-
-// ─── 协同：获取 AI 建议 ───
-async function getSuggestion() {
-  if (!activeConv.value) return
-  suggestLoading.value = true
-  try {
-    const { data } = await channelConversationsApi.suggest(activeConv.value.id)
-    aiSuggestion.value = data.data?.suggestion || ''
-  } catch { ElMessage.error('获取建议失败') }
-  suggestLoading.value = false
-}
-
-function useSuggestion() {
-  inputText.value = aiSuggestion.value
-  aiSuggestion.value = ''
-}
-
-function editSuggestion() {
-  inputText.value = aiSuggestion.value
-  aiSuggestion.value = ''
-}
-
-// ─── 文件上传 ───
-function getAttachments(msg) {
-  if (!msg.attachments) return []
-  try { const a = typeof msg.attachments === 'string' ? JSON.parse(msg.attachments) : msg.attachments; return Array.isArray(a) ? a : [] }
-  catch { return [] }
-}
-
-function onFileSelected(e) {
-  const file = e.target.files?.[0]
-  if (!file) return
-  pendingFile.value = file
-  if (!inputText.value.trim()) inputText.value = '[文件]'
-}
-
-// ─── 发送回复 ───
-async function sendReply() {
-  if (!activeConv.value) return
-  const hasText = inputText.value.trim()
-  const hasFile = pendingFile.value
-  if (!hasText && !hasFile) return
-
-  sendLoading.value = true
-  try {
-    const mode = activeConv.value.reply_mode
-
-    // 有文件时先上传
-    if (hasFile) {
-      uploading.value = true
-      const fd = new FormData()
-      fd.append('file', pendingFile.value)
-      if (inputText.value.trim()) fd.append('content', inputText.value.trim())
-      await channelConversationsApi.upload(activeConv.value.id, fd)
-      uploading.value = false
-      pendingFile.value = null
-      if (fileInputRef.value) fileInputRef.value.value = ''
-    }
-
-    // 有文本时发送文本
-    if (hasText && !hasFile) {
-      await channelConversationsApi.reply(activeConv.value.id, inputText.value.trim(), mode)
-    }
-
-    inputText.value = ''
-    aiSuggestion.value = ''
-    loadMessages()
-    loadConversations()
-  } catch { ElMessage.error('发送失败') }
-  sendLoading.value = false
-  uploading.value = false
-}
-
-// ─── 账号管理 ───
-let originalConfig = {}
-
-function editAccount(row) {
-  editingAccount.value = row || null
-  originalConfig = {}
-  qrState.value = null
-  if (qrPollTimer) { clearInterval(qrPollTimer); qrPollTimer = null }
-  if (row) {
-    let cfg = {}
-    try { if (row.config) cfg = typeof row.config === 'string' ? JSON.parse(row.config) : row.config } catch {}
-    originalConfig = { ...cfg }
-    const agentIds = row.agent_ids || (row.agent_id ? [row.agent_id] : [])
-    editForm.value = {
-      platform: row.platform, account_name: row.account_name, agent_ids: agentIds,
-      default_reply_mode: row.default_reply_mode, status_active: row.status === 'active',
-      app_secret: cfg.app_secret || '',
-      config_corp_id: cfg.corpid || '', config_agent_id: cfg.agentid || '',
-      config_token: cfg.token || '', config_aes_key: cfg.encodingAESKey || '',
-      config_app_id: cfg.app_id || '', config_encrypt_key: cfg.encrypt_key || '',
-      config_verification_token: cfg.verification_token || '',
-      config_ilink_token: cfg.token || '', config_ilink_userid: cfg.userId || ''
-    }
-  } else {
-    editForm.value = { platform: 'wechat', account_name: '', agent_ids: [], default_reply_mode: 'assisted', status_active: true,
-      app_secret: '', config_corp_id: '', config_agent_id: '', config_token: '', config_aes_key: '',
-      config_app_id: '', config_encrypt_key: '', config_verification_token: '',
-      config_ilink_token: '', config_ilink_userid: '' }
-  }
+function editAccount(a) {
+  editingId.value = a.id
+  editForm.value = { ...a }
   showEditDlg.value = true
 }
 
 async function saveAccount() {
-  saveAcctLoading.value = true
+  saving.value = true
   try {
-    const config = { ...originalConfig }
-    const pf = editForm.value.platform
-    if (pf === 'wecom') {
-      if (editForm.value.config_corp_id) config.corpid = editForm.value.config_corp_id
-      if (editForm.value.config_agent_id) config.agentid = editForm.value.config_agent_id
-      if (editForm.value.app_secret) config.corpsecret = editForm.value.app_secret
-      if (editForm.value.config_token) config.token = editForm.value.config_token
-      if (editForm.value.config_aes_key) config.encodingAESKey = editForm.value.config_aes_key
-    } else if (pf === 'feishu') {
-      if (editForm.value.config_app_id) config.app_id = editForm.value.config_app_id
-      if (editForm.value.app_secret) config.app_secret = editForm.value.app_secret
-      if (editForm.value.config_encrypt_key) config.encrypt_key = editForm.value.config_encrypt_key
-      if (editForm.value.config_verification_token) config.verification_token = editForm.value.config_verification_token
-    } else if (pf === 'wechat') {
-      if (editForm.value.config_ilink_token) config.token = editForm.value.config_ilink_token
-      if (editForm.value.config_ilink_userid) config.userId = editForm.value.config_ilink_userid
-    } else {
-      if (editForm.value.app_secret) config.app_secret = editForm.value.app_secret
+    const payload = { ...editForm.value }
+    delete payload._health
+
+    // 预检验证（新建时）
+    if (!editingId.value) {
+      try {
+        const { data } = await request.post('/channels/preflight', {
+          platform: payload.platform,
+          config: payload
+        })
+        if (data?.data && !data.data.ok) {
+          ElMessage.warning('凭证验证: ' + data.data.message)
+        } else if (data?.data?.ok) {
+          ElMessage.success(data.data.message)
+        }
+      } catch {} // 预检失败不阻止保存
     }
-    const body = {
-      platform: editForm.value.platform,
-      account_name: editForm.value.account_name,
-      agent_ids: editForm.value.agent_ids || [],
-      default_reply_mode: editForm.value.default_reply_mode,
-      status: editForm.value.status_active ? 'active' : 'inactive',
-      config
-    }
-    if (editingAccount.value?.id) {
-      await channelAccountsApi.update(editingAccount.value.id, body)
+
+    if (editingId.value) {
+      await channelAccountsApi.update(editingId.value, payload)
       ElMessage.success('已更新')
     } else {
-      const { data } = await channelAccountsApi.create(body)
-      const newId = data.data?.id
-      if (newId && editForm.value.platform === 'douyin') {
-        ElMessage.success({ message: `账号已创建，Sightflow 连接 ID: ${newId}`, duration: 8000 })
-      } else {
-        ElMessage.success('已创建')
-      }
+      await channelAccountsApi.create(payload)
+      ElMessage.success('已创建')
     }
     showEditDlg.value = false
     loadAccounts()
-  } catch { ElMessage.error('保存失败') }
-  saveAcctLoading.value = false
+  } catch (e) {
+    ElMessage.error('保存失败: ' + (e.response?.data?.message || e.message))
+  }
+  saving.value = false
+}
+
+async function toggleAccount(a) {
+  const newStatus = a.status === 'active' ? 'inactive' : 'active'
+  try {
+    await channelAccountsApi.update(a.id, { status: newStatus })
+    ElMessage.success(newStatus === 'active' ? '已启用' : '已停用')
+    loadAccounts()
+  } catch { ElMessage.error('操作失败') }
 }
 
 async function delAccount(id) {
+  try { await ElMessageBox.confirm('确定删除该渠道？', '确认', { type: 'warning' }) } catch { return }
+  try { await channelAccountsApi.remove(id); ElMessage.success('已删除'); loadAccounts() } catch { ElMessage.error('删除失败') }
+}
+
+async function viewChannel(a) {
+  activeAccount.value = a
+  showConversations.value = true
+  convLoading.value = true
   try {
-    await ElMessageBox.confirm('确定删除该渠道账号？关联的会话和消息也将被删除。', '删除确认', { type: 'warning' })
-    await channelAccountsApi.remove(id)
-    ElMessage.success('已删除')
-    loadAccounts()
-    loadConversations()
-  } catch (e) {
-    if (e?.message) ElMessage.error(e.message)
-  }
+    const { data } = await channelConversationsApi.list({ account_id: a.id })
+    accountConvs.value = data?.data || data || []
+  } catch { accountConvs.value = [] }
+  convLoading.value = false
 }
 
-async function delConv(id) {
+function openConv(c) {
+  showConversations.value = false
+  window.open('/channels?conv=' + c.id, '_self')
+}
+
+async function loadAccounts() {
   try {
-    await ElMessageBox.confirm('确定删除该会话？所有消息将被清空。', '删除确认', { type: 'warning' })
-    await channelConversationsApi.remove(id)
-    if (activeConv.value?.id === id) {
-      activeConv.value = null
-      messages.value = []
-    }
-    ElMessage.success('已删除')
-    loadConversations()
-  } catch (e) {
-    if (e?.message) ElMessage.error(e.message)
-  }
+    const { data } = await channelAccountsApi.list()
+    accounts.value = data?.data || data || []
+  } catch { accounts.value = [] }
 }
 
-async function clearMessages() {
-  if (!activeConv.value) return
-  try {
-    await channelConversationsApi.clearMessages(activeConv.value.id)
-    messages.value = []
-    ElMessage.success('聊天记录已清空')
-    loadConversations()
-  } catch { ElMessage.error('清空失败') }
-}
-
-async function startRename(c) {
-  renamingId.value = c.id
-  renameText.value = c.contact_name
-  await nextTick()
-  const input = document.querySelector('.mc-rename-input input')
-  if (input) { input.focus(); input.select() }
-}
-
-async function finishRename(c) {
-  if (!renamingId.value) return
-  const newName = renameText.value.trim()
-  renamingId.value = null
-  if (!newName || newName === c.contact_name) return
-  try {
-    await channelConversationsApi.rename(c.id, newName)
-    c.contact_name = newName
-    if (activeConv.value?.id === c.id) activeConv.value.contact_name = newName
-  } catch { ElMessage.error('重命名失败') }
-}
-
-function scrollBottom() {
-  const el = msgListRef.value
-  if (el) el.scrollTop = el.scrollHeight
-}
-
-// ─── 轮询刷新 ───
-function connectEvents() {
-  const url = `ws://${location.hostname}:18621/ws/events`
-  wsEvents = new WebSocket(url)
-  wsEvents.onmessage = (e) => {
-    let event
-    try { event = JSON.parse(e.data) } catch { return }
-    switch (event.type) {
-      case 'account_status':
-        if (event.online) onlineAccounts.value.add(event.account_id)
-        else onlineAccounts.value.delete(event.account_id)
-        onlineAccounts.value = new Set(onlineAccounts.value) // trigger reactivity
-        break
-      case 'new_conversation': {
-        const exists = conversations.value.find(c => c.id === event.conversation.id)
-        if (!exists) {
-          conversations.value.unshift(event.conversation)
-        }
-        break
-      }
-      case 'new_message': {
-        if (activeConv.value && activeConv.value.id === event.conversation_id) {
-          messages.value.push(event.message)
-          nextTick(() => scrollBottom())
-        }
-        // Refresh the conversation's last_message
-        const idx = conversations.value.findIndex(c => c.id === event.conversation_id)
-        if (idx >= 0) {
-          conversations.value[idx].last_message = event.message.content
-          conversations.value[idx].last_message_at = event.message.created_at
-          if (event.message.direction === 'incoming' && activeConv.value?.id !== event.conversation_id) {
-            conversations.value[idx].unread_count = (conversations.value[idx].unread_count || 0) + 1
-          }
-        }
-        break
-      }
-      case 'agent_changed': {
-        const idx = conversations.value.findIndex(c => c.id === event.conversation_id)
-        if (idx >= 0) conversations.value[idx].agent_id = event.agent_id
-        if (activeConv.value && activeConv.value.id === event.conversation_id) {
-          activeConvAgentId.value = event.agent_id
-          activeConv.value.agent_id = event.agent_id
-        }
-        break
+async function loadHealth() {
+  try { const { data } = await channelHealthApi.get(); channelHealth.value = data?.data || null;
+    // 将健康状态映射到账号
+    if (channelHealth.value?.channels) {
+      for (const ch of channelHealth.value.channels) {
+        const a = accounts.value.find(ac => ac.id === ch.id || ac.platform === ch.type)
+        if (a) a._health = ch.status
       }
     }
-  }
-  wsEvents.onclose = () => { setTimeout(connectEvents, 5000) }
+  } catch { channelHealth.value = null }
 }
 
-onMounted(() => {
-  loadAccounts()
-  loadAgentApps()
-  loadDigitalEmployees()
-  loadConversations()
-  connectEvents()
-  pollTimer = setInterval(() => { loadConversations(); if (activeConv.value) loadMessages() }, 5000)
-})
+async function init() {
+  loading.value = true
+  try {
+    const [accRes, agRes] = await Promise.all([
+      channelAccountsApi.list().catch(() => ({ data: { data: [] } })),
+      agentAppsApi.list().catch(() => ({ data: { data: [] } }))
+    ])
+    accounts.value = accRes.data?.data || accRes.data || []
+    agentApps.value = agRes.data?.data || agRes.data || []
+  } catch {}
+  loading.value = false
+  loadHealth()
+  timer = setInterval(loadHealth, 10000)
+}
 
-onUnmounted(() => {
-  clearInterval(pollTimer)
-  if (wsEvents) wsEvents.close()
-})
+onMounted(init)
+onUnmounted(() => clearInterval(timer))
 </script>
 
 <style scoped>
-/* ─── Design Tokens ─── */
-.mc-layout {
-  --mc-primary: #7c3aed;
-  --mc-primary-light: #a78bfa;
-  --mc-primary-bg: #f5f3ff;
-  --mc-primary-hover: #f0ecff;
-  --mc-bg: #f8f9fc;
-  --mc-white: #fff;
-  --mc-border: #e8eaef;
-  --mc-text: #1f2937;
-  --mc-text-secondary: #6b7280;
-  --mc-text-muted: #9ca3af;
-  --mc-wechat: #07c160;
-  --mc-wecom: #1677ff;
-  --mc-feishu: #3370ff;
-  --mc-douyin: #111827;
-  --mc-success: #10b981;
-  --mc-warning: #f59e0b;
-  --mc-radius: 12px;
-  --mc-shadow-sm: 0 1px 3px rgba(0,0,0,.04);
-  --mc-shadow-md: 0 4px 12px rgba(0,0,0,.06);
-  --mc-shadow-lg: 0 8px 24px rgba(0,0,0,.08);
-  --mc-transition: .2s cubic-bezier(.4,0,.2,1);
-}
+.page-container { padding: 20px 24px; background: #fafafe; height: 100%; overflow-y: auto }
+.page-hd { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 16px }
+.page-title { font-size: 20px; font-weight: 600; color: #4a3f5e }
+.page-desc { font-size: 13px; color: #909399; margin: 4px 0 0 }
 
-/* ─── Layout ─── */
-.mc-layout {
-  display:flex; height:calc(100vh - 100px); background:var(--mc-bg);
-  border-radius:var(--mc-radius); overflow:hidden;
-  box-shadow:var(--mc-shadow-sm);
-}
+/* 统计栏 */
+.stats-bar { display: flex; gap: 10px; margin-bottom: 18px }
+.stat-chip { display: flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 10px; font-size: 13px; font-weight: 500; background: #fff; border: 1px solid #f0ecf8 }
+.stat-dot { width: 8px; height: 8px; border-radius: 50% }
+.stat-dot.active { background: #22c55e }
+.stat-dot.error { background: #ef4444 }
+.stat-dot.disabled { background: #9ca3af }
 
-/* ─── Sidebar ─── */
-.mc-sidebar {
-  width:340px; min-width:340px; background:var(--mc-white);
-  border-right:1px solid var(--mc-border); display:flex; flex-direction:column;
+/* 卡片网格 */
+.channel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px }
+.channel-card {
+  background: #fff; border-radius: 14px; border: 1px solid #f0ecf8;
+  padding: 18px 20px; cursor: pointer; transition: all .2s;
+  display: flex; flex-direction: column; gap: 12px;
 }
-.mc-sidebar-hd {
-  display:flex; align-items:center; justify-content:space-between;
-  padding:16px 20px; border-bottom:1px solid var(--mc-border);
+.channel-card:hover { box-shadow: 0 4px 16px rgba(124,58,237,.08); border-color: #c4b5fd; transform: translateY(-1px) }
+.channel-card.skeleton { cursor: default }
+.add-card {
+  border: 2px dashed #e0d6f5; background: #fafafe;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-height: 180px; color: #b8aad0; gap: 8px; font-size: 13px;
 }
-.mc-title { font-size:17px; font-weight:700; color:var(--mc-text); letter-spacing:-.01em; }
-.mc-filter { padding:12px 16px; }
+.add-card:hover { border-color: #7c3aed; color: #7c3aed }
 
-/* ─── Platform Tabs ─── */
-.mc-tabs {
-  display:flex; gap:2px; padding:4px 12px 0;
-  border-bottom:1px solid var(--mc-border); background:var(--mc-white);
-}
-.mc-tabs span {
-  flex:1; text-align:center; padding:8px 0; font-size:12.5px; color:var(--mc-text-muted);
-  cursor:pointer; border-bottom:2px solid transparent; transition:all var(--mc-transition);
-  display:flex; align-items:center; justify-content:center; gap:5px;
-  position:relative; top:1px;
-}
-.mc-tabs span.active { color:var(--mc-primary); border-bottom-color:var(--mc-primary); font-weight:600; }
-.mc-tabs span:hover { color:var(--mc-primary); }
-.mc-dot {
-  display:inline-block; width:7px; height:7px; border-radius:50%; flex-shrink:0;
-  background:var(--mc-text-muted); transition:background var(--mc-transition);
-}
-.mc-dot.wechat { background:var(--mc-wechat); }
-.mc-dot.wecom { background:var(--mc-wecom); }
-.mc-dot.feishu { background:var(--mc-feishu); }
-.mc-dot.douyin { background:var(--mc-douyin); }
-.mc-tabs span.active .mc-dot { box-shadow:0 0 0 3px rgba(124,58,237,.15); }
+/* 卡片头部 */
+.card-hd { display: flex; align-items: center; gap: 12px }
+.card-platform { width: 48px; height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 24px; flex-shrink: 0 }
+.card-title { flex: 1; min-width: 0 }
+.card-name { font-weight: 600; font-size: 14px; color: #4a3f5e; display: block }
+.card-type { font-size: 11px; color: #909399 }
+.card-status { display: flex; align-items: center; gap: 4px; font-size: 12px; padding: 4px 10px; border-radius: 8px; background: #f8f9fc }
+.card-status.conn-healthy { color: #166534; background: #f0fdf0 }
+.card-status.conn-error { color: #991b1b; background: #fef2f2 }
+.card-status.status-off { color: #6b7280; background: #f3f4f6 }
 
-/* ─── Conversation List ─── */
-.mc-conv-list { flex:1; overflow-y:auto; padding:4px 8px; }
-.mc-conv-item {
-  display:flex; padding:10px 12px; gap:10px; cursor:pointer;
-  border-radius:10px; transition:all var(--mc-transition); position:relative;
-  margin-bottom:2px; border:1px solid transparent;
-}
-.mc-conv-item:hover {
-  background:var(--mc-primary-hover);
-  box-shadow:var(--mc-shadow-sm);
-}
-.mc-conv-item:hover .mc-conv-del { display:flex; }
-.mc-conv-item.active {
-  background:var(--mc-primary-bg);
-  border-color:rgba(124,58,237,.15);
-  box-shadow:inset 3px 0 0 var(--mc-primary);
-}
-.mc-conv-del {
-  display:none; position:absolute; right:4px; top:50%; transform:translateY(-50%);
-  width:28px; height:28px; border-radius:6px; align-items:center; justify-content:center;
-  background:rgba(255,255,255,.9); box-shadow:var(--mc-shadow-sm);
-}
-.mc-conv-del:hover { background:#fee2e2; }
-.mc-conv-avatar { position:relative; flex-shrink:0; }
-.mc-online-dot {
-  position:absolute; bottom:0; right:0; width:11px; height:11px;
-  background:var(--mc-success); border-radius:50%;
-  border:2px solid var(--mc-white); z-index:1;
-  animation:mc-pulse 2s ease-in-out infinite;
-}
-@keyframes mc-pulse {
-  0%, 100% { box-shadow:0 0 0 0 rgba(16,185,129,.4); }
-  50% { box-shadow:0 0 0 5px rgba(16,185,129,0); }
-}
-.mc-platform-badge {
-  position:absolute; bottom:-3px; right:-5px;
-  width:17px; height:17px; border-radius:50%;
-  font-size:10px; color:#fff; display:flex; align-items:center; justify-content:center;
-  font-weight:600; box-shadow:0 2px 4px rgba(0,0,0,.18); z-index:2;
-  background:var(--mc-primary);
-}
-.mc-platform-badge.wechat { background:var(--mc-wechat); }
-.mc-platform-badge.wecom { background:var(--mc-wecom); }
-.mc-platform-badge.feishu { background:var(--mc-feishu); }
-.mc-platform-badge.douyin { background:var(--mc-douyin); }
+/* 卡片内容 */
+.card-body { font-size: 12px; color: #6b7280; line-height: 1.5; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical }
+.card-meta { display: flex; gap: 12px; font-size: 11px; color: #909399; align-items: center }
+.card-meta span { display: flex; align-items: center; gap: 3px }
 
-.mc-conv-body { flex:1; min-width:0; overflow:hidden; }
-.mc-conv-top { display:flex; justify-content:space-between; align-items:baseline; }
-.mc-conv-name { font-size:14px; font-weight:600; color:var(--mc-text); cursor:default; }
-.mc-rename-input { width:100%; }
-.mc-conv-time { font-size:11px; color:var(--mc-text-muted); flex-shrink:0; margin-left:8px; }
-.mc-conv-bottom { display:flex; align-items:center; gap:6px; margin-top:3px; }
-.mc-conv-preview {
-  font-size:12px; color:var(--mc-text-secondary); flex:1;
-  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-}
-.mc-conv-meta { display:flex; align-items:center; gap:6px; margin-top:4px; }
-.mc-conv-agent { font-size:11px; color:var(--mc-text-muted); }
+/* 操作 */
+.card-actions { display: flex; gap: 4px; border-top: 1px solid #f0ecf8; padding-top: 10px; justify-content: flex-end }
 
-/* ─── Chat Area ─── */
-.mc-main { flex:1; display:flex; flex-direction:column; background:var(--mc-white); }
-.mc-empty {
-  flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
-  background:linear-gradient(180deg, var(--mc-white) 0%, var(--mc-bg) 100%);
-}
-.mc-empty-hint {
-  text-align:center; color:var(--mc-text-muted); font-size:13px; margin-top:16px;
-  line-height:1.8; background:var(--mc-white); padding:16px 24px;
-  border-radius:var(--mc-radius); box-shadow:var(--mc-shadow-sm);
-  border:1px solid var(--mc-border);
-}
-.mc-empty-hint p { margin:4px 0; }
+/* 脉冲点 */
+.pulse-dot { width: 7px; height: 7px; border-radius: 50%; background: #9ca3af; flex-shrink: 0 }
+.pulse-dot.running { background: #22c55e; animation: pulse 2s infinite }
+.pulse-dot.stopped { background: #ef4444 }
+@keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(34,197,94,.5) } 50% { box-shadow: 0 0 0 5px rgba(34,197,94,0) } }
 
-/* ─── Chat Header ─── */
-.mc-chat-hd {
-  display:flex; align-items:center; justify-content:space-between;
-  padding:14px 20px; border-bottom:1px solid var(--mc-border);
-  background:var(--mc-white);
-}
-.mc-chat-contact { display:flex; align-items:center; gap:10px; }
-.mc-chat-name { font-size:15px; font-weight:700; color:var(--mc-text); }
-.mc-chat-platform { font-size:12px; color:var(--mc-text-muted); display:flex; align-items:center; gap:4px; }
-.mc-chat-agent { display:flex; align-items:center; gap:10px; }
-.mc-chat-mode { display:flex; align-items:center; gap:10px; }
-.mc-mode-label { font-size:12px; color:var(--mc-text-muted); font-weight:500; }
+/* 空状态 */
+.empty-hero { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 80px 20px; text-align: center }
+.empty-icon { width: 80px; height: 80px; border-radius: 20px; background: #f5f3ff; display: flex; align-items: center; justify-content: center; color: #7c3aed; margin-bottom: 16px }
+.empty-hero h3 { font-size: 18px; color: #4a3f5e; margin: 0 0 8px }
+.empty-hero p { color: #909399; margin: 0 0 20px; font-size: 13px }
 
-/* ─── Messages ─── */
-.mc-msg-list { flex:1; overflow-y:auto; padding:16px 20px; background:var(--mc-bg); }
-.mc-date-sep {
-  text-align:center; margin:14px 0; font-size:11px; color:var(--mc-text-muted);
-  display:flex; align-items:center; gap:12px;
-}
-.mc-date-sep::before,
-.mc-date-sep::after {
-  content:''; flex:1; height:1px; background:var(--mc-border);
-}
-.mc-msg-row { margin-bottom:8px; display:flex; animation:mc-msg-in .25s ease-out; }
-@keyframes mc-msg-in {
-  from { opacity:0; transform:translateY(8px); }
-  to { opacity:1; transform:translateY(0); }
-}
-.mc-msg-row.incoming { justify-content:flex-start; }
-.mc-msg-row.outgoing { justify-content:flex-end; }
-.mc-msg-bubble {
-  max-width:72%; padding:10px 14px; position:relative; word-break:break-word;
-}
-.mc-msg-bubble.incoming {
-  background:#fff; border-radius:4px 16px 16px 16px;
-  box-shadow:var(--mc-shadow-sm); border:1px solid var(--mc-border);
-}
-.mc-msg-bubble.incoming::after {
-  content:''; position:absolute; left:-7px; top:6px;
-  width:0; height:0;
-  border:7px solid transparent;
-  border-right-color:var(--mc-border);
-  border-left:0; border-top:0;
-}
-.mc-msg-bubble.incoming::before {
-  content:''; position:absolute; left:-5px; top:8px;
-  width:0; height:0;
-  border:6px solid transparent;
-  border-right-color:#fff;
-  border-left:0; border-top:0;
-  z-index:1;
-}
-.mc-msg-bubble.outgoing {
-  background:linear-gradient(135deg, #7c3aed, #8b5cf6);
-  color:#fff; border-radius:16px 4px 16px 16px;
-  box-shadow:0 2px 8px rgba(124,58,237,.25);
-}
-.mc-msg-bubble.outgoing::after {
-  content:''; position:absolute; right:-7px; top:6px;
-  width:0; height:0;
-  border:7px solid transparent;
-  border-left-color:#8b5cf6;
-  border-right:0; border-top:0;
-}
-.mc-msg-text { font-size:14px; line-height:1.6; white-space:pre-wrap; }
-.mc-msg-time { font-size:10px; margin-top:4px; opacity:.6; }
-.mc-msg-mode-tag {
-  position:absolute; top:-9px; right:10px; font-size:10px;
-  backdrop-filter:blur(4px);
-}
-.mc-msg-empty {
-  text-align:center; color:var(--mc-text-muted); padding:60px 0; font-size:13px;
-}
+/* 类型选择器 */
+.type-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px }
+.type-card { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 12px; border: 1px solid #f0ecf8; cursor: pointer; transition: all .15s }
+.type-card:hover { border-color: #7c3aed; background: #f5f3ff }
+.type-card.type-disabled { opacity: .55; cursor: not-allowed }
+.type-card.type-disabled:hover { border-color: #f0ecf8; background: #fff }
+.type-emoji { font-size: 28px }
+.type-name { font-weight: 600; font-size: 14px; color: #4a3f5e; display: block }
+.type-desc { font-size: 11px; color: #909399 }
 
-/* ─── AI Suggestion ─── */
-.mc-suggestion {
-  border:1px solid #fcd34d; background:linear-gradient(135deg, #fffbeb, #fef3c7);
-  padding:12px 20px; margin:0 16px 0 16px;
-  border-radius:10px 10px 0 0;
-}
-.mc-suggestion-hd {
-  display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600;
-  color:#d97706; margin-bottom:6px;
-}
-.mc-suggestion-hd .el-button { margin-left:auto; }
-.mc-suggestion-hd .el-button:first-of-type { margin-left:4px; }
-.mc-suggestion-body {
-  font-size:13px; color:var(--mc-text); line-height:1.6;
-  max-height:80px; overflow-y:auto; white-space:pre-wrap;
-}
+/* 健康条 */
+.health-bar { margin-top: 20px; padding: 10px 14px; background: #fff; border-radius: 12px; border: 1px solid #f0ecf8; display: flex; flex-wrap: wrap; gap: 6px; align-items: center }
+.health-chip { display: flex; align-items: center; gap: 4px; font-size: 11px; padding: 3px 10px; border-radius: 10px; background: #f0f0f0; color: #666 }
+.health-chip.healthy { background: #f0fdf0; color: #166534 }
+.health-chip.degraded { background: #fffbeb; color: #92400e }
+.health-chip.unhealthy { background: #fef2f2; color: #991b1b }
+.health-dot { width: 7px; height: 7px; border-radius: 50%; background: #9ca3af }
+.health-dot.healthy { background: #22c55e }
+.health-dot.degraded { background: #f59e0b }
+.health-dot.unhealthy { background: #ef4444 }
+.health-summary { font-size: 11px; color: #909399; margin-left: 4px }
 
-/* ─── Bottom Bar ─── */
-.mc-bottom-bar {
-  display:flex; align-items:center; justify-content:space-between;
-  padding:10px 20px; border-top:1px solid var(--mc-border); background:var(--mc-white);
-}
-.mc-bottom-agent, .mc-bottom-mode { display:flex; align-items:center; gap:8px; }
-
-/* ─── Input Area ─── */
-.mc-input-area {
-  padding:12px 20px; background:var(--mc-white);
-}
-.mc-input-area :deep(.el-textarea__inner) {
-  border-radius:10px; border-color:var(--mc-border); font-size:14px;
-  transition:all var(--mc-transition);
-}
-.mc-input-area :deep(.el-textarea__inner:focus) {
-  border-color:var(--mc-primary); box-shadow:0 0 0 3px rgba(124,58,237,.1);
-}
-.mc-input-actions { display:flex; justify-content:space-between; align-items:center; margin-top:10px; }
-.mc-input-hint { font-size:11px; color:var(--mc-text-muted); }
-
-/* ─── Forms & Dialogs ─── */
-.mc-form-hint { display:block; font-size:11px; color:var(--mc-text-muted); margin-top:4px; line-height:1.5; }
-.mc-id-text { font-family:'SF Mono',monospace; font-size:11px; cursor:pointer; color:var(--mc-primary); }
-.mc-status-dot {
-  display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:5px;
-  background:var(--mc-text-muted); vertical-align:middle;
-}
-.mc-status-dot.online { background:var(--mc-success); animation:mc-pulse 2s ease-in-out infinite; }
-
-/* ─── Account Dialog Table ─── */
-.mc-layout :deep(.el-table) { border-radius:8px; overflow:hidden; }
-.mc-layout :deep(.el-table .el-table__row) { transition:background var(--mc-transition); }
-.mc-layout :deep(.el-table .el-table__row:hover) { background:var(--mc-primary-hover); }
-
-/* ─── Scrollbar ─── */
-.mc-conv-list::-webkit-scrollbar,
-.mc-msg-list::-webkit-scrollbar,
-.mc-suggestion-body::-webkit-scrollbar { width:5px; }
-.mc-conv-list::-webkit-scrollbar-track,
-.mc-msg-list::-webkit-scrollbar-track { background:transparent; }
-.mc-conv-list::-webkit-scrollbar-thumb,
-.mc-msg-list::-webkit-scrollbar-thumb,
-.mc-suggestion-body::-webkit-scrollbar-thumb {
-  background:#d1d5db; border-radius:3px;
-}
-.mc-conv-list::-webkit-scrollbar-thumb:hover,
-.mc-msg-list::-webkit-scrollbar-thumb:hover { background:#9ca3af; }
-
-/* ─── Mode Radio Button Polish ─── */
-.mc-bottom-mode :deep(.el-radio-group) { border-radius:8px; overflow:hidden; }
-.mc-bottom-mode :deep(.el-radio-button__inner) {
-  border:1px solid var(--mc-border); font-size:12px; padding:5px 12px;
-  transition:all var(--mc-transition);
-}
-.mc-chat-mode :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
-  background:var(--mc-primary); border-color:var(--mc-primary); color:#fff;
-  box-shadow:none;
-}
-
-/* ─── Send Button Polish ─── */
-.mc-input-actions :deep(.el-button--primary) {
-  background:linear-gradient(135deg, #7c3aed, #8b5cf6); border:none;
-  box-shadow:0 2px 6px rgba(124,58,237,.3); transition:all var(--mc-transition);
-}
-.mc-input-actions :deep(.el-button--primary:hover) {
-  box-shadow:0 4px 12px rgba(124,58,237,.4); transform:translateY(-1px);
-}
-
-/* ─── Upload Button ─── */
-.mc-upload-btn {
-  display:flex; align-items:center; justify-content:center;
-  width:34px; height:34px; border-radius:8px; cursor:pointer;
-  color:var(--mc-text-muted); transition:all var(--mc-transition);
-  border:1px dashed var(--mc-border);
-}
-.mc-upload-btn:hover { color:var(--mc-primary); border-color:var(--mc-primary); background:var(--mc-primary-bg); }
-
-/* ─── Message Attachments ─── */
-.mc-msg-attachments { margin-top:8px; display:flex; flex-direction:column; gap:4px; }
-.mc-attach-img {
-  max-width:200px; max-height:200px; border-radius:8px; cursor:pointer;
-  border:1px solid rgba(0,0,0,.08); transition:transform var(--mc-transition);
-}
-.mc-attach-img:hover { transform:scale(1.02); }
-.mc-attach-file {
-  display:flex; align-items:center; gap:6px; padding:6px 10px;
-  background:rgba(0,0,0,.04); border-radius:6px; font-size:12px;
-  color:var(--mc-primary); text-decoration:none; transition:background var(--mc-transition);
-}
-.mc-attach-file:hover { background:rgba(0,0,0,.08); }
+/* 会话列表 */
+.conv-list { display: flex; flex-direction: column }
+.conv-item { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid #f8f9fc; cursor: pointer }
+.conv-item:hover { background: #fafafe }
+.conv-body { flex: 1; min-width: 0 }
+.conv-top { display: flex; justify-content: space-between; align-items: center }
+.conv-name { font-weight: 500; font-size: 13px; color: #334155 }
+.conv-time { font-size: 11px; color: #909399 }
+.conv-preview { font-size: 12px; color: #909399; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 2px 0 }
 </style>

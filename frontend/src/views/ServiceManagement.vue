@@ -50,6 +50,33 @@
         </div>
       </div>
     </div>
+
+    <!-- LLM 供应商健康 -->
+    <div class="section-card card-accent-llm" style="margin-top:20px" v-if="llmHealth">
+      <div class="section-hd">
+        <span class="section-title">LLM 供应商健康</span>
+        <el-tag v-if="llmInCooldown > 0" type="warning" size="small" effect="dark" round>{{ llmInCooldown }} 冷却中</el-tag>
+        <el-tag v-else type="success" size="small" effect="dark" round>全部正常</el-tag>
+      </div>
+      <div class="llm-grid">
+        <div v-for="(info, pid) in llmHealth.pool || {}" :key="pid" class="llm-card">
+          <div class="llm-card-hd">
+            <span class="pulse-dot" :class="info ? 'stopped' : 'running'"></span>
+            <span class="llm-name">{{ pid }}</span>
+            <el-tag v-if="info" type="danger" size="small" effect="dark" round>已移除</el-tag>
+            <el-tag v-else type="success" size="small" effect="dark" round>可用</el-tag>
+          </div>
+          <div v-if="info" class="llm-reason">{{ info.message }}</div>
+          <div v-if="llmHealth.health?.[pid]" class="llm-stats">
+            连续失败: {{ llmHealth.health[pid].consecutiveFailures || 0 }}
+            <span v-if="llmHealth.health[pid].cooldownRemainingMs > 0" style="color:#f59e0b">
+              | 冷却中 {{ Math.ceil(llmHealth.health[pid].cooldownRemainingMs / 1000) }}s
+            </span>
+          </div>
+        </div>
+        <el-empty v-if="!Object.keys(llmHealth.pool || {}).length" description="暂无供应商数据" :image-size="40" />
+      </div>
+    </div>
   </div>
 </template>
 
@@ -57,9 +84,11 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { Refresh, Cpu, Memo, Timer, Monitor, VideoCamera, PictureFilled, Connection } from '@element-plus/icons-vue'
 import { getStatus } from '../api/index.js'
+import { llmHealthApi } from '../api/health.js'
 
 const services = ref([])
 const system = ref(null)
+const llmHealth = ref(null)
 const loading = ref(false)
 let timer = null
 
@@ -107,14 +136,21 @@ function openUrl(name) {
   if (url) window.open(url, '_blank')
 }
 
+const llmPoolSize = computed(() => llmHealth.value?.summary?.poolSize || 0)
+const llmInCooldown = computed(() => llmHealth.value?.summary?.inCooldown || 0)
+
 async function fetchStatus() {
   loading.value = true
   try {
-    const res = await getStatus()
+    const [res, llmRes] = await Promise.all([
+      getStatus(),
+      llmHealthApi.get().catch(() => ({ data: { data: null } }))
+    ])
     if (res.data?.code === 200) {
       services.value = res.data.data.services || []
       system.value = res.data.data.system || null
     }
+    llmHealth.value = llmRes.data?.data || null
   } catch (e) {
     console.error('获取服务状态失败', e)
   } finally {
@@ -220,6 +256,24 @@ onUnmounted(() => {
   0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,.5); }
   50% { box-shadow: 0 0 0 5px rgba(34,197,94,0); }
 }
+
+/* LLM 供应商健康 */
+.section-card { background: #fff; border-radius: 12px; border: 1px solid #f0ecf8; overflow: hidden }
+.card-accent-llm { border-left: 3px solid #7c3aed }
+.section-hd {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px; border-bottom: 1px solid #f0ecf8;
+}
+.section-title { font-weight: 600; font-size: 14px; color: #4a3f5e }
+.llm-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px; padding: 14px;
+}
+.llm-card { padding: 12px; background: #f8f9fc; border-radius: 8px; border: 1px solid #f0ecf8 }
+.llm-card-hd { display: flex; align-items: center; gap: 8px; margin-bottom: 4px }
+.llm-name { font-weight: 600; font-size: 13px; color: #4a3f5e }
+.llm-reason { font-size: 11px; color: #ef4444; margin-top: 4px; word-break: break-all }
+.llm-stats { font-size: 11px; color: #909399; margin-top: 4px }
 
 @media (max-width: 900px) {
   .service-grid { grid-template-columns: 1fr; }

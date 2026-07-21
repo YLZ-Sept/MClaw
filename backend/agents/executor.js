@@ -2,12 +2,99 @@
 const { randomUUID } = require('crypto');
 const db = require('../db');
 const { getExecutionContext } = require('../shared/execution-context');
+const { needsApproval, requestApproval } = require('./tool-guard');
+let _audit = null;
+function audit() { if (!_audit) _audit = require('../services/audit'); return _audit; }
 
 let _cachedNodeId = null;
 
+// ── 工具名称规范化 ──
+function normalizeToolName(name) {
+  if (!name) return name;
+  // Read_File → read_file, BrowserUseTool → browser_use
+  // 只在小写字母后跟大写字母，或数字后跟大写字母的位置插入下划线
+  let n = name.replace(/([a-z\d])([A-Z])/g, '$1_$2').toLowerCase();
+  // 去除常见后缀
+  n = n.replace(/_tool$/, '').replace(/_function$/, '');
+  // 合并连续下划线
+  n = n.replace(/_+/g, '_');
+  return n;
+}
+
+// ── 只读工具集合 ──
+const READ_ONLY_TOOLS = new Set([
+  'list_customers', 'get_customer', 'search_customer',
+  'list_contacts', 'list_opportunities', 'get_opportunity',
+  'list_contracts', 'get_contract',
+  'list_purchase_orders', 'get_purchase_order',
+  'list_sales_orders', 'get_sales_order',
+  'list_returns', 'get_return',
+  'list_employees', 'get_employee', 'search_employee',
+  'list_departments', 'list_recruitment', 'list_candidates',
+  'list_documents', 'search_documents', 'list_document_folders',
+  'list_tickets', 'get_ticket', 'list_feedback',
+  'search_faq', 'match_faq',
+  'list_hot_products', 'get_hot_product',
+  'list_hot_contents', 'get_hot_content', 'list_hot_leads',
+  'list_bid_items', 'search_bid_items', 'list_bid_sources', 'list_bid_keywords',
+  'list_bid_statistics', 'list_finance_records', 'get_finance_summary',
+  'get_dashboard_stats', 'get_dashboard_hot_stats',
+  'list_asset_ledger', 'list_performance_reports', 'list_attendance_reports',
+  'list_local_files', 'search_local_files', 'read_local_file',
+  'search_documents', 'search_employee',
+  'tool_recall'
+]);
+
+// ── 执行单个工具（含名称规范化） ──
 async function exec(toolName, args, context) {
+  // 规范化工具名称
+  const normalizedName = normalizeToolName(toolName);
+  if (normalizedName !== toolName) {
+    console.log(`[executor] 工具名规范化: ${toolName} → ${normalizedName}`);
+  }
+
   try {
-    switch (toolName) {
+    // 安全审批栅栏
+    const risk = needsApproval(normalizedName);
+    if (risk.needed) {
+      // 检查是否已批准（通过 args 中的 _approval_id）
+      if (args._approval_id) {
+        const { approve, pendingApprovals } = require('./tool-guard');
+        const result = approve(args._approval_id);
+        if (!result.success) return { error: `审批 ${args._approval_id} 已过期，请重新发起操作` };
+        // 审批通过，继续执行（去掉 _approval_id）
+        delete args._approval_id;
+        // 审计：审批通过后执行危险工具
+        audit().recordAudit({
+          eventType: 'tool_executed',
+          toolName: normalizedName,
+          argsSummary: JSON.stringify(args).slice(0, 500),
+          approvalId: result.entry?.id || ''
+        });
+      } else {
+        const approval = requestApproval(normalizedName, args);
+        console.log(`[guard] ${normalizedName} 需要审批: ${approval.id}`);
+        return {
+          approval_required: true,
+          approval_id: approval.id,
+          tool: normalizedName,
+          args_summary: JSON.stringify(args).slice(0, 300),
+          level: risk.level,
+          desc: risk.desc,
+          message: `⚠️ 危险操作需要审批\n工具: ${normalizedName}\n级别: ${risk.level}\n说明: ${risk.desc}\n参数: ${JSON.stringify(args).slice(0, 200)}\n\n审批ID: ${approval.id}\n请用户确认后，使用 _approval_id 参数重新调用此工具。`
+        };
+      }
+    }
+
+    // 插件注册表优先：动态注册的工具
+    const { get: getPluginTool } = require('./tool-registry');
+    const pluginTool = getPluginTool(normalizedName);
+    if (pluginTool) {
+      const result = await pluginTool.handler(args, context);
+      return result;
+    }
+
+    switch (normalizedName) {
 
       // ─── CRM ───
       case 'list_customers':
@@ -724,13 +811,168 @@ async function exec(toolName, args, context) {
         }
       }
 
+      // ─── 多 Agent 委派 ───
+      case 'delegate_to_agent':
+        const { delegateToAgent } = require('./delegate');
+        return await delegateToAgent(args.agent_id || args.agentId, args.task || args.prompt, {
+          depth: args._depth || 0
+        });
+
+      case 'delegate_parallel':
+        const { delegateParallel } = require('./delegate');
+        return await delegateParallel(args.tasks || [], {
+          depth: args._depth || 0
+        });
+
+      // ─── 记忆系统 ───
+      case 'tool_remember':
+        const { toolRemember } = require('../services/memory');
+        return await toolRemember(
+          args.agent_id || context?.agentId || getExecutionContext(),
+          args.content,
+          args.source || 'agent'
+        );
+
+      case 'tool_recall':
+        const { toolRecall } = require('../services/memory');
+        return await toolRecall(
+          args.agent_id || context?.agentId || getExecutionContext(),
+          args.query
+        );
+
       default:
-        return { error: `未知工具: ${toolName}` };
+        return { error: `未知工具: ${normalizedName}` };
     }
   } catch (err) {
-    console.error(`[executor] ${toolName} error:`, err.message);
+    console.error(`[executor] ${normalizedName || toolName} error:`, err.message);
     return { error: `操作失败: ${err.message}` };
   }
 }
 
-module.exports = { exec };
+// ── 工具并发执行 ──
+
+const MAX_TOOL_CALLS_PER_RESPONSE = 16; // 防止 LLM 一次性发送过量 tool_calls
+
+/**
+ * 批量执行工具调用，并发安全的工具并行执行
+ * @param {Array} toolCalls - [{ id, function: { name, arguments } }]
+ * @param {Object} context - 执行上下文
+ * @returns {Array} - 与 toolCalls 位置对齐的结果数组
+ */
+async function execBatch(toolCalls, context) {
+  if (!toolCalls || !toolCalls.length) return [];
+
+  // 工具洪泛上限：超过 16 个只执行前 16 个，其余返回错误
+  if (toolCalls.length > MAX_TOOL_CALLS_PER_RESPONSE) {
+    console.warn(`[executor] 工具洪泛: ${toolCalls.length} 个 tool_calls, 上限 ${MAX_TOOL_CALLS_PER_RESPONSE}`);
+    const truncated = toolCalls.slice(0, MAX_TOOL_CALLS_PER_RESPONSE);
+    const overflow = toolCalls.slice(MAX_TOOL_CALLS_PER_RESPONSE);
+    const results = await _execBatchInternal(truncated, context);
+    for (const tc of overflow) {
+      results.push({ error: `工具调用被限流（单轮最多 ${MAX_TOOL_CALLS_PER_RESPONSE} 个）。请分批执行。` });
+    }
+    return results;
+  }
+
+  return _execBatchInternal(toolCalls, context);
+}
+
+async function _execBatchInternal(toolCalls, context) {
+  if (!toolCalls || !toolCalls.length) return [];
+
+  // 日志
+  console.log(`[executor] batch ${toolCalls.length} tools: ${toolCalls.map(tc => normalizeToolName(tc.function?.name || '?')).join(', ')}`);
+
+  // 按并发安全性分组
+  const groups = [];
+  let currentGroup = { safe: true, calls: [], indices: [] };
+
+  for (let i = 0; i < toolCalls.length; i++) {
+    const tc = toolCalls[i];
+    const name = normalizeToolName(tc.function?.name || '');
+    const isReadOnly = READ_ONLY_TOOLS.has(name);
+    const isSafe = isReadOnly; // 只有只读工具可以并发
+
+    if (isSafe === currentGroup.safe) {
+      currentGroup.calls.push(tc);
+      currentGroup.indices.push(i);
+    } else {
+      if (currentGroup.calls.length) groups.push(currentGroup);
+      currentGroup = { safe: isSafe, calls: [tc], indices: [i] };
+    }
+  }
+  if (currentGroup.calls.length) groups.push(currentGroup);
+
+  // 分段执行
+  const results = new Array(toolCalls.length);
+
+  for (const group of groups) {
+    if (group.safe) {
+      // 并发安全组：并行执行
+      const batch = await Promise.all(
+        group.calls.map(async (tc, idx) => {
+          let args;
+          try { args = JSON.parse(tc.function.arguments || '{}'); } catch { args = {}; }
+          const startTime = Date.now();
+          try {
+            const result = await exec(tc.function.name, args, context);
+            const duration = Date.now() - startTime;
+            if (duration > 1000) {
+              console.log(`[executor] ${tc.function.name} took ${duration}ms`);
+            }
+            // 指标记录
+            try {
+              const metrics = require('../services/tool-metrics');
+              metrics.record(tc.function.name, duration, !!(result && !result.error), result?.error || '', context?.agentId || '');
+            } catch {}
+            // 事件推送
+            try {
+              require('../channels/event-bus').broadcast({
+                type: 'tool_executed',
+                tool: tc.function.name,
+                duration_ms: duration,
+                success: !!(result && !result.error),
+                time: Date.now()
+              });
+            } catch {}
+            return result;
+          } catch (err) {
+            return { error: `工具执行异常: ${err.message}` };
+          }
+        })
+      );
+      // 按原始位置放回
+      group.indices.forEach((originalIdx, batchIdx) => {
+        results[originalIdx] = batch[batchIdx];
+      });
+    } else {
+      // 写工具组：顺序执行（避免数据竞争）
+      for (let j = 0; j < group.calls.length; j++) {
+        const tc = group.calls[j];
+        let args;
+        try { args = JSON.parse(tc.function.arguments || '{}'); } catch { args = {}; }
+        const sTime = Date.now();
+        try {
+          const r = await exec(tc.function.name, args, context);
+          const dur = Date.now() - sTime;
+          if (dur > 1000) console.log(`[executor] ${tc.function.name} took ${dur}ms`);
+          try { require('../services/tool-metrics').record(tc.function.name, dur, !!(r && !r.error), r?.error || '', context?.agentId || ''); } catch {}
+          results[group.indices[j]] = r;
+        } catch (err) {
+          results[group.indices[j]] = { error: `工具执行异常: ${err.message}` };
+        }
+      }
+    }
+  }
+
+  return results;
+}
+
+/**
+ * 判断工具是否只读（并发安全）
+ */
+function isReadOnlyTool(toolName) {
+  return READ_ONLY_TOOLS.has(normalizeToolName(toolName));
+}
+
+module.exports = { exec, execBatch, normalizeToolName, isReadOnlyTool };

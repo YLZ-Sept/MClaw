@@ -33,4 +33,4 @@ systemctl reload httpd 2>&1 && echo "Apache reloaded OK"
     });
   });
 });
-conn.connect({ host: '115.159.191.117', port: 22, username: 'root', password: '1qaz@WSX', readyTimeout: 10000 });
+conn.connect({ host: '115.159.191.117', port: 22, username: 'root', password: 'yqdkygb911...', readyTimeout: 10000 });

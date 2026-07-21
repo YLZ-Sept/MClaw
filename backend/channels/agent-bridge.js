@@ -666,6 +666,15 @@ function loadAgentConfig(agent) {
     }
   } catch {}
 
+  // 合并插件工具
+  try {
+    const { getPluginToolDefs } = require('../agents/plugin-manager');
+    const pluginDefs = getPluginToolDefs();
+    if (pluginDefs.length > 0) {
+      mergedTools = [...mergedTools, ...pluginDefs];
+    }
+  } catch {}
+
   return { systemPrompt, tools: mergedTools };
 }
 
@@ -697,10 +706,19 @@ async function polishReply(rawReply) {
     const dsData = await dsRes.json();
     const polished = dsData.choices?.[0]?.message?.content;
     const result = polished && polished.length > 20 ? polished : rawReply;
-    return rewriteDownloadUrls(result);
+    return sanitizeForChannel(result);
   } catch {
-    return rewriteDownloadUrls(rawReply);
+    return sanitizeForChannel(rawReply);
   }
+}
+
+// 渠道消息净化：过滤 thinking/tool_call + 长度切分
+function sanitizeForChannel(text, platform = 'default') {
+  try {
+    const { renderForChannel } = require('./renderer');
+    const parts = renderForChannel(text, platform);
+    return parts.join('\n\n---\n\n'); // 多段用分隔符连接
+  } catch { return text; }
 }
 
 // ─── 关键词评分（自动分配 Agent） ───
