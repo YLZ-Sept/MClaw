@@ -5,7 +5,7 @@
         <span class="page-title">应用智能体管理</span>
         <span class="page-sub">AI Agent 配置与技能管理</span>
       </div>
-      <el-button type="primary" @click="openAdd">添加智能体</el-button>
+      <el-button type="primary" @click="showWizard = true">✨ AI 创建智能体</el-button>
     </div>
 
     <!-- 统计 -->
@@ -492,6 +492,10 @@
         <el-button type="primary" @click="saveAgent">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- AI 创建向导 -->
+    <AgentCreateWizard v-model="showWizard" @created="loadAgents" />
+
   </div>
 </template>
 
@@ -501,11 +505,13 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Avatar, Cpu, Check, Setting, Plus, Delete, FolderOpened, Document, Loading, MagicStick, CircleCheck, WarningFilled } from '@element-plus/icons-vue'
 import request from '../api/index.js'
+import AgentCreateWizard from '../components/agent/AgentCreateWizard.vue'
 const router = useRouter()
 
 const agents = ref([])
 const kbArticles = ref([])
 const dlg = reactive({ visible: false, isEdit: false, form: {} })
+const showWizard = ref(false)
 const promptGenerating = ref(false)
 const browseDlg = reactive({ visible: false, loading: false, current: '', parent: null, items: [], editIdx: -1 })
 const icons = ['Avatar', 'Coin', 'Headset', 'Lock', 'ChatDotSquare', 'DataAnalysis', 'Cpu', 'Setting', 'Promotion', 'List', 'FolderOpened', 'Document']

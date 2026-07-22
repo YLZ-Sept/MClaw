@@ -890,11 +890,8 @@ app.post('/api/plugins/:name/reload', requireAuth, (req, res) => {
   res.json({ code: ok ? 200 : 404, data: { success: ok } });
 });
 
-// ── 仪表盘专用：模型配置摘要（不限 model 权限）──
-app.get('/api/dashboard/models', requireAuth, (req, res) => {
-  const rows = require('./db').prepare('SELECT id, name, provider, model, is_active, is_default FROM model_configs ORDER BY is_default DESC').all();
-  res.json({ code: 200, data: rows });
-});
+// ── 仪表盘数据 API ──
+app.use('/api/dashboard', requireAuth, require('./routes/dashboard'));
 
 // ── 工具指标 ──
 app.get('/api/metrics/tools', requireAuth, (req, res) => {

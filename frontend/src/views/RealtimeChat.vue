@@ -17,9 +17,23 @@
     </div>
 
     <div class="chat-messages" ref="messagesRef">
-      <ChatMessage v-for="(msg, i) in messages" :key="i" :role="msg.role" :content="msg.content" :toolCalls="msg.toolCalls || []" />
-      <div v-if="streaming" class="typing-indicator">
-        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+      <ChatMessage
+        v-for="(msg, i) in messages" :key="i"
+        :role="msg.role" :content="msg.content || ''"
+        :toolCalls="msg.toolCalls || []"
+        :segments="msg.segments || []"
+      />
+      <div v-if="streaming" class="stream-status-bar">
+        <span v-if="streamToolCount" class="stream-chip">
+          <el-icon class="is-loading"><Loading /></el-icon>
+          {{ streamToolCount }} 个工具运行中
+        </span>
+        <span v-if="streamThoughtChars" class="stream-chip thinking">
+          思考中 ({{ streamThoughtChars }} 字)
+        </span>
+        <span class="typing-dots">
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        </span>
       </div>
     </div>
 
@@ -55,9 +69,10 @@
 <script setup>
 import { ref, onMounted, nextTick, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Promotion, Upload } from '@element-plus/icons-vue'
+import { Promotion, Upload, Loading } from '@element-plus/icons-vue'
 import request, { getChatHistory, clearChat } from '../api/index.js'
 import ChatMessage from '../components/ChatMessage.vue'
+import { marked } from 'marked'
 
 const router = useRouter()
 const route = useRoute()
@@ -69,6 +84,8 @@ const abortController = ref(null)
 const uploading = ref(false)
 const uploadRef = ref(null)
 const messagesRef = ref(null)
+const streamToolCount = ref(0)
+const streamThoughtChars = ref(0)
 
 const sessionId = ref(null)
 const currentSessionName = ref('')
@@ -192,9 +209,77 @@ async function handleUpload(options) {
   uploading.value = false
 }
 
+// ── 分段构建器 ──
+// 解析 AI 回复内容，拆分出 思考/工具/文本 段落
+function buildSegments(msg) {
+  if (!msg) return []
+  const content = msg.content || ''
+  const toolCalls = msg.toolCalls || []
+  const segs = []
+
+  // 1. 拆分思考段（/* ... */ 标记）
+  let remaining = content
+  while (remaining.length > 0) {
+    const thinkStart = remaining.indexOf('/*')
+    if (thinkStart === 0) {
+      const thinkEnd = remaining.indexOf('*/', thinkStart + 2)
+      if (thinkEnd !== -1) {
+        const thinkContent = remaining.slice(thinkStart + 2, thinkEnd).trim()
+        if (thinkContent) {
+          segs.push({ type: 'thinking', content: thinkContent, expanded: false, rendered: marked.parse(thinkContent) })
+        }
+        remaining = remaining.slice(thinkEnd + 2).trim()
+      } else {
+        // 未闭合的 /*，当普通文本
+        segs.push({ type: 'text', content: remaining, rendered: renderMd(remaining) })
+        remaining = ''
+      }
+    } else {
+      // 普通文本段
+      const nextThink = remaining.indexOf('/*')
+      let textBlock
+      if (nextThink === -1) {
+        textBlock = remaining; remaining = ''
+      } else {
+        textBlock = remaining.slice(0, nextThink); remaining = remaining.slice(nextThink)
+      }
+      textBlock = textBlock.trim()
+      if (textBlock) segs.push({ type: 'text', content: textBlock, rendered: renderMd(textBlock) })
+    }
+  }
+
+  // 2. 工具调用段
+  if (toolCalls.length > 0) {
+    // 找最后一个文本段后面插入
+    const lastTextIdx = segs.length - 1
+    // 把工具调用插在文本段之间
+    const toolSeg = { type: 'tools', calls: toolCalls.map(tc => ({ ...tc, expanded: tc.status === 'running' })) }
+    segs.push(toolSeg)
+  }
+
+  return segs
+}
+
+function renderMd(text) {
+  try {
+    let t = text || ''
+    t = t.replace(/(\/api\/download\/(?:ppt|excel|pdf|docx|diagram|openclaw)\/[^\s"'<>)]+)/g, '[$1]($1)')
+    let html = marked.parse(t)
+    html = html.replace(/<a /g, '<a target="_blank" rel="noopener" ')
+    const token = localStorage.getItem('token')
+    if (token) {
+      html = html.replace(/href="(\/api\/download\/(?:ppt|excel|pdf|docx|diagram|openclaw)\/[^"]+)"/g, (_, url) => `href="${url}?token=${encodeURIComponent(token)}"`)
+    }
+    return html
+  } catch { return text || '' }
+}
+
 // ── SSE 流式响应抽取 ──
 async function streamResponse(body, aiIdx) {
   const signal = abortController.value?.signal
+  let rawText = ''
+  streamToolCount.value = 0
+  streamThoughtChars.value = 0
   try {
     const token = localStorage.getItem('token')
     const dsRes = await fetch('/api/chat/send', {
@@ -205,15 +290,12 @@ async function streamResponse(body, aiIdx) {
     })
     if (!dsRes.ok) {
       let errMsg = `HTTP ${dsRes.status}`
-      try {
-        const errData = await dsRes.json()
-        if (errData.message) errMsg = errData.message
-      } catch {}
+      try { const errData = await dsRes.json(); if (errData.message) errMsg = errData.message } catch {}
       throw new Error(errMsg)
     }
     const reader = dsRes.body.getReader()
     const decoder = new TextDecoder()
-    let buf = '', rawText = '', eventType = 'message'
+    let buf = '', eventType = 'message'
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
@@ -226,12 +308,20 @@ async function streamResponse(body, aiIdx) {
         if (!line.startsWith('data: ')) { if (line === '') eventType = 'message'; continue }
         let data; try { data = JSON.parse(line.slice(6)) } catch { continue }
         if (eventType === 'text') {
-          rawText += data.content; messages.value[aiIdx].content = rawText; scrollToBottom()
+          rawText += data.content
+          messages.value[aiIdx].content = rawText
+          messages.value[aiIdx].segments = buildSegments(messages.value[aiIdx])
+          // 更新思考字数
+          const thinkParts = rawText.match(/\/\*([\s\S]*?)\*\//g)
+          streamThoughtChars.value = thinkParts ? thinkParts.reduce((s, p) => s + p.length, 0) : 0
+          scrollToBottom()
         } else if (eventType === 'error') {
           messages.value[aiIdx].content = '抱歉，服务出现错误：' + (data.message || '未知错误')
         } else if (eventType === 'tool_start') {
           messages.value[aiIdx].toolCalls = messages.value[aiIdx].toolCalls || []
           messages.value[aiIdx].toolCalls.push({ status: 'running', name: data.name })
+          messages.value[aiIdx].segments = buildSegments(messages.value[aiIdx])
+          streamToolCount.value = messages.value[aiIdx].toolCalls.filter(t => t.status === 'running').length
           scrollToBottom()
         } else if (eventType === 'tool_result') {
           const tcs = messages.value[aiIdx].toolCalls || []
@@ -240,11 +330,15 @@ async function streamResponse(body, aiIdx) {
             tc.status = data.success ? 'done' : 'error'
             tc.summary = data.summary
           }
+          messages.value[aiIdx].segments = buildSegments(messages.value[aiIdx])
+          streamToolCount.value = tcs.filter(t => t.status === 'running').length
           scrollToBottom()
         }
         eventType = 'message'
       }
     }
+    // 流完成：最终构建分段（含完成态的工具调用）
+    messages.value[aiIdx].segments = buildSegments(messages.value[aiIdx])
     if (signal?.aborted) {
       if (!messages.value[aiIdx].content) messages.value[aiIdx].content = '(已停止生成)'
       else messages.value[aiIdx].content += '\n\n*(已停止生成)*'
@@ -258,6 +352,8 @@ async function streamResponse(body, aiIdx) {
     }
   }
   streaming.value = false
+  streamToolCount.value = 0
+  streamThoughtChars.value = 0
   abortController.value = null
   scrollToBottom()
   nextTick(() => inputRef.value?.focus())
@@ -357,10 +453,14 @@ onMounted(init)
 .chat-input-wrapper :deep(.el-textarea__inner) { line-height: 1.6; font-size: 14px; }
 .send-btn { flex-shrink: 0; height: 36px; align-self: flex-end; }
 .chat-input-wrapper .el-upload { flex-shrink: 0; align-self: flex-end; margin-bottom: 2px; }
-.typing-indicator { display: flex; gap: 4px; padding: 8px 0; }
-.typing-indicator .dot { width: 8px; height: 8px; border-radius: 50%; background: #c4b5fd; animation: bounce 1.4s infinite ease-in-out both; }
-.typing-indicator .dot:nth-child(1) { animation-delay: -0.32s; }
-.typing-indicator .dot:nth-child(2) { animation-delay: -0.16s; }
-@keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
+/* ====== 流式状态栏 ====== */
+.stream-status-bar { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 12px; }
+.stream-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 12px; background: #f5f3ff; color: #7c3aed; font-weight: 500; }
+.stream-chip.thinking { background: #fef3c7; color: #92400e; }
+.typing-dots { display: flex; gap: 3px; }
+.typing-dots .dot { width: 6px; height: 6px; border-radius: 50%; background: #c4b5fd; animation: bounce 1.4s infinite ease-in-out both; }
+.typing-dots .dot:nth-child(1) { animation-delay: -0.32s; }
+.typing-dots .dot:nth-child(2) { animation-delay: -0.16s; }
+@keyframes bounce { 0%,80%,100% { transform: scale(0); } 40% { transform: scale(1); } }
 
 </style>

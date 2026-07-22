@@ -26,7 +26,7 @@ const routes = [
       { path: 'expert-hub', name: 'ExpertHub', component: () => import('../views/ExpertHub.vue'), meta: { perm: 'digital' } },
       { path: 'trending', name: 'TrendTracker', component: () => import('../views/TrendTracker.vue'), meta: { perm: 'trending' } },
 
-      { path: 'knowledge-base', name: 'KnowledgeBase', component: () => import('../views/KnowledgeBase.vue'), meta: { perm: 'knowledge' } },
+      { path: 'knowledge-base', name: 'KnowledgeBase', component: () => import('../views/wiki/WikiHub.vue'), meta: { perm: 'knowledge' } },
       { path: 'wiki', redirect: '/knowledge-base' },
       { path: 'skill-library', name: 'SkillLibrary', component: () => import('../views/SkillLibrary.vue'), meta: { perm: 'skills' } },
       { path: 'internal', name: 'InternalMgmt', component: () => import('../views/InternalManagement.vue'), meta: { perm: 'crm' } },
@@ -36,13 +36,29 @@ const routes = [
       { path: 'internal/docs', name: 'DocMgmt', component: () => import('../views/internal/DocumentManagement.vue'), meta: { perm: 'docs' } },
       { path: 'internal/finance', name: 'FinanceMgmt', component: () => import('../views/internal/FinanceManagement.vue'), meta: { perm: 'crm' } },
       { path: 'support', name: 'FAQMgmt', component: () => import('../views/internal/FAQManagement.vue'), meta: { perm: 'knowledge' } },
-      { path: 'tasks', name: 'Tasks', component: () => import('../views/Task.vue'), meta: { perm: 'tasks' } },
+      { path: 'tasks', name: 'Tasks', component: () => import('../views/scheduler/SchedulerView.vue'), meta: { perm: 'tasks' } },
       { path: 'services', name: 'ServiceManagement', component: () => import('../views/ServiceManagement.vue'), meta: { perm: ['security','security_config','security_sessions','security_maintain','security_logs'] } },
       { path: 'model-config', name: 'ModelConfig', component: () => import('../views/ModelConfig.vue'), meta: { perm: 'model' } },
       { path: 'channels', name: 'MessageChannels', component: () => import('../views/MessageChannels.vue'), meta: { perm: 'channels' } },
       { path: 'users', name: 'UserManagement', component: () => import('../views/UserManagement.vue'), meta: { perm: ['security_users','security_roles','security_permissions'] } },
       { path: 'security', name: 'SecuritySettings', component: () => import('../views/SecuritySettings.vue'), meta: { perm: ['security','security_config','security_sessions','security_maintain','security_logs'] } },
-      { path: 'memory', name: 'MemoryManagement', component: () => import('../views/MemoryManagement.vue'), meta: { perm: 'system' } }
+      { path: 'memory', name: 'MemoryManagement', component: () => import('../views/MemoryManagement.vue'), meta: { perm: 'system' } },
+      // 设置中心（嵌套布局）
+      {
+        path: 'settings',
+        component: () => import('../views/settings/SettingsLayout.vue'),
+        meta: { perm: 'model' },
+        children: [
+          { path: '', redirect: '/settings/system' },
+          { path: 'system', name: 'SystemSettings', component: () => import('../views/settings/SystemSettings.vue'), meta: { perm: 'model' } },
+          { path: 'models', name: 'SettingsModels', component: () => import('../views/ModelConfig.vue'), meta: { perm: 'model' } },
+          { path: 'tokens', name: 'TokenUsage', component: () => import('../views/settings/TokenUsage.vue'), meta: { perm: 'model' } },
+          { path: 'users', name: 'SettingsUsers', component: () => import('../views/UserManagement.vue'), meta: { perm: ['security_users','security_roles','security_permissions'] } },
+          { path: 'security', name: 'SettingsSecurity', component: () => import('../views/SecuritySettings.vue'), meta: { perm: ['security','security_config'] } },
+          { path: 'services', name: 'SettingsServices', component: () => import('../views/ServiceManagement.vue'), meta: { perm: ['security'] } },
+          { path: 'about', name: 'SettingsAbout', component: () => import('../views/settings/AboutPage.vue'), meta: { perm: 'chat' } },
+        ]
+      },
     ]
   }
 ]

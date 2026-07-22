@@ -82,6 +82,9 @@
           <router-link v-if="hasPerm('model')" to="/model-config" class="nav-item" active-class="active">
             <el-icon><Cpu /></el-icon><span>模型配置</span>
           </router-link>
+          <router-link v-if="hasPerm('model')" to="/settings" class="nav-item" active-class="active">
+            <el-icon><Setting /></el-icon><span>设置</span>
+          </router-link>
           <router-link v-if="hasPerm('system')" to="/memory" class="nav-item" active-class="active">
             <el-icon><FolderOpened /></el-icon><span>记忆管理</span>
           </router-link>

@@ -227,6 +227,54 @@
           </div>
         </div>
       </div>
+      <!-- ====== 工具守卫 (ToolGuard) ====== -->
+      <div v-show="activeTab === 'tools'">
+        <div class="section-card card-accent-pwd">
+          <div class="section-hd">
+            <span class="section-title"><el-icon><Switch /></el-icon>工具安全策略</span>
+            <span class="count-badge">{{ toolRiskCount }} 个受控工具</span>
+          </div>
+          <p style="color:#6b7280;font-size:13px;margin:0 0 16px">
+            危险工具在执行前需要审批。你可以启用/禁用单个工具、调整风险等级。
+          </p>
+          <div class="tool-list">
+            <div v-for="tool in toolList" :key="tool.name" class="tool-row" :class="{ disabled: !tool.enabled }">
+              <div class="tool-row-left">
+                <span class="tool-level-dot" :class="'level-' + tool.level"></span>
+                <code class="tool-name-code">{{ tool.name }}</code>
+              </div>
+              <div class="tool-row-mid">
+                <el-tag :type="tool.level==='critical'?'danger':tool.level==='high'?'warning':'info'" size="small" round>{{ tool.level }}</el-tag>
+                <span class="tool-desc">{{ tool.desc }}</span>
+              </div>
+              <div class="tool-row-right">
+                <el-switch v-model="tool.enabled" size="small" @change="saveToolConfig" />
+                <el-tag v-if="tool.needsApproval" type="danger" size="small" effect="dark" round>需审批</el-tag>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-card card-accent-sec">
+          <div class="section-hd">
+            <span class="section-title"><el-icon><Document /></el-icon>自动审批规则</span>
+          </div>
+          <p style="color:#6b7280;font-size:13px;margin:0 0 16px">
+            对指定工具/会话/用户自动批准审批请求，减少重复操作。
+          </p>
+          <div class="auto-approve-list">
+            <div v-for="(rule, i) in autoApproveRules" :key="i" class="approve-rule-row">
+              <span class="rule-scope-tag">{{ rule.scope }}</span>
+              <code class="rule-target">{{ rule.target }}</code>
+              <span class="rule-level">≤ {{ rule.maxLevel }}</span>
+              <el-button size="small" type="danger" text @click="autoApproveRules.splice(i,1);saveAutoApprove()">删除</el-button>
+            </div>
+            <div v-if="!autoApproveRules.length" class="empty-hint"><span>暂无自动审批规则</span></div>
+          </div>
+          <el-button size="small" type="primary" plain @click="addAutoApproveRule" style="margin-top:12px">+ 添加规则</el-button>
+        </div>
+      </div>
+
     </div>
   </div>
 </template>
@@ -234,7 +282,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Lock, Connection, Monitor, Download, FolderOpened, Document, Upload } from '@element-plus/icons-vue'
+import { Lock, Connection, Monitor, Download, FolderOpened, Document, Upload, Switch } from '@element-plus/icons-vue'
 import {
   changePassword, getSessions, kickSession as kickSessionApi,
   getSecuritySettings, updateSecuritySettings,
@@ -256,6 +304,7 @@ const allTabDefs = [
   { key: 'sessions', label: '会话管理', sub: '在线状态',   icon: Connection, iconBg: '#fef3c7', iconColor: '#d97706' },
   { key: 'maintain', label: '系统维护', sub: '备份与概览', icon: Monitor,    iconBg: '#e8f5e9', iconColor: '#2e7d32' },
   { key: 'logs',     label: '日志查看', sub: '运行日志',   icon: Document,  iconBg: '#fef3c7', iconColor: '#d97706' },
+  { key: 'tools',    label: '工具守卫', sub: '权限控制',   icon: Switch,    iconBg: '#e8f5e9', iconColor: '#2e7d32' },
 ]
 const tabs = computed(() => allTabDefs.filter(t => canAccessTab(t.key)))
 const activeTab = ref('config')
@@ -516,9 +565,44 @@ async function loadMoreLogs() {
   finally { logLoading.value = false }
 }
 
+// ---- 工具守卫 (ToolGuard) ----
+const toolList = ref([
+  { name: 'execute_command', level: 'critical', desc: '执行系统命令', enabled: true, needsApproval: true },
+  { name: 'run_python', level: 'critical', desc: '执行 Python 脚本', enabled: true, needsApproval: true },
+  { name: 'run_node', level: 'critical', desc: '执行 Node.js 脚本', enabled: true, needsApproval: true },
+  { name: 'ssh_exec', level: 'critical', desc: 'SSH 远程执行', enabled: true, needsApproval: true },
+  { name: 'delete_customer', level: 'high', desc: '删除客户', enabled: true, needsApproval: true },
+  { name: 'delete_opportunity', level: 'high', desc: '删除商机', enabled: true, needsApproval: true },
+  { name: 'delete_contract', level: 'high', desc: '删除合同', enabled: true, needsApproval: true },
+  { name: 'delete_employee', level: 'high', desc: '删除员工', enabled: true, needsApproval: true },
+  { name: 'delete_document', level: 'high', desc: '删除文档', enabled: true, needsApproval: true },
+  { name: 'clear_memory', level: 'high', desc: '清除记忆', enabled: true, needsApproval: true },
+])
+const toolRiskCount = computed(() => toolList.value.filter(t => t.enabled && t.needsApproval).length)
+const autoApproveRules = ref(JSON.parse(localStorage.getItem('autoApproveRules') || '[]'))
+
+async function saveToolConfig() {
+  const config = {}
+  toolList.value.forEach(t => { config[t.name] = { enabled: t.enabled, level: t.level } })
+  localStorage.setItem('toolGuardConfig', JSON.stringify(config))
+  ElMessage.success('工具配置已保存')
+}
+
+function addAutoApproveRule() {
+  autoApproveRules.value.push({ scope: 'session', target: '*', maxLevel: 'medium' })
+  saveAutoApprove()
+}
+function saveAutoApprove() {
+  localStorage.setItem('autoApproveRules', JSON.stringify(autoApproveRules.value))
+  ElMessage.success('自动审批规则已保存')
+}
+
 onMounted(() => {
   const user = JSON.parse(localStorage.getItem('user') || '{}')
   currentUsername.value = user.name || ''
+  // 加载已保存的工具配置
+  const saved = JSON.parse(localStorage.getItem('toolGuardConfig') || '{}')
+  toolList.value.forEach(t => { if (saved[t.name]) { t.enabled = saved[t.name].enabled; t.level = saved[t.name].level || t.level } })
   loadSettings()
   loadSessions()
   loadSystemInfo()
@@ -698,6 +782,27 @@ onMounted(() => {
   color: #909399;
   font-size: 13px;
 }
+
+/* ToolGuard */
+.tool-list { display: flex; flex-direction: column; gap: 4px; }
+.tool-row { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-radius: 8px; transition: background .15s; }
+.tool-row:hover { background: #faf8ff; }
+.tool-row.disabled { opacity: 0.5; }
+.tool-row-left { display: flex; align-items: center; gap: 8px; min-width: 180px; }
+.tool-level-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.tool-level-dot.level-critical { background: #ef4444; }
+.tool-level-dot.level-high { background: #f59e0b; }
+.tool-level-dot.level-medium { background: #3b82f6; }
+.tool-level-dot.level-low { background: #22c55e; }
+.tool-name-code { font-size: 12px; background: #f5f3ff; padding: 2px 6px; border-radius: 4px; color: #7c3aed; font-weight: 500; }
+.tool-row-mid { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.tool-desc { font-size: 12px; color: #909399; }
+.tool-row-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.auto-approve-list { display: flex; flex-direction: column; gap: 6px; }
+.approve-rule-row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: #f8f9fc; border-radius: 8px; font-size: 13px; }
+.rule-scope-tag { padding: 2px 8px; border-radius: 6px; background: #ede9fe; color: #7c3aed; font-size: 11px; font-weight: 600; }
+.rule-target { font-family: monospace; font-size: 12px; color: #4a3f5e; }
+.rule-level { color: #909399; font-size: 12px; }
 
 @media (max-width: 860px) {
   .card-row.cols-2 { grid-template-columns: 1fr; }

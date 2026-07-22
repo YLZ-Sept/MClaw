@@ -44,8 +44,8 @@ async function apiPost(account, path, body, timeout = 30000) {
 function parseConfig(account) {
   const raw = typeof account.config === 'string' ? JSON.parse(account.config) : (account.config || {});
   return {
-    token: raw.token || account.token || '',
-    userId: raw.userId || account.user_id || '',
+    token: raw.token || raw.bot_id || raw.bot_token || account.token || '',
+    userId: raw.userId || raw.user_id || account.user_id || '',
   };
 }
 

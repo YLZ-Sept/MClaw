@@ -13,6 +13,7 @@
     "@element-plus/icons-vue": "^2.3.0",
     "@iconify-json/ep": "^1.2.4",
     "axios": "^1.7.0",
+    "echarts": "^6.1.0",
     "element-plus": "^2.7.0",
     "marked": "^18.0.3",
     "unplugin-auto-import": "^21.0.0",

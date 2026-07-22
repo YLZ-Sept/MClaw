@@ -41,23 +41,27 @@ const verifiers = {
   },
 
   /**
-   * 企业微信：验证 Corp ID + Token 非空（webhook 模式无需在线验证）
+   * 企业微信：SDK OAuth 模式（bot_id + secret）或手动模式（corp_id + token）
    */
   async wecom(config) {
-    const { corp_id, token } = config;
-    if (!corp_id) return { ok: false, message: '缺少 Corp ID' };
+    const { corp_id, token, bot_id, secret } = config;
+    // SDK OAuth 模式：扫码授权获取的 bot_id + secret
+    if (bot_id && secret) {
+      return { ok: true, message: '企业微信 Bot 授权验证通过' };
+    }
+    // 手动模式：webhook 回调需要的 corp_id + token
+    if (!corp_id) return { ok: false, message: '缺少 Corp ID（请使用扫码授权或手动填写 Corp ID 和 Token）' };
     if (!token) return { ok: false, message: '缺少 Token' };
     if (token.length < 8) return { ok: false, message: 'Token 长度不足（至少 8 位）' };
     return { ok: true, message: '企业微信配置格式验证通过' };
   },
 
   /**
-   * 微信 Bot：验证 Bot ID 格式
+   * 微信 Bot：扫码登录获取的 bot_id 或手动填写
    */
   async wechat(config) {
-    const { bot_id } = config;
-    if (!bot_id) return { ok: false, message: '缺少 Bot ID' };
-    if (!/^[a-f0-9-]{20,}$/i.test(bot_id)) return { ok: false, message: 'Bot ID 格式无效' };
+    const token = config.token || config.bot_id;
+    if (!token) return { ok: false, message: '缺少 Bot Token（请使用扫码登录获取）' };
     return { ok: true, message: '微信 Bot 配置格式验证通过' };
   },
 

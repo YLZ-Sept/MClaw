@@ -80,4 +80,31 @@ router.post('/generate-prompt', async (req, res) => {
   }
 });
 
+// AI 生成 Agent 完整配置
+router.post('/generate-config', async (req, res) => {
+  try {
+    const { description } = req.body;
+    if (!description) return res.status(400).json({ code: 400, message: '描述必填' });
+    const { chat } = require('../services/llm');
+    const response = await chat([
+      { role: 'system', content: '你是 Agent 配置专家。根据用户描述，生成 JSON：{"name":"简洁名称(≤15字)","iconEmoji":"1个emoji","prompt":"系统提示词(≤300字)","baseAgent":""}。baseAgent 可选值：internal-agent/internal-agent,sales-agent,support-agent,bid-agent，选最匹配的，都不匹配为空。只输出JSON，不要markdown。' },
+      { role: 'user', content: description }
+    ], 0.7);
+    try {
+      const cfg = JSON.parse(response.trim().replace(/```json\n?|\n?```/g, ''));
+      cfg.name = cfg.name || description.slice(0, 15);
+      cfg.iconEmoji = cfg.iconEmoji || '🤖';
+      cfg.prompt = cfg.prompt || '';
+      cfg.baseAgent = cfg.baseAgent || '';
+      res.json({ code: 200, data: cfg });
+    } catch {
+      const name = description.slice(0, 15);
+      const prompt = '你是' + description + '。请始终以专业、友好的态度帮助用户。';
+      res.json({ code: 200, data: { name, iconEmoji: '🤖', prompt, baseAgent: '' } });
+    }
+  } catch (err) {
+    res.status(500).json({ code: 500, message: err.message });
+  }
+});
+
 module.exports = router;
