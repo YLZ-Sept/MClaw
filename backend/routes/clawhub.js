@@ -436,4 +436,75 @@ function copyDirSync(src, dest) {
   }
 }
 
+// ── 统一分类列表 ──
+router.get('/categories', (req, res) => {
+  const cats = Object.keys(CATEGORIES).map(k => ({ key: k, label: CATEGORIES[k], keywords: CATEGORY_KEYWORDS[k]?.length || 0 }));
+  res.json({ code: 200, data: cats });
+});
+
+// ── 技能依赖关系：哪些 Agent 引用了指定技能 ──
+router.get('/skills/:name/dependents', (req, res) => {
+  try {
+    const skillName = req.params.name;
+    // 查 agent_openclaw_skills 表
+    const bindings = db.prepare(
+      'SELECT a.id, a.name, a.desc FROM agent_openclaw_skills aos JOIN agent_apps a ON a.id=aos.agent_id WHERE aos.skill_name=? AND aos.enabled=1'
+    ).all(skillName);
+    // 查 agent_apps.skill_bindings JSON 列
+    const appBindings = db.prepare(
+      "SELECT id, name, desc, skill_bindings FROM agent_apps WHERE skill_bindings IS NOT NULL AND skill_bindings != '[]'"
+    ).all();
+    for (const app of appBindings) {
+      try {
+        const arr = JSON.parse(app.skill_bindings);
+        if (arr.includes(skillName)) {
+          if (!bindings.find(b => b.id === app.id)) {
+            bindings.push({ id: app.id, name: app.name, desc: app.desc });
+          }
+        }
+      } catch {}
+    }
+    res.json({ code: 200, data: bindings });
+  } catch (e) {
+    res.status(500).json({ code: 500, message: e.message });
+  }
+});
+
+// ── 技能使用统计 ──
+router.get('/skills/stats', (req, res) => {
+  try {
+    const usageLog = db.prepare(
+      "SELECT command, COUNT(*) as count, MAX(created_at) as last_used FROM skill_usage_log GROUP BY command ORDER BY count DESC LIMIT 30"
+    ).all();
+    const totalCalls = db.prepare('SELECT COUNT(*) as c FROM skill_usage_log').get()?.c || 0;
+    const recentCalls = db.prepare(
+      "SELECT * FROM skill_usage_log ORDER BY created_at DESC LIMIT 20"
+    ).all();
+    res.json({ code: 200, data: { usageLog, totalCalls, recentCalls } });
+  } catch (e) {
+    res.status(500).json({ code: 500, message: e.message });
+  }
+});
+
+// ── 技能版本检查（对比本地 vs ClawHub 最新） ──
+router.post('/skills/check-updates', async (req, res) => {
+  try {
+    const localSkills = scanLocalSkills();
+    const updates = [];
+    if (wsClient.isConnected()) {
+      for (const skill of localSkills) {
+        try {
+          const remote = await wsClient.request('skills.detail', { slug: skill.slug || skill.name });
+          if (remote && remote.version && skill.version && remote.version !== skill.version) {
+            updates.push({ name: skill.name, localVersion: skill.version, remoteVersion: remote.version, slug: skill.slug || skill.name });
+          }
+        } catch { /* 该技能在 ClawHub 上不存在，跳过 */ }
+      }
+    }
+    res.json({ code: 200, data: { updates, total: localSkills.length, checked: updates.length ? updates.length : localSkills.length } });
+  } catch (e) {
+    res.status(500).json({ code: 500, message: e.message });
+  }
+});
+
 module.exports = router;

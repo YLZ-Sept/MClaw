@@ -444,6 +444,15 @@
               </el-select>
             </el-form-item>
 
+            <el-form-item label="绑定技能">
+              <el-select v-model="dlg.form.skillBindings" multiple filterable placeholder="选择 OpenClaw 技能" style="width:100%">
+                <el-option v-for="sk in skillList" :key="sk.name" :label="sk.nameZh || sk.name" :value="sk.name">
+                  <span>{{ sk.nameZh || sk.name }}</span>
+                  <span style="float:right;color:#b8aad0;font-size:11px">{{ sk.description_zh || sk.description || '' }}</span>
+                </el-option>
+              </el-select>
+            </el-form-item>
+
             <el-form-item label="本地引用">
               <div class="folder-list">
                 <div v-for="(fp, idx) in dlg.form.kb_folder_paths" :key="idx" class="folder-row">
@@ -508,6 +517,7 @@ const router = useRouter()
 
 const agents = ref([])
 const kbList = ref([])
+const skillList = ref([])
 const dlg = reactive({ visible: false, isEdit: false, form: {} })
 const showWizard = ref(false)
 const promptGenerating = ref(false)
@@ -541,6 +551,12 @@ async function loadKBList() {
     const { data } = await request.get('/knowledge-base/kbs')
     kbList.value = data.data || []
   } catch { kbList.value = [] }
+}
+async function loadSkillList() {
+  try {
+    const { data } = await request.get('/agent-openclaw-skills')
+    skillList.value = data.data || []
+  } catch { skillList.value = [] }
 }
 
 function startChat(agent) {
@@ -644,7 +660,9 @@ function openEdit(agent) {
   dlg.isEdit = true
   const kbIds = agent.kb_ids ? agent.kb_ids.split(',').filter(Boolean) : []
   const fps = agent.kb_folder_paths ? agent.kb_folder_paths.split(',').filter(Boolean) : []
-  dlg.form = { ...agent, color: agent.bg || agent.color || '#7c3aed', kb_ids: kbIds, kb_folder_paths: fps.length ? fps : [] }
+  let skillBindings = []
+  try { skillBindings = JSON.parse(agent.skill_bindings || '[]') } catch {}
+  dlg.form = { ...agent, color: agent.bg || agent.color || '#7c3aed', kb_ids: kbIds, kb_folder_paths: fps.length ? fps : [], skillBindings }
   dlg.visible = true
 }
 async function saveAgent() {
@@ -654,7 +672,8 @@ async function saveAgent() {
     const payload = {
       ...dlg.form,
       kb_ids: (dlg.form.kb_ids || []).join(','),
-      kb_folder_paths: (dlg.form.kb_folder_paths || []).filter(Boolean).join(',')
+      kb_folder_paths: (dlg.form.kb_folder_paths || []).filter(Boolean).join(','),
+      skill_bindings: JSON.stringify(dlg.form.skillBindings || [])
     }
     if (dlg.isEdit) { await request.put('/agent-apps/' + dlg.form.id, payload) }
     else { await request.post('/agent-apps', payload) }
@@ -971,7 +990,7 @@ function openCustomerServiceSettings() {
   window.open('https://yuanqi.tencent.com/', '_blank')
 }
 
-onMounted(() => { loadAgents(); loadKBList() })
+onMounted(() => { loadAgents(); loadKBList(); loadSkillList() })
 </script>
 
 <style scoped>

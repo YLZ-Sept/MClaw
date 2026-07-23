@@ -83,6 +83,40 @@
             </div>
           </div>
         </el-tab-pane>
+
+        <el-tab-pane label="使用统计" name="stats">
+          <div class="stats-panel">
+            <div class="stats-summary">
+              <div class="stat-card">
+                <div class="stat-num">{{ skillStats.totalCalls || 0 }}</div>
+                <div class="stat-label">总调用次数</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-num">{{ skillStats.usageLog?.length || 0 }}</div>
+                <div class="stat-label">已使用技能</div>
+              </div>
+              <el-button size="small" @click="checkUpdates" :loading="checkingUpdates">🔍 检查更新</el-button>
+              <el-button size="small" @click="loadSkillStats" :loading="statsLoading">🔄 刷新</el-button>
+            </div>
+            <div v-if="updateInfo.length" class="update-alerts">
+              <div v-for="u in updateInfo" :key="u.name" class="update-item">
+                ⚡ <b>{{ u.name }}</b>: 本地 {{ u.localVersion }} → ClawHub {{ u.remoteVersion }}
+              </div>
+            </div>
+            <h4 style="margin:16px 0 8px;color:#4a3f5e">技能调用排行</h4>
+            <table class="stats-table" v-if="skillStats.usageLog?.length">
+              <thead><tr><th>技能命令</th><th>调用次数</th><th>最近使用</th></tr></thead>
+              <tbody>
+                <tr v-for="u in skillStats.usageLog" :key="u.command">
+                  <td>{{ u.command }}</td>
+                  <td>{{ u.count }}</td>
+                  <td>{{ fmtTime(u.last_used) }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <el-empty v-else description="暂无使用记录" />
+          </div>
+        </el-tab-pane>
       </el-tabs>
     </div>
 
@@ -94,6 +128,10 @@
       </div>
       <div v-else>
         <div v-if="detailDlg.desc" class="detail-desc">{{ detailDlg.desc }}</div>
+        <div v-if="detailDlg.dependents?.length" style="margin-bottom:12px;padding:8px 12px;background:#fef3c7;border-radius:8px;font-size:13px">
+          🔗 被以下 Agent 引用：
+          <span v-for="d in detailDlg.dependents" :key="d.id" style="margin-left:4px;color:#7c3aed;font-weight:500">{{ d.name }}</span>
+        </div>
         <div class="markdown-body" v-html="detailDlg.content"></div>
       </div>
       <template #footer>
@@ -193,7 +231,11 @@ const installedSlugs = ref(new Set())
 const translating = ref(false)
 const importing = ref(false)
 const openclawSkills = ref([])
-const detailDlg = reactive({ visible: false, title: '', desc: '', content: '', loading: false })
+const detailDlg = reactive({ visible: false, title: '', desc: '', content: '', loading: false, dependents: [] })
+const skillStats = ref({ totalCalls: 0, usageLog: [], recentCalls: [] })
+const statsLoading = ref(false)
+const updateInfo = ref([])
+const checkingUpdates = ref(false)
 
 const CATEGORY_EMOJI = {
   design: '🎨', dev: '🛠️', itops: '🔒', data: '📊', ai: '🤖',
@@ -307,14 +349,17 @@ async function showDetail(s) {
   detailDlg.desc = s.descZh || s.description || ''
   detailDlg.content = ''
   detailDlg.loading = true
+  detailDlg.dependents = []
   try {
     const skillKey = s.skillKey || s.name
-    const { data } = await request.get('/clawhub/readme/' + encodeURIComponent(skillKey))
-    if (data.code === 200) {
-      detailDlg.content = marked.parse(data.data.content)
-    } else {
-      detailDlg.content = '<p style="color:#909399">无法加载技能详情</p>'
+    const [readmeRes, depRes] = await Promise.all([
+      request.get('/clawhub/readme/' + encodeURIComponent(skillKey)).catch(() => ({ data: { code: 200, data: { content: '' } } })),
+      request.get('/clawhub/skills/' + encodeURIComponent(skillKey) + '/dependents').catch(() => ({ data: { data: [] } }))
+    ])
+    if (readmeRes.data?.code === 200) {
+      detailDlg.content = marked.parse(readmeRes.data.data.content || '')
     }
+    detailDlg.dependents = depRes.data?.data || []
   } catch (e) {
     detailDlg.content = '<p style="color:#909399">加载失败: ' + (e.response?.data?.message || e.message) + '</p>'
   }
@@ -380,8 +425,49 @@ async function installSkill(s) {
 
 
 
-watch(activeTab, (tab) => { if (tab === 'openclaw') { loadOpenClawSkills(); loadRecentUsage(); activeCategory.value = 'all' } })
-onMounted(() => { loadOpenClawSkills(); loadRecentUsage() })
+async function loadSkillStats() {
+  statsLoading.value = true
+  try {
+    const { data } = await request.get('/clawhub/skills/stats')
+    skillStats.value = data.data || { totalCalls: 0, usageLog: [], recentCalls: [] }
+  } catch { skillStats.value = { totalCalls: 0, usageLog: [], recentCalls: [] } }
+  statsLoading.value = false
+}
+
+async function checkUpdates() {
+  checkingUpdates.value = true
+  try {
+    const { data } = await request.post('/clawhub/skills/check-updates')
+    updateInfo.value = data.data?.updates || []
+    if (updateInfo.value.length) {
+      ElMessage.warning(`发现 ${updateInfo.value.length} 个技能有新版本`)
+    } else {
+      ElMessage.success('所有技能均为最新版本')
+    }
+  } catch { ElMessage.error('检查更新失败') }
+  checkingUpdates.value = false
+}
+
+async function loadCategories() {
+  try {
+    const { data } = await request.get('/clawhub/categories')
+    if (data.data?.length) {
+      const cats = [{ key: 'all', label: '全部', icon: '📋' }]
+      const emojiMap = { design:'🎨', dev:'🛠️', itops:'🔒', data:'📊', ai:'🤖', content:'✍️', knowledge:'📚', business:'💼', edu:'🎓', industry:'🏭', office:'⚡', life:'🌟', external:'📦' }
+      for (const c of data.data) {
+        cats.push({ key: c.key, label: c.label, icon: emojiMap[c.key] || '📦' })
+      }
+      categories.length = 0
+      categories.push(...cats)
+    }
+  } catch {}
+}
+
+watch(activeTab, (tab) => {
+  if (tab === 'openclaw') { loadOpenClawSkills(); loadRecentUsage(); activeCategory.value = 'all' }
+  if (tab === 'stats') { loadSkillStats() }
+})
+onMounted(() => { loadOpenClawSkills(); loadRecentUsage(); loadCategories() })
 </script>
 
 <style scoped>
