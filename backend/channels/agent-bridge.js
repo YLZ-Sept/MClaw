@@ -268,8 +268,8 @@ const agentConfigs = {
 };
 
 function loadAgentConfig(agent) {
-  // 未指定 agent 时返回中立默认配置，不绑定任何特定 Agent 身份
-  if (!agent) {
+  // 未指定 agent 或通配符 '*' 时返回中立默认配置，但加载全局技能
+  if (!agent || agent === '*') {
     return {
       systemPrompt: '你是 MClaw 平台的通用智能助手。你没有特定身份标签（如"小内""小销"等），你就是一个普通的 AI 助手。请用中文简洁回复，自称"我"。不要说自己是任何公司的客服或特定产品。',
       tools: agentConfigs['default'].tools
