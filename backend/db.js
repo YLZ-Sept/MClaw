@@ -408,6 +408,7 @@ db.exec(`
     summary TEXT DEFAULT '',
     key_concepts TEXT DEFAULT '[]',
     category TEXT DEFAULT '通用',
+    kb_id TEXT DEFAULT '',
     status TEXT DEFAULT 'published',
     version INTEGER DEFAULT 1,
     view_count INTEGER DEFAULT 0,
@@ -964,6 +965,12 @@ try { db.exec('ALTER TABLE agent_apps ADD COLUMN wiki_page_ids TEXT'); } catch {
 // kb_articles ↔ wiki 关联
 try { db.exec('ALTER TABLE kb_articles ADD COLUMN wiki_page_id TEXT'); } catch {}
 try { db.exec('ALTER TABLE kb_articles ADD COLUMN digested INTEGER DEFAULT 0'); } catch {}
+
+// wiki_pages kb_id 统一隔离（替代 category 混用）
+try { db.exec('ALTER TABLE wiki_pages ADD COLUMN kb_id TEXT DEFAULT \'\''); } catch {}
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_wiki_pages_kb_id ON wiki_pages(kb_id)'); } catch {}
+// 数据迁移：category 是 UUID（36位含连字符的 wikihub_kbs.id）→ kb_id
+try { db.exec("UPDATE wiki_pages SET kb_id = category WHERE length(category) = 36 AND category LIKE '%-%-%-%-%'"); } catch {}
 
 function seedExperts() {
   const expected = 50;

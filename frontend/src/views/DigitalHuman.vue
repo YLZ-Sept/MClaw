@@ -88,7 +88,7 @@
       </el-form>
       <template #footer>
         <el-button @click="dlg.visible=false">取消</el-button>
-        <el-button type="primary" @click="saveEmployee">保存</el-button>
+        <el-button type="primary" @click="saveEmployee" :loading="empSaving">保存</el-button>
       </template>
     </el-dialog>
   </div>
@@ -107,6 +107,8 @@ const employees = ref([])
 const agents = ref([])
 const dlg = reactive({ visible: false, isEdit: false, form: {} })
 const avatarFiles = ref([])
+const loading = ref(true)
+const empSaving = ref(false)
 let avatarFile = null
 
 const boundCount = computed(() => employees.value.filter(e => getAgentIds(e).length > 0).length)
@@ -169,38 +171,57 @@ function openEdit(e) {
 }
 async function saveEmployee() {
   if (!dlg.form.name) return ElMessage.warning('请输入名称')
-  const fd = new FormData()
-  fd.append('name', dlg.form.name)
-  fd.append('role', dlg.form.role)
-  fd.append('agent_ids', (dlg.form.agent_ids || []).join(','))
-  fd.append('avatar_bg', dlg.form.avatar_bg || '')
-  fd.append('avatar_emoji', dlg.form.avatar_emoji || '')
-  if (avatarFile) { fd.append('avatar', avatarFile) }
-  else if (dlg.form.avatar_url === '') { fd.append('avatar_url', '') }
+  empSaving.value = true
+  try {
+    const fd = new FormData()
+    fd.append('name', dlg.form.name)
+    fd.append('role', dlg.form.role)
+    fd.append('agent_ids', (dlg.form.agent_ids || []).join(','))
+    fd.append('avatar_bg', dlg.form.avatar_bg || '')
+    fd.append('avatar_emoji', dlg.form.avatar_emoji || '')
+    if (avatarFile) { fd.append('avatar', avatarFile) }
+    else if (dlg.form.avatar_url === '') { fd.append('avatar_url', '') }
 
-  if (dlg.isEdit) { await request.put('/digital-employees/' + dlg.form.id, fd) }
-  else { await request.post('/digital-employees', fd) }
-  dlg.visible = false; await loadEmployees(); ElMessage.success('OK')
+    if (dlg.isEdit) { await request.put('/digital-employees/' + dlg.form.id, fd) }
+    else { await request.post('/digital-employees', fd) }
+    dlg.visible = false; await loadEmployees(); ElMessage.success('OK')
+  } catch (e) {
+    ElMessage.error(e.response?.data?.message || '保存失败')
+  } finally {
+    empSaving.value = false
+  }
 }
 async function delEmployee(id) {
-  try { await ElMessageBox.confirm('确认删除？'); await request.delete('/digital-employees/' + id); await loadEmployees(); ElMessage.success('已删除') } catch {}
+  try { await ElMessageBox.confirm('确认删除？') } catch { return }
+  try {
+    await request.delete('/digital-employees/' + id)
+    await loadEmployees()
+    ElMessage.success('已删除')
+  } catch (e) {
+    ElMessage.error(e.response?.data?.message || '删除失败')
+  }
 }
 async function chatWith(e) {
   const ids = getAgentIds(e)
   if (!ids.length) return ElMessage.warning('该数字员工未绑定 Agent，无法聊天')
+  const agentId = ids[0] // 使用第一个绑定的 Agent
   try {
     const { data } = await request.post('/chat-sessions', {
       name: `${e.name}的对话`,
-      agent_id: e.id,
+      agent_id: agentId,
       employee_id: e.id
     })
-    router.push(`/chat?session=${data.data.id}&agent=${e.id}&agentName=${e.name}&employee_id=${e.id}`)
+    router.push(`/chat?session=${data.data.id}&agent=${agentId}&agentName=${e.name}&employee_id=${e.id}`)
   } catch {
-    router.push(`/chat?agent=${e.id}&agentName=${e.name}`)
+    router.push(`/chat?agent=${agentId}&agentName=${e.name}&employee_id=${e.id}`)
   }
 }
 
-onMounted(() => { loadAgents().then(() => loadEmployees()) })
+onMounted(async () => {
+  loading.value = true
+  try { await loadAgents(); await loadEmployees() } catch {}
+  finally { loading.value = false }
+})
 </script>
 
 <style scoped>

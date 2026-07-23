@@ -3,8 +3,8 @@
     <div class="settings-side">
       <div class="settings-side-title">设置</div>
       <nav class="settings-nav">
-        <router-link v-for="item in navItems" :key="item.path" :to="item.path" class="nav-item" active-class="nav-active">
-          <span class="nav-icon" v-html="item.icon"></span>
+        <router-link v-for="item in visibleItems" :key="item.path" :to="item.path" class="nav-item" active-class="nav-active">
+          <el-icon class="nav-icon"><component :is="item.icon" /></el-icon>
           <span class="nav-label">{{ item.label }}</span>
         </router-link>
       </nav>
@@ -16,15 +16,35 @@
 </template>
 
 <script setup>
-const navItems = [
-  { path: '/settings/system', label: '系统', icon: '⚙️' },
-  { path: '/settings/models', label: '模型', icon: '🧠' },
-  { path: '/settings/tokens', label: '用量', icon: '📊' },
-  { path: '/settings/users', label: '用户', icon: '👥' },
-  { path: '/settings/security', label: '安全', icon: '🔒' },
-  { path: '/settings/services', label: '服务', icon: '🔌' },
-  { path: '/settings/about', label: '关于', icon: 'ℹ️' },
+import { computed, onMounted, ref } from 'vue'
+import { Setting, Cpu, DataAnalysis, User, Lock, Connection, List, InfoFilled } from '@element-plus/icons-vue'
+
+const allItems = [
+  { path: '/settings/system', label: '系统', icon: Setting, perm: 'chat' },
+  { path: '/settings/models', label: '模型', icon: Cpu, perm: 'model' },
+  { path: '/settings/tokens', label: '用量', icon: DataAnalysis, perm: 'model' },
+  { path: '/settings/users', label: '用户', icon: User, perm: 'security_users' },
+  { path: '/settings/security', label: '安全', icon: Lock, perm: 'security' },
+  { path: '/settings/services', label: '服务', icon: Connection, perm: 'security' },
+  { path: '/settings/tasks', label: '任务', icon: List, perm: 'tasks' },
+  { path: '/settings/about', label: '关于', icon: InfoFilled, perm: 'chat' },
 ]
+
+const userPerms = ref([])
+const userRole = ref('')
+
+onMounted(() => {
+  try {
+    const user = JSON.parse(localStorage.getItem('user') || '{}')
+    userRole.value = user.role || ''
+    userPerms.value = user.permissions || []
+  } catch { /* ignore */ }
+})
+
+const visibleItems = computed(() => {
+  if (userRole.value === 'superadmin') return allItems
+  return allItems.filter(item => userPerms.value.includes(item.perm))
+})
 </script>
 
 <style scoped>

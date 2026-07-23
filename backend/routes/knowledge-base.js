@@ -36,10 +36,11 @@ defaultCats.forEach((c, i) => { try { insertCat.run(randomUUID(), c, i); } catch
 
 // ── WikiHub 多知识库（必须排在 /:id 通用路由之前）──
 db.exec(`CREATE TABLE IF NOT EXISTS wikihub_kbs (id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT DEFAULT '', model_id TEXT DEFAULT '', rules TEXT DEFAULT '', page_count INTEGER DEFAULT 0, raw_count INTEGER DEFAULT 0, created_at TEXT DEFAULT (datetime('now','localtime')), updated_at TEXT DEFAULT (datetime('now','localtime')))`);
-db.exec(`CREATE TABLE IF NOT EXISTS wikihub_pages (id TEXT PRIMARY KEY, kb_id TEXT NOT NULL, slug TEXT NOT NULL, title TEXT NOT NULL, content TEXT DEFAULT '', page_type TEXT DEFAULT 'concept', version INTEGER DEFAULT 1, created_at TEXT DEFAULT (datetime('now','localtime')), updated_at TEXT DEFAULT (datetime('now','localtime')), UNIQUE(kb_id, slug))`);
 db.exec(`CREATE TABLE IF NOT EXISTS wikihub_materials (id TEXT PRIMARY KEY, kb_id TEXT NOT NULL, title TEXT, filename TEXT, source_type TEXT DEFAULT 'file', status TEXT DEFAULT 'pending', file_size INTEGER DEFAULT 0, created_at TEXT DEFAULT (datetime('now','localtime')))`);
 try { db.exec('ALTER TABLE wikihub_kbs ADD COLUMN model_id TEXT DEFAULT \'\''); } catch {}
 try { db.exec('ALTER TABLE wikihub_kbs ADD COLUMN rules TEXT DEFAULT \'\''); } catch {}
+try { db.exec('ALTER TABLE wikihub_kbs ADD COLUMN summary TEXT DEFAULT \'\''); } catch {}
+try { db.exec('ALTER TABLE wikihub_materials ADD COLUMN digest_error TEXT DEFAULT \'\''); } catch {}
 
 const wikiMulter = require('multer');
 const wikiDir = path.join(__dirname, '..', 'uploads', 'wiki'); fs.mkdirSync(wikiDir, { recursive: true });
@@ -52,14 +53,13 @@ router.post('/kbs', (req, res) => {
   res.json({code:200,data:{id,name,message:'知识库创建成功'}});
 });
 router.delete('/kbs/:id', (req, res) => {
-  db.prepare('DELETE FROM wikihub_pages WHERE kb_id=?').run(req.params.id);
   db.prepare('DELETE FROM wikihub_materials WHERE kb_id=?').run(req.params.id);
   const r=db.prepare('DELETE FROM wikihub_kbs WHERE id=?').run(req.params.id);
   res.json({code:r.changes?200:404,message:r.changes?'已删除':'不存在'});
 });
 // 页面列表：直接从 wiki_pages 表读取（AI 消化结果）
 router.get('/kbs/:id/pages', (req, res) => {
-  const sql = "SELECT wp.*, ws.source_name FROM wiki_pages wp LEFT JOIN wiki_sources ws ON ws.wiki_page_id=wp.id WHERE wp.category=? ORDER BY wp.updated_at DESC";
+  const sql = "SELECT wp.*, ws.source_name FROM wiki_pages wp LEFT JOIN wiki_sources ws ON ws.wiki_page_id=wp.id WHERE wp.kb_id=? ORDER BY wp.updated_at DESC";
   const pages = db.prepare(sql).all(req.params.id);
   const out = pages.map(function(p){ p.slug = p.id; p.page_type = p.category || 'concept'; p.version = p.version || 1; return p; });
   res.json({code:200,data:out});
@@ -110,11 +110,11 @@ router.post('/kbs/:id/materials/upload', wikiUpload.single('file'), async (req, 
     (async () => {
       try {
         const { digestRawMaterial, saveDigestResult } = require('../services/wiki-digest');
-        const result = await digestRawMaterial(parsedText, origName, 'file', { category: req.params.id, maxPages: 30 });
+        const result = await digestRawMaterial(parsedText, origName, 'file', { kbId: req.params.id, maxPages: 30 });
         if (result.pages.length > 0) {
           saveDigestResult(result);
         }
-        db.prepare('UPDATE wikihub_kbs SET page_count=(SELECT COUNT(*) FROM wiki_pages WHERE category=?), raw_count=raw_count+1, updated_at=datetime(\'now\',\'localtime\') WHERE id=?').run(req.params.id, req.params.id);
+        db.prepare('UPDATE wikihub_kbs SET page_count=(SELECT COUNT(*) FROM wiki_pages WHERE kb_id=?), raw_count=raw_count+1, updated_at=datetime(\'now\',\'localtime\') WHERE id=?').run(req.params.id, req.params.id);
         db.prepare('UPDATE wikihub_materials SET status=? WHERE id=?').run('completed', mid);
       } catch(e) {
         console.error('[wiki-digest] 失败:', e.message);
@@ -127,11 +127,11 @@ router.post('/kbs/:id/materials/upload', wikiUpload.single('file'), async (req, 
 });
 // 图谱数据：页面节点 + Wikilink 边
 router.get('/kbs/:id/graph', (req, res) => {
-  const pages = db.prepare("SELECT id, title, summary, category FROM wiki_pages WHERE category=? AND status='published'").all(req.params.id);
+  const pages = db.prepare("SELECT id, title, summary, category FROM wiki_pages WHERE kb_id=? AND status='published'").all(req.params.id);
   const nodes = pages.map(p => ({ id: p.id, name: p.title, category: p.category, symbolSize: 20 + Math.min((p.title||'').length * 2, 40) }));
   const nodeMap = new Map(pages.map(p => [p.title, p.id]));
   // 从 wiki_links 表获取边
-  const links = db.prepare("SELECT wl.source_page_id, wl.target_page_id, wl.target_title FROM wiki_links wl INNER JOIN wiki_pages wp ON wl.source_page_id=wp.id WHERE wp.category=? AND wl.target_page_id != ''").all(req.params.id);
+  const links = db.prepare("SELECT wl.source_page_id, wl.target_page_id, wl.target_title FROM wiki_links wl INNER JOIN wiki_pages wp ON wl.source_page_id=wp.id WHERE wp.kb_id=? AND wl.target_page_id != ''").all(req.params.id);
   const edges = links.filter(l => nodeMap.has(l.target_title)).map(l => ({ source: l.source_page_id, target: l.target_page_id }));
   res.json({code:200,data:{nodes,edges}});
 });
@@ -150,21 +150,21 @@ router.post('/kbs/:id/pages', (req, res) => {
   if (!title) return res.status(400).json({code:400,message:'标题必填'});
   const pageId = randomUUID();
   const plainContent = (content||'').replace(/\[\[([^\]]+)\]\]/g,'$1').replace(/\[source:[^\]]*\]/g,'');
-  db.prepare('INSERT INTO wiki_pages(id,title,content,plain_content,category,status,version) VALUES(?,?,?,?,?,?,1)').run(pageId,title,content||'',plainContent,req.params.id,'published');
+  db.prepare('INSERT INTO wiki_pages(id,title,content,plain_content,category,kb_id,status,version) VALUES(?,?,?,?,?,?,?,1)').run(pageId,title,content||'',plainContent,req.params.id,req.params.id,'published');
   db.prepare('UPDATE wikihub_kbs SET page_count=page_count+1,updated_at=datetime(\'now\',\'localtime\') WHERE id=?').run(req.params.id);
   res.json({code:200,data:{id:pageId,title,message:'页面已创建'}});
 });
 
 // 相关页面：共享同一 KB 的最近页面
 router.get('/kbs/:id/pages/:slug/related', (req, res) => {
-  const recent = db.prepare("SELECT id,title,summary FROM wiki_pages WHERE category=? AND id!=? ORDER BY updated_at DESC LIMIT 5").all(req.params.id, req.params.slug);
+  const recent = db.prepare("SELECT id,title,summary FROM wiki_pages WHERE kb_id=? AND id!=? ORDER BY updated_at DESC LIMIT 5").all(req.params.id, req.params.slug);
   res.json({code:200,data:recent});
 });
 
 // 热缓存摘要：AI 生成 KB 全局摘要
 router.post('/kbs/:id/summary', async (req, res) => {
   try {
-    const pages = db.prepare("SELECT title,summary,content FROM wiki_pages WHERE category=? AND status='published' LIMIT 10").all(req.params.id);
+    const pages = db.prepare("SELECT title,summary,content FROM wiki_pages WHERE kb_id=? AND status='published' LIMIT 10").all(req.params.id);
     if (!pages.length) return res.json({code:200,data:{content:'暂无页面，请先上传文件或创建页面'}});
     const combinedText = pages.map(p => `## ${p.title}\n${p.summary||''}\n${(p.content||'').slice(0,500)}`).join('\n\n');
     const { chat } = require('../services/llm');
@@ -173,7 +173,7 @@ router.post('/kbs/:id/summary', async (req, res) => {
       { role:'user', content:`请为以下知识库页面生成全局摘要：\n\n${combinedText.slice(0,4000)}` }
     ], 0.5);
     const summaryText = response.choices?.[0]?.message?.content || '';
-    db.prepare("UPDATE wikihub_kbs SET rules=?, updated_at=datetime('now','localtime') WHERE id=?").run(summaryText, req.params.id);
+    db.prepare("UPDATE wikihub_kbs SET summary=?, updated_at=datetime('now','localtime') WHERE id=?").run(summaryText, req.params.id);
     res.json({code:200,data:{content:summaryText}});
   } catch(e) { res.status(500).json({code:500,message:e.message}); }
 });
@@ -401,7 +401,8 @@ router.post('/:id/digest-to-wiki', async (req, res) => {
     const { digestRawMaterial, saveDigestResult } = require('../services/wiki-digest');
     const sourceText = `【知识库文章: ${article.title}】\n${article.content}`;
     const result = await digestRawMaterial(sourceText, article.title, 'kb_article', {
-      category: article.category || '通用'
+      category: article.category || '通用',
+      kbId: ''
     });
 
     if (!result.pages.length) {
@@ -445,7 +446,8 @@ router.post('/batch-digest', async (req, res) => {
         const { digestRawMaterial, saveDigestResult } = require('../services/wiki-digest');
         const sourceText = `【文章: ${article.title}】\n${article.content}`;
         const result = await digestRawMaterial(sourceText, article.title, 'kb_article', {
-          category: article.category || '通用'
+          category: article.category || '通用',
+          kbId: ''
         });
         if (result.pages.length > 0) {
           const { savedPages } = saveDigestResult(result);

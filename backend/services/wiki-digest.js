@@ -53,7 +53,10 @@ function parseWikiLinks(content) {
 
 // 核心：消化原材料生成 Wiki 页面
 async function digestRawMaterial(rawText, sourceName, sourceType, opts = {}) {
-  const { category = '通用', maxPages = 30 } = opts;
+  const { maxPages = 30 } = opts;
+  // kbId 优先（新方案），category fallback（旧方案兼容）
+  const kbId = opts.kbId || opts.category || '';
+  const category = opts.category || '通用';
   const sourceHash = sha256(rawText);
   const chunks = chunkText(rawText);
   const allPages = [];
@@ -108,6 +111,7 @@ ${chunk.slice(0, 8000)}
             source_content: chunk,
             links_to: Array.isArray(page.links_to) ? page.links_to : [],
             category,
+            kb_id: kbId,
           });
         }
         console.log(`[wiki-digest] 块 ${ci + 1}/${chunks.length}: 提取 ${data.pages.length} 个概念`);
@@ -139,8 +143,8 @@ function saveDigestResult(digestResult) {
   const savedPages = [];
   const savedLinks = [];
 
-  const insertPage = db.prepare(`INSERT INTO wiki_pages (id, title, content, plain_content, summary, key_concepts, category, status, version)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 'published', 1)`);
+  const insertPage = db.prepare(`INSERT INTO wiki_pages (id, title, content, plain_content, summary, key_concepts, category, kb_id, status, version)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'published', 1)`);
   const insertSource = db.prepare(`INSERT INTO wiki_sources (id, wiki_page_id, source_type, source_name, source_path, source_content, source_hash, source_chunk_index)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
   const insertLink = db.prepare(`INSERT INTO wiki_links (id, source_page_id, target_page_id, target_title, context)
@@ -154,7 +158,7 @@ function saveDigestResult(digestResult) {
       // 保存页面
       insertPage.run(
         pageId, page.title, page.content, plainContent,
-        page.summary || '', JSON.stringify(page.key_concepts || []), page.category || '通用'
+        page.summary || '', JSON.stringify(page.key_concepts || []), page.category || '通用', page.kb_id || ''
       );
 
       // 保存来源
@@ -201,6 +205,7 @@ async function regeneratePage(wikiPageId) {
   // 重新消化
   const result = await digestRawMaterial(allText, `regenerate-${page.title}`, 'regenerate', {
     category: page.category,
+    kbId: page.kb_id || page.category,
     maxPages: 1,
   });
 

@@ -25,10 +25,18 @@
         <div class="stat-num">{{ agents.filter(a=>!a.builtin).length }}</div>
         <div class="stat-label">自定义</div>
       </div>
+      <div class="stat-card stat-search" style="--glow:#94a3b8">
+        <el-input v-model="agentSearch" placeholder="搜索智能体…" clearable size="default" style="width:100%" :prefix-icon="Search" />
+      </div>
     </div>
 
-    <div class="agent-grid">
-      <div v-for="agent in agents" :key="agent.id" class="agent-card">
+    <!-- 加载中 -->
+    <div v-if="loading" class="agent-grid">
+      <div v-for="i in 6" :key="i" class="agent-card skeleton" />
+    </div>
+
+    <div v-else class="agent-grid">
+      <div v-for="agent in filteredAgents" :key="agent.id" class="agent-card">
         <div class="agent-header">
           <div class="agent-icon" :style="{ background: agent.bg || agent.color || '#7c3aed' }">
             <span v-if="agent.emoji" class="agent-emoji">{{ agent.emoji }}</span>
@@ -489,7 +497,7 @@
       </div>
       <template #footer>
         <el-button @click="dlg.visible=false">取消</el-button>
-        <el-button type="primary" @click="saveAgent">保存</el-button>
+        <el-button type="primary" @click="saveAgent" :loading="saving">保存</el-button>
       </template>
     </el-dialog>
 
@@ -503,7 +511,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Avatar, Cpu, Check, Setting, Plus, Delete, FolderOpened, Document, Loading, MagicStick, CircleCheck, WarningFilled } from '@element-plus/icons-vue'
+import { Avatar, Cpu, Check, Setting, Plus, Delete, FolderOpened, Document, Loading, MagicStick, CircleCheck, WarningFilled, Search } from '@element-plus/icons-vue'
 import request from '../api/index.js'
 import AgentCreateWizard from '../components/agent/AgentCreateWizard.vue'
 const router = useRouter()
@@ -513,6 +521,9 @@ const kbArticles = ref([])
 const dlg = reactive({ visible: false, isEdit: false, form: {} })
 const showWizard = ref(false)
 const promptGenerating = ref(false)
+const saving = ref(false)
+const loading = ref(true)
+const agentSearch = ref('')
 const browseDlg = reactive({ visible: false, loading: false, current: '', parent: null, items: [], editIdx: -1 })
 const icons = ['Avatar', 'Coin', 'Headset', 'Lock', 'ChatDotSquare', 'DataAnalysis', 'Cpu', 'Setting', 'Promotion', 'List', 'FolderOpened', 'Document']
 const emojis = ['🤖', '🤝', '📋', '🔧', '🛡️', '💻', '💬', '📢', '🎯', '🧠', '👔', '📊']
@@ -524,8 +535,16 @@ const openclawChecked = ref([])
 const skillSaving = ref(false)
 const kbUploading = ref(-1)  // 当前正在上传的本地引用行索引，-1 表示无
 
+const filteredAgents = computed(() => {
+  if (!agentSearch.value.trim()) return agents.value
+  const q = agentSearch.value.trim().toLowerCase()
+  return agents.value.filter(a => a.name.toLowerCase().includes(q) || (a.desc||'').toLowerCase().includes(q) || a.id.toLowerCase().includes(q))
+})
+
 async function loadAgents() {
+  loading.value = true
   try { const { data } = await request.get('/agents'); agents.value = data.data || [] } catch { agents.value = [] }
+  finally { loading.value = false }
 }
 async function loadKB() {
   try { const { data } = await request.get('/knowledge-base', { params: { status: 'published' } }); kbArticles.value = data.data || [] } catch { kbArticles.value = [] }
@@ -628,11 +647,6 @@ async function handleKbUpload(opts, idx) {
 }
 
 // ----- 智能体 -----
-function openAdd() {
-  dlg.isEdit = false
-  dlg.form = { name: '', desc: '', icon: 'Avatar', emoji: '🤖', color: '#7c3aed', base_agent: [], system_prompt: '', kb_article_ids: [], kb_folder_paths: [] }
-  dlg.visible = true
-}
 function openEdit(agent) {
   dlg.isEdit = true
   const ids = agent.kb_article_ids ? agent.kb_article_ids.split(',').filter(Boolean) : []
@@ -643,15 +657,21 @@ function openEdit(agent) {
 }
 async function saveAgent() {
   if (!dlg.form.name) return ElMessage.warning('请输入名称')
-  const payload = {
-    ...dlg.form,
-    base_agent: (dlg.form.base_agent || []).join(','),
-    kb_article_ids: (dlg.form.kb_article_ids || []).join(','),
-    kb_folder_paths: (dlg.form.kb_folder_paths || []).filter(Boolean).join(',')
+  saving.value = true
+  try {
+    const payload = {
+      ...dlg.form,
+      base_agent: (dlg.form.base_agent || []).join(','),
+      kb_article_ids: (dlg.form.kb_article_ids || []).join(','),
+      kb_folder_paths: (dlg.form.kb_folder_paths || []).filter(Boolean).join(',')
+    }
+    if (dlg.isEdit) { await request.put('/agent-apps/' + dlg.form.id, payload) }
+    else { await request.post('/agent-apps', payload) }
+    dlg.visible = false; await loadAgents(); ElMessage.success('OK')
+  } catch (e) {
+    ElMessage.error(e.response?.data?.message || '保存失败')
   }
-  if (dlg.isEdit) { await request.put('/agent-apps/' + dlg.form.id, payload) }
-  else { await request.post('/agent-apps', payload) }
-  dlg.visible = false; await loadAgents(); ElMessage.success('OK')
+  saving.value = false
 }
 async function generatePrompt() {
   if (!dlg.form.name) return ElMessage.warning('请先填写智能体名称')
@@ -675,17 +695,15 @@ async function generatePrompt() {
 async function delAgent(id) {
   try {
     await ElMessageBox.confirm('删除后不可恢复，确认删除该智能体？', '删除确认', {
-      confirmButtonText: '确定删除',
-      cancelButtonText: '取消',
-      type: 'warning'
+      confirmButtonText: '确定删除', cancelButtonText: '取消', type: 'warning'
     })
+  } catch { return }
+  try {
     await request.delete('/agent-apps/' + id)
     await loadAgents()
     ElMessage.success('已删除')
   } catch (e) {
-    if (e !== 'cancel' && e?.action !== 'cancel') {
-      ElMessage.error(e.response?.data?.message || '删除失败')
-    }
+    ElMessage.error(e.response?.data?.message || '删除失败')
   }
 }
 
@@ -723,35 +741,9 @@ const sourceEditDlg = reactive({
 
 async function openBidSettings() {
   bidSettingsDlg.visible = true
-  bidSettingsDlg.loading = true
-  const results = await Promise.allSettled([
-    request.get('/bid-agent/settings', { params: { timeRange: bidSettingsDlg.timeRange } }),
-    request.get('/bid-agent/woyaobid-cookies'),
-    request.get('/bid-agent/region-filter'),
-    request.get('/bid-agent/industry-terms')
-  ])
-  if (results[0].status === 'fulfilled' && results[0].value.data.code === 200) {
-    const d = results[0].value.data.data
-    bidSettingsDlg.routes = d.routes || []
-    bidSettingsDlg.sources = d.sources || []
-    bidSettingsDlg.summary = d.summary || { total_items: 0, new_items: 0, recent_7d: 0, zhongbiao_items: [], caiyou_items: [], txt_files: [] }
-  }
-  if (results[1].status === 'fulfilled' && results[1].value.data.code === 200) {
-    bidSettingsDlg.woyaobid = results[1].value.data.data
-  }
-  if (results[2].status === 'fulfilled' && results[2].value.data.code === 200) {
-    const rd = results[2].value.data.data
-    bidSettingsDlg.regionList = rd.regions || []
-    bidSettingsDlg.regionEnabled = rd.enabled
-  }
-  if (results[3].status === 'fulfilled' && results[3].value.data.code === 200) {
-    const id = results[3].value.data.data
-    bidSettingsDlg.industryList = id.terms || []
-    bidSettingsDlg.industryEnabled = id.enabled
-  }
-  bidSettingsDlg.loading = false
-  loadCollectLogs()
+  await refreshBidSettings()
 }
+
 async function refreshBidSettings() {
   bidSettingsDlg.loading = true
   const results = await Promise.allSettled([
@@ -775,9 +767,9 @@ async function refreshBidSettings() {
     bidSettingsDlg.regionEnabled = rd.enabled
   }
   if (results[3].status === 'fulfilled' && results[3].value.data.code === 200) {
-    const id = results[3].value.data.data
-    bidSettingsDlg.industryList = id.terms || []
-    bidSettingsDlg.industryEnabled = id.enabled
+    const it = results[3].value.data.data
+    bidSettingsDlg.industryList = it.terms || []
+    bidSettingsDlg.industryEnabled = it.enabled
   }
   bidSettingsDlg.loading = false
   loadCollectLogs()
@@ -1030,7 +1022,10 @@ onMounted(() => { loadAgents(); loadKB() })
 .stat-label {
   font-size: 12px; color: #909399; margin-left: auto;
 }
+.stat-search { flex: 2; background: rgba(255,255,255,.65); }
 .agent-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
+.agent-card.skeleton { min-height: 200px; background: linear-gradient(90deg, #f0ecfc 25%, #e8e4f8 50%, #f0ecfc 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; border: none; pointer-events: none; }
+@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 .agent-card {
   background: #fff; border: 1px solid #f0ecfc; border-radius: 16px; padding: 24px;
   transition: all 0.25s; display: flex; flex-direction: column;

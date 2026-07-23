@@ -601,7 +601,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Check, ArrowRight, CircleCheckFilled, VideoCamera } from '@element-plus/icons-vue'
 import { hotContentApi, hotExtractApi, hotChanjingApi, publishApi, monitorApi } from '../../api/hot-video'
@@ -814,6 +814,7 @@ async function deleteContent(id) {
 // ─── Step 2: Video ───
 const videoForm = reactive({ contentId: '', title: '', mode: 'chanjing', orientation: 'portrait', speed: 1.0, person_id: '', audio_man_id: '', pitch: 1.0, font_id: '', figure_type: '', figure_width: 0, figure_height: 0 })
 const generating = ref(false), videoStatus = ref(null), videoError = ref(''), videoUrl = ref('')
+let videoAbortCtrl = null
 
 // ─── 蝉镜资源选择 ───
 const dpList = ref([]), voiceList = ref([]), fontList = ref([])
@@ -871,15 +872,8 @@ async function reloadDp() {
 
 async function loadDpList() {
   if (dpList.value.length) return
-  dpPage.value = 1; dpHasMore.value = true; dpFilterTags.value = []
-  dpLoading.value = true
-  try {
-    const d = (await hotChanjingApi.digitalPersons(1, 50)).data.data
-    dpList.value = d?.list || []
-    dpHasMore.value = (d?.list?.length || 0) >= 50
-    _extractTags(dpList.value)
-  } catch (e) { ElMessage.error('加载数字人失败: ' + (e.response?.data?.message || e.message)) }
-  dpLoading.value = false
+  dpFilterTags.value = []
+  await reloadDp()
 }
 async function loadMoreDp() {
   dpLoading.value = true; dpPage.value++
@@ -938,9 +932,14 @@ async function doGenerateVideo() {
       figure_height: videoForm.figure_height,
     }
     await hotContentApi.generateVideo(videoForm.contentId, params)
+    // 创建新的 abort 信号，用于取消轮询
+    if (videoAbortCtrl) videoAbortCtrl.abort()
+    videoAbortCtrl = new AbortController()
+    const signal = videoAbortCtrl.signal
     let attempts = 0
-    while (attempts < 120) {
+    while (attempts < 120 && !signal.aborted) {
       await new Promise(r => setTimeout(r, 5000))
+      if (signal.aborted) return
       const res = await hotContentApi.get(videoForm.contentId)
       const data = res.data.data
       if (data.video_status === 'done') {
@@ -958,6 +957,7 @@ async function doGenerateVideo() {
       }
       attempts++
     }
+    if (signal.aborted) return
     videoStatus.value = 'failed'
     videoError.value = '超时（10分钟）'
   } catch (e) {
@@ -1001,7 +1001,7 @@ function downloadHistoryVideo(row) {
 }
 
 // ─── Step 3: Publish ───
-const publishForm = reactive({ title: '', description: '', tagList: [], tags: '', scheduled: false, publishDate: null, location: '' })
+const publishForm = reactive({ title: '', description: '', tagList: [], scheduled: false, publishDate: null, location: '' })
 
 const tagInputText = ref('')
 const tagInputRef = ref(null)
@@ -1433,9 +1433,12 @@ watch(step, async (s) => {
   if (s === 3) {
     await checkPublishHealth()
     await checkAllAccountStatus()
-    // Reset platform config to defaults
-    for (const p of PLATFORMS) {
-      platformConfig[p.key].images = []
+    // 仅在首次进入 Step 3 时初始化图片配置（保留用户已上传的图片）
+    if (!publishForm._initialized) {
+      for (const p of PLATFORMS) {
+        platformConfig[p.key].images = []
+      }
+      publishForm._initialized = true
     }
     // Auto-detect cover orientation from video availability
     const cur = contentList.value.find(c => c.id === videoForm.contentId)
@@ -1461,6 +1464,10 @@ onMounted(() => {
   loadContents()
   loadRewriteHistory()
   checkPublishHealth()
+})
+
+onUnmounted(() => {
+  if (videoAbortCtrl) videoAbortCtrl.abort()
 })
 </script>
 

@@ -72,11 +72,18 @@ const groups = [
 const sysInfo = ref('')
 const dbStats = ref('')
 
+let saveTimer = null
 function save() {
+  // 即时保存到 localStorage（不阻塞）
   for (const [k, v] of Object.entries(settings)) {
     localStorage.setItem(k, String(v))
   }
-  ElMessage.success('已保存')
+  // 防抖 toast 提示：800ms 内多次变更只弹一次
+  if (saveTimer) clearTimeout(saveTimer)
+  saveTimer = setTimeout(() => {
+    ElMessage.success('已保存')
+    saveTimer = null
+  }, 800)
 }
 
 onMounted(async () => {

@@ -94,7 +94,7 @@
                   <span v-if="modelProviders.length" class="models-count">
                     {{ readyProviderCount }}/{{ modelProviders.length }} 已配置
                   </span>
-                  <button class="models-manage" @click="$router.push('/model-config')">
+                  <button class="models-manage" @click="$router.push('/settings/models')">
                     管理
                     <el-icon><ArrowRight /></el-icon>
                   </button>
@@ -107,7 +107,7 @@
                   class="provider-chip"
                   :class="'provider-chip--' + providerChipStatus(p)"
                   :title="p.name"
-                  @click="$router.push('/model-config')"
+                  @click="$router.push('/settings/models')"
                 >
                   <span class="provider-chip__dot"></span>
                   <span class="provider-chip__name">{{ p.name || p.provider }}</span>
@@ -116,7 +116,7 @@
               </div>
               <div v-else class="models-empty">
                 <span class="models-empty__text">尚未配置 AI 模型</span>
-                <button class="models-empty__btn" @click="$router.push('/model-config')">前往配置</button>
+                <button class="models-empty__btn" @click="$router.push('/settings/models')">前往配置</button>
               </div>
             </div>
           </div>
@@ -281,7 +281,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import {
   Refresh, Timer, ChatDotRound, Document, Tools, Monitor,
   ArrowRight
@@ -289,6 +289,7 @@ import {
 import { getStatus } from '../api/index.js'
 import { channelHealthApi } from '../api/health.js'
 import request from '../api/index.js'
+import { useWebSocket } from '../composables/useWebSocket.js'
 import * as echarts from 'echarts/core'
 import { LineChart, BarChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
@@ -332,30 +333,23 @@ const quickActions = [
   { icon: '🤖', label: '创建 Agent', to: '/digital' },
   { icon: '📚', label: '知识库', to: '/knowledge-base' },
   { icon: '🔗', label: '消息渠道', to: '/channels' },
-  { icon: '⏰', label: '定时任务', to: '/tasks' },
+  { icon: '⏰', label: '定时任务', to: '/settings/tasks' },
   { icon: '⚙️', label: '系统设置', to: '/settings/system' },
 ]
 
-// ========== 实时事件 ==========
-const events = ref([])
+// ========== 实时事件（复用全局 WebSocket） ==========
+const { events, systemHealth: wsSystemHealth, channelHealth: wsChannelHealth } = useWebSocket()
 
-// WebSocket 接收事件
-let ws = null
-function connectWS() {
-  try {
-    ws = new WebSocket('ws://' + location.hostname + ':18621/ws/events')
-    ws.onmessage = (msg) => {
-      try {
-        const e = JSON.parse(msg.data)
-        if (['tool_executed','approval_requested','channel_health'].includes(e.type)) {
-          events.value.unshift({ ...e, time: Date.now() })
-          if (events.value.length > 100) events.value.length = 100
-        }
-      } catch {}
-    }
-    ws.onclose = () => { setTimeout(connectWS, 10000) }
-  } catch {}
-}
+// WebSocket 推送 → 更新 services（替代 /api/status 轮询）
+watch(wsSystemHealth, (data) => {
+  if (data && data.services) services.value = data.services
+})
+
+// WebSocket 推送 → 更新 channelHealth（替代 /api/channels/health 轮询）
+watch(wsChannelHealth, (data) => {
+  if (data) channelHealth.value = data
+})
+
 function fmtEventTime(ts) { const d = new Date(ts); return d.toTimeString().slice(0,8) }
 
 // ========== 模型配置 ==========
@@ -413,17 +407,11 @@ async function refresh() {
     modelProviders.value = mf.providers || []
     activeModel.value = mf.activeModel || null
 
-    // 系统监控数据
-    const [statusRes, chRes, mgrRes, pluginRes] = await Promise.all([
-      getStatus().catch(() => ({ data: { data: {} } })),
-      channelHealthApi.get().catch(() => ({ data: { data: null } })),
+    // 渠道管理器 + 插件（低频数据，仍走轮询；services/channelHealth 已由 WebSocket 推送）
+    const [mgrRes, pluginRes] = await Promise.all([
       request.get('/channels/manager').catch(() => ({ data: { data: null } })),
       request.get('/plugins').catch(() => ({ data: { data: {} } })),
     ])
-    if (statusRes.data?.code === 200) {
-      services.value = statusRes.data.data.services || []
-    }
-    channelHealth.value = chRes.data?.data || null
     channelManager.value = mgrRes.data?.data || null
     plugins.value = pluginRes.data?.data || {}
   } catch {} finally {
@@ -540,12 +528,14 @@ function statusDotClass(s) {
 onMounted(() => {
   refresh()
   timer = setInterval(refresh, 30000)
-  connectWS()
+  // 首次加载：HTTP 获取 services + channelHealth，后续由 WebSocket 推送
+  getStatus().then(res => { if (res.data?.code === 200) services.value = res.data.data.services || [] }).catch(() => {})
+  channelHealthApi.get().then(res => { channelHealth.value = res.data?.data || null }).catch(() => {})
+  // WebSocket 连接由 MainLayout 统一管理
 })
 
 onUnmounted(() => {
   clearInterval(timer)
-  if (ws) ws.close()
   chartInstance?.dispose()
   chartResizeObserver?.disconnect()
 })

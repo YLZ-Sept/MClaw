@@ -73,30 +73,14 @@
           <router-link v-if="hasPerm('skills')" to="/skill-library" class="nav-item" active-class="active">
             <el-icon><MagicStick /></el-icon><span>技能库</span>
           </router-link>
-          <router-link v-if="hasPerm('tasks')" to="/tasks" class="nav-item" active-class="active">
-            <el-icon><List /></el-icon><span>任务</span>
-          </router-link>
         </div>
         <div class="nav-group">
           <div class="nav-group-title">配置</div>
-          <router-link v-if="hasPerm('model')" to="/model-config" class="nav-item" active-class="active">
-            <el-icon><Cpu /></el-icon><span>模型配置</span>
-          </router-link>
           <router-link v-if="hasPerm('model')" to="/settings" class="nav-item" active-class="active">
             <el-icon><Setting /></el-icon><span>设置</span>
           </router-link>
           <router-link v-if="hasPerm('system')" to="/memory" class="nav-item" active-class="active">
             <el-icon><FolderOpened /></el-icon><span>记忆管理</span>
-          </router-link>
-          <router-link v-if="hasAnyPerm('security','security_config','security_sessions','security_maintain','security_logs')" to="/services" class="nav-item" active-class="active">
-            <el-icon><Setting /></el-icon><span>服务管理</span>
-          </router-link>
-
-          <router-link v-if="hasAnyPerm('security_users','security_roles','security_permissions')" to="/users" class="nav-item" active-class="active">
-            <el-icon><Avatar /></el-icon><span>用户管理</span>
-          </router-link>
-          <router-link v-if="hasAnyPerm('security','security_config','security_sessions','security_maintain','security_logs')" to="/security" class="nav-item" active-class="active">
-            <el-icon><Lock /></el-icon><span>安全设置</span>
           </router-link>
         </div>
       </nav>
@@ -233,9 +217,10 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
+import { useWebSocket } from '../composables/useWebSocket.js'
 import {
   ChatDotSquare, DataAnalysis, List,
   Cpu, Setting, ChatLineSquare, Lock, UserFilled, Avatar, Stamp,
@@ -333,6 +318,12 @@ onMounted(() => {
     userRole.value = user.role || ''
     userPerms.value = user.permissions || []
   } catch { userName.value = '管理员' }
+  // 初始化全局 WebSocket 连接（替代各模块独立轮询）
+  useWebSocket().connect()
+})
+
+onUnmounted(() => {
+  useWebSocket().disconnect()
 })
 
 // ── 授权状态 ──

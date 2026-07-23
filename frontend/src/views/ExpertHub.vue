@@ -25,6 +25,15 @@
       </div>
       <div class="hub-categories">
         <el-button
+          :type="!activeCategory ? 'primary' : 'default'"
+          size="default"
+          :class="['cat-chip', { 'cat-chip-active': !activeCategory }]"
+          @click="activeCategory = null"
+        >
+          全部
+          <span class="cat-chip-count">{{ experts.length }}</span>
+        </el-button>
+        <el-button
           v-for="c in categories"
           :key="c.key"
           :type="activeCategory === c.key ? 'primary' : 'default'"
@@ -38,8 +47,18 @@
       </div>
     </div>
 
+    <!-- 加载骨架 -->
+    <div v-if="loading" class="expert-grid">
+      <div v-for="i in 6" :key="i" class="expert-card skeleton">
+        <div class="card-top"><div class="card-emoji skeleton-box" style="width:48px;height:48px" /><div class="skeleton-box" style="width:60px;height:20px" /></div>
+        <div class="skeleton-box" style="width:70%;height:20px;margin-bottom:8px" />
+        <div class="skeleton-box" style="width:100%;height:36px;margin-bottom:4px" />
+        <div class="skeleton-box" style="width:100%;height:14px" />
+      </div>
+    </div>
+
     <!-- 专家卡片网格 -->
-    <div v-if="filteredExperts.length > 0" class="expert-grid">
+    <div v-else-if="filteredExperts.length > 0" class="expert-grid">
       <div v-for="e in filteredExperts" :key="e.id" class="expert-card" @click="goChat(e)">
         <div class="card-top">
           <div class="card-emoji" :style="{ background: e.color || '#7c3aed' }">{{ e.emoji || '🤖' }}</div>
@@ -80,9 +99,9 @@ const experts = ref([])
 const categories = ref([])
 const search = ref('')
 const activeCategory = ref(null)
+const loading = ref(true)
 
 const catMap = {}
-categories.value = [] // 初始化后填充
 
 function catName(key) {
   return catMap[key] || key
@@ -112,6 +131,7 @@ function goChat(expert) {
 }
 
 onMounted(async () => {
+  loading.value = true
   try {
     const [expRes, catRes] = await Promise.all([
       request.get('/expert-agents'),
@@ -125,6 +145,8 @@ onMounted(async () => {
   } catch {
     experts.value = []
     categories.value = []
+  } finally {
+    loading.value = false
   }
 })
 </script>
@@ -289,6 +311,11 @@ onMounted(async () => {
   background: #7c3aed;
   border-color: #7c3aed;
 }
+
+/* Skeleton */
+.expert-card.skeleton { cursor: default; pointer-events: none; opacity: 0.7; }
+.skeleton-box { background: linear-gradient(90deg, #f0ecfc 25%, #e8e4f8 50%, #f0ecfc 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 8px; }
+@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 
 /* Empty */
 .hub-empty {

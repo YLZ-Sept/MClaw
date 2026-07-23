@@ -19,9 +19,9 @@ function readMemoryFile(agentId, file = 'MEMORY.md') {
 }
 
 function writeMemoryFile(agentId, content, file = 'MEMORY.md') {
-  const dir = path.join(MEMORY_DIR, agentId);
-  ensureDir(dir);
-  fs.writeFileSync(path.join(dir, file), content, 'utf8');
+  const fp = path.join(MEMORY_DIR, agentId, file);
+  ensureDir(path.dirname(fp));
+  fs.writeFileSync(fp, content, 'utf8');
 }
 
 function appendMemoryFile(agentId, content, file = 'MEMORY.md') {
@@ -91,15 +91,35 @@ function loadMemoryContext(agentId, userMessage = '') {
 
   const memContent = readMemoryFile(agentId);
   const profileContent = readMemoryFile(agentId, 'PROFILE.md');
+  const soulContent = readMemoryFile(agentId, 'SOUL.md');
 
   const parts = [];
 
-  // PROFILE.md（你是谁 — 高优先级，总是注入但限制长度）
+  // SOUL.md（人格画像 — 高优先级）
+  if (soulContent) {
+    parts.push(`## 人格画像\n${soulContent.slice(0, 2000)}`);
+  }
+
+  // PROFILE.md（用户画像 — 总是注入但限制长度）
   if (profileContent) {
     parts.push(`## 用户画像\n${profileContent.slice(0, 2000)}`);
   }
 
-  // MEMORY.md（学到了什么 — 按查询相关性注入）
+  // 结构化记忆 always-on 块（user + feedback 类型）
+  const structuredBlock = buildStructuredBlock(agentId);
+  if (structuredBlock) {
+    parts.push(structuredBlock);
+  }
+
+  // 结构化记忆 prefetch 块（project + reference，按查询匹配）
+  if (userMessage) {
+    const prefetchBlock = buildPrefetchBlock(agentId, userMessage);
+    if (prefetchBlock) {
+      parts.push(prefetchBlock);
+    }
+  }
+
+  // MEMORY.md（按查询相关性注入）
   if (memContent && userMessage) {
     const relevant = findRelevantSections(memContent, userMessage, 3000);
     if (relevant) {
@@ -279,21 +299,49 @@ async function toolRecall(agentId, query) {
   return { query, content: relevant || '未找到相关记忆', results: relevant ? [relevant] : [] };
 }
 
+// ── 递归列出目录下所有文件 ──
+
+function listFilesRecursive(dir, baseDir = dir) {
+  if (!fs.existsSync(dir)) return [];
+  const results = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      results.push(...listFilesRecursive(fullPath, baseDir));
+    } else {
+      // 返回相对于 baseDir 的路径
+      const relPath = path.relative(baseDir, fullPath).replace(/\\/g, '/');
+      try {
+        const content = fs.readFileSync(fullPath, 'utf8');
+        results.push({ file: relPath, chars: content.length, lines: content.split('\n').length });
+      } catch {
+        results.push({ file: relPath, chars: 0, lines: 0, error: true });
+      }
+    }
+  }
+  return results;
+}
+
+function deleteDirRecursive(dir) {
+  if (!fs.existsSync(dir)) return;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      deleteDirRecursive(fullPath);
+    } else {
+      fs.unlinkSync(fullPath);
+    }
+  }
+  fs.rmdirSync(dir);
+}
+
 // ── 记忆管理 API ──
 
 function getMemoryStats(agentId) {
   const dir = path.join(MEMORY_DIR, agentId);
   if (!fs.existsSync(dir)) return { agentId, files: [], totalChars: 0 };
 
-  const files = fs.readdirSync(dir).map(f => {
-    const fp = path.join(dir, f);
-    try {
-      const content = fs.readFileSync(fp, 'utf8');
-      return { file: f, chars: content.length, lines: content.split('\n').length };
-    } catch {
-      return { file: f, chars: 0, lines: 0, error: true };
-    }
-  });
+  const files = listFilesRecursive(dir);
 
   return {
     agentId,
@@ -307,13 +355,176 @@ function getMemoryStats(agentId) {
 
 function clearMemory(agentId) {
   const dir = path.join(MEMORY_DIR, agentId);
-  if (fs.existsSync(dir)) {
-    for (const f of fs.readdirSync(dir)) {
-      fs.unlinkSync(path.join(dir, f));
-    }
-    fs.rmdirSync(dir);
-  }
+  deleteDirRecursive(dir);
   return { success: true, message: `已清除 ${agentId} 的所有记忆` };
+}
+
+function deleteMemoryFile(agentId, filename) {
+  if (!filename) return { success: false, message: '缺少文件名' };
+  // 防止路径穿越：规范化并确保在 agent 目录内
+  const agentDir = path.resolve(MEMORY_DIR, agentId);
+  const fp = path.resolve(agentDir, filename);
+  if (!fp.startsWith(agentDir + path.sep) && fp !== agentDir) {
+    return { success: false, message: '非法路径' };
+  }
+  if (!fs.existsSync(fp)) return { success: false, message: '文件不存在' };
+  fs.unlinkSync(fp);
+
+  // 清理空目录
+  let parentDir = path.dirname(fp);
+  while (parentDir !== agentDir && parentDir.startsWith(agentDir)) {
+    try {
+      const remaining = fs.readdirSync(parentDir);
+      if (remaining.length === 0) fs.rmdirSync(parentDir);
+      else break;
+    } catch { break; }
+    parentDir = path.dirname(parentDir);
+  }
+
+  return { success: true, message: `已删除 ${filename}` };
+}
+
+// ── 结构化记忆（对标 mateclaw StructuredMemoryService）──
+
+const VALID_STRUCT_TYPES = ['user', 'feedback', 'project', 'reference'];
+
+/**
+ * 存储一条分类记忆条目
+ * @param {string} agentId
+ * @param {string} type - user | feedback | project | reference
+ * @param {string} key - 条目键名（## key）
+ * @param {string} content - 条目内容
+ * @param {string} source - 记录来源
+ */
+function rememberStructured(agentId, type, key, content, source = 'agent') {
+  if (!VALID_STRUCT_TYPES.includes(type)) {
+    return { success: false, message: `无效的记忆类型: ${type}，可选: ${VALID_STRUCT_TYPES.join(', ')}` };
+  }
+  const filename = `structured/${type}.md`;
+  const existing = readMemoryFile(agentId, filename);
+
+  const metadata = `> Source: ${source} | Updated: ${new Date().toISOString().slice(0, 10)}`;
+  const newSection = `## ${key}\n${content.trim()}\n${metadata}`;
+
+  // 查找并替换已有的同 key 段落
+  const headerIdx = existing.indexOf(`## ${key}\n`);
+  let updated;
+  if (headerIdx >= 0) {
+    // 找到下一个 ## 或 EOF
+    const nextIdx = existing.indexOf('\n## ', headerIdx + 1);
+    const end = nextIdx >= 0 ? nextIdx : existing.length;
+    updated = existing.slice(0, headerIdx) + newSection + existing.slice(end);
+  } else {
+    updated = existing.trim() ? existing.trim() + '\n\n' + newSection : newSection;
+  }
+
+  writeMemoryFile(agentId, updated, filename);
+  return { success: true, message: `已记录 ${type}/${key}` };
+}
+
+/**
+ * 查询结构化记忆条目
+ * @param {string} agentId
+ * @param {string} type - 分类，不传则查全部
+ * @param {string} keyword - 可选关键词过滤
+ * @returns {{ type, key, content }[]}
+ */
+function recallStructured(agentId, type, keyword) {
+  const types = type ? [type] : VALID_STRUCT_TYPES;
+  const results = [];
+
+  for (const t of types) {
+    const content = readMemoryFile(agentId, `structured/${t}.md`);
+    if (!content.trim()) continue;
+
+    // 按 ## 分段解析
+    const sections = content.split(/(?=^## )/m);
+    for (const sec of sections) {
+      const match = sec.match(/^## (.+)\n([\s\S]*)/);
+      if (!match) continue;
+      const key = match[1].trim();
+      const body = match[2].trim();
+      // 剥离元数据行 (以 > 开头)
+      const cleanBody = body.split('\n').filter(l => !l.startsWith('>')).join('\n').trim();
+
+      if (keyword && !key.includes(keyword) && !cleanBody.includes(keyword)) continue;
+
+      results.push({ type: t, key, content: cleanBody });
+    }
+  }
+  return results;
+}
+
+/**
+ * 删除一条结构化记忆条目
+ */
+function forgetStructured(agentId, type, key) {
+  if (!VALID_STRUCT_TYPES.includes(type)) {
+    return { success: false, message: `无效的记忆类型: ${type}` };
+  }
+  const filename = `structured/${type}.md`;
+  const content = readMemoryFile(agentId, filename);
+  if (!content.trim()) return { success: false, message: '文件为空' };
+
+  const headerIdx = content.indexOf(`## ${key}\n`);
+  if (headerIdx < 0) return { success: false, message: `条目 "${key}" 不存在` };
+
+  const nextIdx = content.indexOf('\n## ', headerIdx + 1);
+  const end = nextIdx >= 0 ? nextIdx : content.length;
+  const updated = (content.slice(0, headerIdx) + content.slice(end)).trim()
+    .replace(/\n{3,}/g, '\n\n');
+
+  writeMemoryFile(agentId, updated, filename);
+  return { success: true, message: `已删除 ${type}/${key}` };
+}
+
+/**
+ * 构建 always-on 注入块（对标 mateclaw buildMemoryBlock）
+ * 只包含 user/feedback 两类低量稳定条目
+ */
+function buildStructuredBlock(agentId) {
+  const alwaysOnTypes = ['user', 'feedback'];
+  const parts = [];
+
+  for (const type of alwaysOnTypes) {
+    const entries = recallStructured(agentId, type, null);
+    if (!entries.length) continue;
+
+    const label = { user: '用户信息', feedback: '偏好反馈' }[type] || type;
+    const bullets = entries.map(e => `- **${e.key}**: ${e.content.slice(0, 300)}`);
+    parts.push(`### ${label}\n${bullets.join('\n')}`);
+  }
+
+  if (!parts.length) return '';
+  return `## 结构化记忆\n\n${parts.join('\n\n')}`;
+}
+
+/**
+ * 构建 query-conditioned prefetch 块（对标 mateclaw buildPrefetchBlock）
+ */
+function buildPrefetchBlock(agentId, userQuery) {
+  if (!userQuery) return '';
+  const prefetchTypes = ['project', 'reference'];
+  const matches = [];
+
+  for (const type of prefetchTypes) {
+    const entries = recallStructured(agentId, type, null);
+    for (const e of entries) {
+      // 简单评分：key 命中 +4，内容命中 +1
+      let score = 0;
+      if (e.key.includes(userQuery)) score += 4;
+      if (e.content.includes(userQuery)) score += 1;
+      if (score > 0) matches.push({ ...e, score });
+    }
+  }
+
+  if (!matches.length) return '';
+
+  matches.sort((a, b) => b.score - a.score);
+  const top = matches.slice(0, 6);
+
+  const bullets = top.map(m => `- **${m.key}** (${m.type}): ${m.content.slice(0, 300)}`);
+  return `## 相关记忆\n${bullets.join('\n')}`;
 }
 
 module.exports = {
@@ -336,5 +547,13 @@ module.exports = {
   // 管理 API
   getMemoryStats,
   clearMemory,
-  MEMORY_DIR
+  deleteMemoryFile,
+  MEMORY_DIR,
+
+  // 结构化记忆
+  rememberStructured,
+  recallStructured,
+  forgetStructured,
+  buildStructuredBlock,
+  buildPrefetchBlock
 };

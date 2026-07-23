@@ -53,6 +53,9 @@
               <span class="stat-dot stat-dot--error"></span>
               异常 {{ stats.errors }}
             </span>
+            <span v-if="stats.unknown > 0" class="stat muted">
+              未知 {{ stats.unknown }}
+            </span>
             <span v-if="stats.disabled > 0" class="stat muted">
               停用 {{ stats.disabled }}
             </span>
@@ -130,7 +133,7 @@
     />
 
     <!-- 编辑对话框 (保留用于编辑已有渠道) -->
-    <el-dialog v-model="showEditDlg" :title="editingId ? '编辑渠道' : '新建渠道'" width="560px" destroy-on-close @closed="resetEdit">
+    <el-dialog v-model="showEditDlg" title="编辑渠道" width="560px" destroy-on-close @closed="resetEdit">
       <el-form :model="editForm" label-position="top" size="default">
         <el-form-item label="平台">
           <el-input :model-value="platformLabel(editForm.platform)" disabled />
@@ -221,11 +224,11 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { channelAccountsApi, channelConversationsApi, agentAppsApi } from '../api/channels'
 import { channelHealthApi } from '../api/health'
-import request from '../api/index.js'
+import { useWebSocket } from '../composables/useWebSocket.js'
 import ChannelTypePicker from '../components/channels/ChannelTypePicker.vue'
 import ChannelOnboardingWizard from '../components/channels/ChannelOnboardingWizard.vue'
 
@@ -244,7 +247,27 @@ const saving = ref(false)
 const activeAccount = ref(null)
 const accountConvs = ref([])
 const convLoading = ref(false)
-let timer = null
+
+const { channelHealth, channelStatus } = useWebSocket()
+
+// WebSocket 推送替代 30s 轮询 — 监听完整快照
+watch(channelHealth, (data) => {
+  if (data && data.channels) {
+    applyHealthSnapshot(data.channels)
+  }
+})
+
+// 单渠道状态变更（来自 health.js heartbeat 的实时推送）
+watch(channelStatus, (map) => {
+  if (!map || !Object.keys(map).length) return
+  for (const [chId, status] of Object.entries(map)) {
+    const a = accounts.value.find(ac => ac.id === chId || ac.platform === chId)
+    if (a) {
+      a._health = status
+      channelStatusMap.value = { ...channelStatusMap.value, [a.id]: status === 'healthy' ? 'CONNECTED' : status === 'unhealthy' ? 'ERROR' : status === 'degraded' ? 'RECONNECTING' : 'CONNECTED' }
+    }
+  }
+})
 
 // ========== 排序 & 统计 ==========
 const sortedAccounts = computed(() => [...accounts.value].sort((a, b) => {
@@ -254,15 +277,15 @@ const sortedAccounts = computed(() => [...accounts.value].sort((a, b) => {
 }))
 
 const stats = computed(() => {
-  let active = 0, errors = 0, disabled = 0
+  let active = 0, errors = 0, disabled = 0, unknown = 0
   for (const a of accounts.value) {
     if (a.status !== 'active') { disabled++; continue }
     const state = channelStatusMap.value[a.id]
     if (state === 'CONNECTED') active++
     else if (state === 'ERROR') errors++
-    else active++ // healthy if no status data yet
+    else unknown++
   }
-  return { active, errors, disabled }
+  return { active, errors, disabled, unknown }
 })
 
 // ========== 平台数据 ==========
@@ -337,15 +360,7 @@ async function saveAccount() {
   try {
     const payload = { ...editForm.value }
     delete payload._health; delete payload._lastError
-    if (!editingId.value) {
-      try {
-        const { data } = await request.post('/channels/preflight', { platform: payload.platform, config: payload })
-        if (data?.data && !data.data.ok) { ElMessage.warning('凭证验证: ' + data.data.message) }
-        else if (data?.data?.ok) { ElMessage.success(data.data.message) }
-      } catch {}
-    }
-    if (editingId.value) { await channelAccountsApi.update(editingId.value, payload); ElMessage.success('已更新') }
-    else { await channelAccountsApi.create(payload); ElMessage.success('已创建') }
+    await channelAccountsApi.update(editingId.value, payload); ElMessage.success('已更新')
     showEditDlg.value = false
     loadAccounts()
   } catch (e) { ElMessage.error('保存失败: ' + (e.response?.data?.message || e.message)) }
@@ -370,31 +385,40 @@ async function viewChannel(a) {
   convLoading.value = false
 }
 
-function openConv(c) { showConversations.value = false; window.open('/channels?conv=' + c.id, '_self') }
+function openConv(c) {
+  showConversations.value = false
+  // 跳转到聊天页并传入渠道会话上下文
+  const params = new URLSearchParams({ channel_conv: c.id, channel_account: activeAccount.value?.id || '' })
+  window.open('/chat?' + params.toString(), '_self')
+}
 
 async function loadAccounts() {
   try { const { data } = await channelAccountsApi.list(); accounts.value = data?.data || data || [] }
   catch { accounts.value = [] }
 }
 
+function applyHealthSnapshot(list) {
+  const map = {}
+  for (const ch of list) {
+    const a = accounts.value.find(ac => ac.id === ch.id || ac.platform === ch.type)
+    if (a) {
+      a._health = ch.status
+      a._lastError = ch.message || ch.error || null
+      a.identity_desc = ch.identity || null
+      map[a.id] = ch.status === 'healthy' ? 'CONNECTED'
+        : ch.status === 'unhealthy' ? 'ERROR'
+        : ch.status === 'degraded' ? 'RECONNECTING'
+        : 'CONNECTED'
+    }
+  }
+  channelStatusMap.value = map
+}
+
 async function loadHealth() {
   try {
     const { data } = await channelHealthApi.get()
     const list = data?.data?.channels || []
-    const map = {}
-    for (const ch of list) {
-      const a = accounts.value.find(ac => ac.id === ch.id || ac.platform === ch.type)
-      if (a) {
-        a._health = ch.status
-        a._lastError = ch.message || ch.error || null
-        a.identity_desc = ch.identity || null
-        map[a.id] = ch.status === 'healthy' ? 'CONNECTED'
-          : ch.status === 'unhealthy' ? 'ERROR'
-          : ch.status === 'degraded' ? 'RECONNECTING'
-          : 'CONNECTED'
-      }
-    }
-    channelStatusMap.value = map
+    applyHealthSnapshot(list)
   } catch { channelStatusMap.value = {} }
 }
 
@@ -409,12 +433,11 @@ async function init() {
     agentApps.value = agRes.data?.data || agRes.data || []
   } catch {}
   loading.value = false
-  loadHealth()
-  timer = setInterval(loadHealth, 10000)
+  loadHealth()  // 首次加载用 HTTP，后续由 WebSocket 推送
 }
 
 onMounted(init)
-onUnmounted(() => clearInterval(timer))
+onUnmounted(() => { /* WebSocket 由 MainLayout 统一管理 */ })
 </script>
 
 <style scoped>

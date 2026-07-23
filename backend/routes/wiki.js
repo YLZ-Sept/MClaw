@@ -34,10 +34,11 @@ const upload = multer({
 
 // 列表
 router.get('/pages', (req, res) => {
-  const { category, keyword, status, page = 1, pageSize = 50 } = req.query;
+  const { category, kb_id, keyword, status, page = 1, pageSize = 50 } = req.query;
   let sql = 'SELECT * FROM wiki_pages WHERE 1=1';
   const params = [];
-  if (category) { sql += ' AND category=?'; params.push(category); }
+  if (kb_id) { sql += ' AND kb_id=?'; params.push(kb_id); }
+  else if (category) { sql += ' AND category=?'; params.push(category); }
   if (status) { sql += ' AND status=?'; params.push(status); }
   if (keyword) { sql += ' AND (title LIKE ? OR plain_content LIKE ? OR summary LIKE ?)';
     params.push(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`); }
@@ -77,14 +78,14 @@ router.get('/pages/:id', (req, res) => {
 
 // 手动创建
 router.post('/pages', (req, res) => {
-  const { title, content, summary, key_concepts, category } = req.body;
+  const { title, content, summary, key_concepts, category, kb_id } = req.body;
   if (!title) return res.status(400).json({ code: 400, message: '标题必填' });
   const id = randomUUID();
   const plainContent = (content || '').replace(/\[\[([^\]]+)\]\]/g, '$1').replace(/\[source:[^\]]*\]/g, '');
-  db.prepare(`INSERT INTO wiki_pages (id, title, content, plain_content, summary, key_concepts, category)
-    VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
+  db.prepare(`INSERT INTO wiki_pages (id, title, content, plain_content, summary, key_concepts, category, kb_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
     id, title, content || '', plainContent, summary || '',
-    JSON.stringify(key_concepts || []), category || '通用'
+    JSON.stringify(key_concepts || []), category || '通用', kb_id || ''
   );
   // 解析并保存链接
   saveLinksForPage(id, content || '');
@@ -95,16 +96,16 @@ router.post('/pages', (req, res) => {
 router.put('/pages/:id', (req, res) => {
   const page = db.prepare('SELECT * FROM wiki_pages WHERE id=?').get(req.params.id);
   if (!page) return res.status(404).json({ code: 404, message: '页面不存在' });
-  const { title, content, summary, key_concepts, category, status } = req.body;
+  const { title, content, summary, key_concepts, category, kb_id, status } = req.body;
   const newContent = content !== undefined ? content : page.content;
   const plainContent = newContent.replace(/\[\[([^\]]+)\]\]/g, '$1').replace(/\[source:[^\]]*\]/g, '');
   db.prepare(`UPDATE wiki_pages SET title=COALESCE(?,title), content=COALESCE(?,content),
     plain_content=COALESCE(?,plain_content), summary=COALESCE(?,summary),
-    key_concepts=COALESCE(?,key_concepts), category=COALESCE(?,category), status=COALESCE(?,status),
+    key_concepts=COALESCE(?,key_concepts), category=COALESCE(?,category), kb_id=COALESCE(?,kb_id), status=COALESCE(?,status),
     version=version+1, updated_at=datetime('now','localtime') WHERE id=?`).run(
     title, content !== undefined ? content : null, content !== undefined ? plainContent : null,
     summary, key_concepts !== undefined ? JSON.stringify(key_concepts) : null,
-    category, status, req.params.id
+    category, kb_id, status, req.params.id
   );
   // 更新链接
   if (content !== undefined) {
@@ -173,10 +174,11 @@ router.post('/digest', upload.array('files', 20), async (req, res) => {
 
     const combinedText = allTexts.join('\n\n---\n\n');
     const category = req.body.category || '通用';
+    const kbId = req.body.kb_id || '';
     const sourceName = sources.map(s => s.name).join(', ');
 
     // AI 消化
-    const result = await digestRawMaterial(combinedText, sourceName, 'mixed', { category });
+    const result = await digestRawMaterial(combinedText, sourceName, 'mixed', { category, kbId });
 
     if (!result.pages.length) {
       return res.json({ code: 200, data: { pages: [], totalPages: 0, message: 'AI 未提取到可结构化的知识点' } });
@@ -194,14 +196,14 @@ router.post('/digest', upload.array('files', 20), async (req, res) => {
 // 单 URL 消化
 router.post('/digest-url', async (req, res) => {
   try {
-    const { url, category = '通用' } = req.body;
+    const { url, category = '通用', kb_id = '' } = req.body;
     if (!url) return res.status(400).json({ code: 400, message: 'URL 必填' });
     const web = await fetchWebContent(url);
     if (!web.content || web.content.startsWith('抓取失败')) {
       return res.status(400).json({ code: 400, message: '抓取失败: ' + web.content });
     }
     const sourceText = `【网址: ${web.title}】\n来源: ${url}\n${web.content}`;
-    const result = await digestRawMaterial(sourceText, web.title || url, 'url', { category });
+    const result = await digestRawMaterial(sourceText, web.title || url, 'url', { category, kbId: kb_id });
     if (!result.pages.length) {
       return res.json({ code: 200, data: { pages: [], totalPages: 0, message: 'AI 未提取到可结构化的知识点' } });
     }

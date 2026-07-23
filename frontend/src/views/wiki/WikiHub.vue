@@ -85,7 +85,9 @@
                   <div class="kb-summary-text">{{ kbSummary }}</div>
                   <button class="kb-summary-btn" @click="generateSummary">✨ AI 生成摘要</button>
                 </div>
-                <button v-else class="kb-summary-gen" @click="generateSummary">✨ AI 生成知识库摘要</button>
+                <button v-else class="kb-summary-gen" @click="generateSummary" :disabled="summarizing">
+                  {{ summarizing ? '⏳ 生成中…' : '✨ AI 生成知识库摘要' }}
+                </button>
 
                 <!-- 页面查看器 -->
                 <div v-if="currentPage" class="page-viewer">
@@ -262,7 +264,9 @@ const relatedPages = ref([])
 const kbSummary = ref('')
 const showNewPage = ref(false)
 const newPageForm = ref({ title: '', content: '' })
+const summarizing = ref(false)
 let graphChart = null
+let pollTimers = []
 
 async function loadPage(p) {
   try {
@@ -288,12 +292,14 @@ async function createPage() {
 }
 
 async function generateSummary() {
+  if (summarizing.value) return
+  summarizing.value = true
   try {
-    ElMessage.info('正在生成摘要…')
     const { data } = await request.post('/knowledge-base/kbs/' + currentKB.value.id + '/summary')
     kbSummary.value = data.data?.content || ''
     ElMessage.success('摘要已生成')
   } catch { ElMessage.error('生成失败') }
+  finally { summarizing.value = false }
 }
 
 async function loadGraph() {
@@ -335,8 +341,10 @@ function handleWikilinkClick(e) {
   if (page) { activeTab.value = 'pages'; loadPage(page) }
   else ElMessage.info('页面 "' + target + '" 尚未创建')
 }
+function clearPollTimers() { pollTimers.forEach(t => clearTimeout(t)); pollTimers = [] }
+
 onMounted(() => { document.addEventListener('click', handleWikilinkClick); loadKBs() })
-onUnmounted(() => { document.removeEventListener('click', handleWikilinkClick); if(graphChart) graphChart.dispose() })
+onUnmounted(() => { document.removeEventListener('click', handleWikilinkClick); clearPollTimers(); if(graphChart) graphChart.dispose() })
 
 async function loadKBs() {
   kbLoading.value = true
@@ -347,7 +355,7 @@ async function loadKBs() {
 async function openKB(kb) {
   currentKB.value = kb
   activeTab.value = 'pages'
-  kbSummary.value = (kb.rules && kb.rules.length > 10) ? kb.rules : ''
+  kbSummary.value = kb.summary || ''
   try {
     const { data: p } = await request.get('/knowledge-base/kbs/' + kb.id + '/pages')
     pages.value = p.data || []
@@ -375,13 +383,17 @@ async function savePage() {
 async function uploadMaterial(options) {
   const form = new FormData(); form.append('file', options.file)
   try {
-    const { data } = await request.post('/knowledge-base/kbs/' + currentKB.value.id + '/materials/upload', form)
+    const kbId = currentKB.value.id
+    const { data } = await request.post('/knowledge-base/kbs/' + kbId + '/materials/upload', form)
     if (data.code === 200) {
       ElMessage.success(data.data?.message || '已上传')
-      // 异步刷新：等待 AI 消化完成后更新页面列表
-      setTimeout(() => openKB(currentKB.value), 2000)
-      setTimeout(() => openKB(currentKB.value), 6000)
-      setTimeout(() => openKB(currentKB.value), 15000)
+      // 异步轮询刷新：等待 AI 消化完成
+      clearPollTimers()
+      pollTimers.push(
+        setTimeout(() => { if (currentKB.value?.id === kbId) openKB(currentKB.value) }, 3000),
+        setTimeout(() => { if (currentKB.value?.id === kbId) openKB(currentKB.value) }, 8000),
+        setTimeout(() => { if (currentKB.value?.id === kbId) openKB(currentKB.value) }, 20000)
+      )
     }
   } catch { ElMessage.error('上传失败') }
 }
@@ -546,7 +558,8 @@ async function deleteKB(id) {
 .kb-summary-btn { padding:4px 10px;border:1px solid #c4b5fd;border-radius:8px;background:#fff;cursor:pointer;font-size:11px;color:#7c3aed;white-space:nowrap;flex-shrink:0; }
 .kb-summary-btn:hover { background:#ede9fe; }
 .kb-summary-gen { display:block;width:100%;padding:8px;border:1px dashed #ddd6fe;border-radius:8px;background:transparent;cursor:pointer;font-size:13px;color:#94a3b8;margin-bottom:16px; }
-.kb-summary-gen:hover { border-color:#7c3aed;color:#7c3aed;background:#faf8ff; }
+.kb-summary-gen:hover:not(:disabled) { border-color:#7c3aed;color:#7c3aed;background:#faf8ff; }
+.kb-summary-gen:disabled { opacity:0.5;cursor:not-allowed; }
 
 /* Related pages */
 .related-panel { margin-top:8px;padding-top:8px;border-top:1px solid #f8f6fc; }

@@ -36,26 +36,27 @@ const routes = [
       { path: 'internal/docs', name: 'DocMgmt', component: () => import('../views/internal/DocumentManagement.vue'), meta: { perm: 'docs' } },
       { path: 'internal/finance', name: 'FinanceMgmt', component: () => import('../views/internal/FinanceManagement.vue'), meta: { perm: 'crm' } },
       { path: 'support', name: 'FAQMgmt', component: () => import('../views/internal/FAQManagement.vue'), meta: { perm: 'knowledge' } },
-      { path: 'tasks', name: 'Tasks', component: () => import('../views/scheduler/SchedulerView.vue'), meta: { perm: 'tasks' } },
-      { path: 'services', name: 'ServiceManagement', component: () => import('../views/ServiceManagement.vue'), meta: { perm: ['security','security_config','security_sessions','security_maintain','security_logs'] } },
-      { path: 'model-config', name: 'ModelConfig', component: () => import('../views/ModelConfig.vue'), meta: { perm: 'model' } },
+      // 旧路径重定向到设置中心
+      { path: 'tasks', redirect: '/settings/tasks' },
+      { path: 'model-config', redirect: '/settings/models' },
+      { path: 'services', redirect: '/settings/services' },
+      { path: 'users', redirect: '/settings/users' },
+      { path: 'security', redirect: '/settings/security' },
       { path: 'channels', name: 'MessageChannels', component: () => import('../views/MessageChannels.vue'), meta: { perm: 'channels' } },
-      { path: 'users', name: 'UserManagement', component: () => import('../views/UserManagement.vue'), meta: { perm: ['security_users','security_roles','security_permissions'] } },
-      { path: 'security', name: 'SecuritySettings', component: () => import('../views/SecuritySettings.vue'), meta: { perm: ['security','security_config','security_sessions','security_maintain','security_logs'] } },
       { path: 'memory', name: 'MemoryManagement', component: () => import('../views/MemoryManagement.vue'), meta: { perm: 'system' } },
-      // 设置中心（嵌套布局）
+      // 设置中心（嵌套布局，不加父级 perm，各子路由独立检查）
       {
         path: 'settings',
         component: () => import('../views/settings/SettingsLayout.vue'),
-        meta: { perm: 'model' },
         children: [
           { path: '', redirect: '/settings/system' },
-          { path: 'system', name: 'SystemSettings', component: () => import('../views/settings/SystemSettings.vue'), meta: { perm: 'model' } },
+          { path: 'system', name: 'SystemSettings', component: () => import('../views/settings/SystemSettings.vue'), meta: { perm: 'chat' } },
           { path: 'models', name: 'SettingsModels', component: () => import('../views/ModelConfig.vue'), meta: { perm: 'model' } },
           { path: 'tokens', name: 'TokenUsage', component: () => import('../views/settings/TokenUsage.vue'), meta: { perm: 'model' } },
-          { path: 'users', name: 'SettingsUsers', component: () => import('../views/UserManagement.vue'), meta: { perm: ['security_users','security_roles','security_permissions'] } },
-          { path: 'security', name: 'SettingsSecurity', component: () => import('../views/SecuritySettings.vue'), meta: { perm: ['security','security_config'] } },
-          { path: 'services', name: 'SettingsServices', component: () => import('../views/ServiceManagement.vue'), meta: { perm: ['security'] } },
+          { path: 'users', name: 'SettingsUsers', component: () => import('../views/UserManagement.vue'), meta: { perm: 'security_users' } },
+          { path: 'security', name: 'SettingsSecurity', component: () => import('../views/SecuritySettings.vue'), meta: { perm: 'security' } },
+          { path: 'services', name: 'SettingsServices', component: () => import('../views/ServiceManagement.vue'), meta: { perm: 'security' } },
+          { path: 'tasks', name: 'SettingsTasks', component: () => import('../views/scheduler/SchedulerView.vue'), meta: { perm: 'tasks' } },
           { path: 'about', name: 'SettingsAbout', component: () => import('../views/settings/AboutPage.vue'), meta: { perm: 'chat' } },
         ]
       },

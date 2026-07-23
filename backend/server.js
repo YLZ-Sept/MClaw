@@ -127,7 +127,42 @@ app.use('/uploads', requireAuth, express.static(path.join(__dirname, 'uploads'))
 app.use('/webchat', express.static(path.join(__dirname, '..', 'frontend', 'public', 'webchat')));
 
 app.get('/api/info', (req, res) => {
-  res.json({ code: 200, data: { version: 'v2026.6.16', engine: 'OpenClaw', status: 'running' } });
+  const os = require('os');
+  const uptime = process.uptime();
+  const h = Math.floor(uptime / 3600), m = Math.floor((uptime % 3600) / 60);
+  res.json({
+    code: 200,
+    data: {
+      version: 'V1.0',
+      nodeVersion: process.version,
+      platform: `${os.platform()} ${os.arch()}`,
+      uptime: `${h}小时 ${m}分钟`,
+      memory: `${Math.round((os.totalmem() - os.freemem()) / 1024 / 1024)}MB / ${Math.round(os.totalmem() / 1024 / 1024)}MB`,
+      engine: 'OpenClaw',
+      status: 'running'
+    }
+  });
+});
+
+// 前端错误上报（公开，无需登录）
+app.post('/api/errors/report', express.json({ limit: '32kb' }), (req, res) => {
+  try {
+    const { source, message, stack, file, url, userAgent, component, info, line, col, breadcrumbs } = req.body;
+    const logsRouter = require('./routes/logs');
+    const detail = JSON.stringify({
+      source: source || 'unknown',
+      file: file || '',
+      url: url || '',
+      component: component || '',
+      info: info || '',
+      line: line || 0,
+      col: col || 0,
+      breadcrumbs: breadcrumbs || [],
+      stack: (stack || '').substring(0, 2000),
+    });
+    logsRouter.addLog('danger', 'frontend_error', `${source}: ${(message || '').substring(0, 500)}`, '', '');
+    res.json({ code: 200, message: 'ok' });
+  } catch { res.json({ code: 200, message: 'ok' }); } // 静默处理，不影响前端
 });
 
 app.get('/api/agents', requireAuth, (req, res) => {
@@ -831,7 +866,7 @@ app.get('/api/channels/manager', requireAuth, (req, res) => {
 });
 
 // ── 记忆管理 ──
-const { getMemoryStats, clearMemory, readMemoryFile } = require('./services/memory');
+const { getMemoryStats, clearMemory, readMemoryFile, deleteMemoryFile } = require('./services/memory');
 app.get('/api/memory/:agentId', requireAuth, (req, res) => {
   res.json({ code: 200, data: getMemoryStats(req.params.agentId) });
 });
@@ -848,6 +883,10 @@ app.put('/api/memory/:agentId', requireAuth, express.json(), (req, res) => {
 });
 app.delete('/api/memory/:agentId', requireAuth, (req, res) => {
   res.json({ code: 200, data: clearMemory(req.params.agentId) });
+});
+app.delete('/api/memory/:agentId/files/:filename', requireAuth, (req, res) => {
+  const result = deleteMemoryFile(req.params.agentId, req.params.filename);
+  res.json({ code: result.success ? 200 : 404, data: result });
 });
 
 // ── 工具审批 ──
@@ -1104,4 +1143,6 @@ server.listen(PORT, () => {
   } catch (e) { console.log('[server] 招投标定时采集启动失败:', e.message); }
   // 启动微信机器人长轮询
   try { const { startAllBots, ensureWechatAccount } = require('./channels/wechat-bot'); ensureWechatAccount(); startAllBots(); } catch (e) { console.log('[server] 微信 Bot 启动失败:', e.message); }
+  // 启动 WebSocket 健康状态推送
+  try { require('./services/health-pusher').start(); } catch (e) { console.log('[server] HealthPusher 启动失败:', e.message); }
 });
