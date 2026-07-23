@@ -197,8 +197,8 @@
       </div>
       <template #footer>
         <div class="dlg-footer">
-          <el-button v-if="detailDlg.skill" size="small" @click="exportSkill(detailDlg.skill)">📥 导出</el-button>
-          <el-button v-if="detailDlg.skill" size="small" type="danger" @click="deleteSkill(detailDlg.skill)">🗑 卸载</el-button>
+          <el-button v-if="canManage(detailDlg.skill)" size="small" @click="exportSkill(detailDlg.skill)">📥 导出</el-button>
+          <el-button v-if="canManage(detailDlg.skill)" size="small" type="danger" @click="deleteSkill(detailDlg.skill)">🗑 卸载</el-button>
           <div class="dlg-gap" />
           <el-button @click="detailDlg.visible=false">关闭</el-button>
         </div>
@@ -306,6 +306,12 @@ function catLabel(cat) { return CAT_SPEC[cat]?.label || '外部' }
 function truncate(s, n) { return (s || '').length > n ? s.slice(0, n) + '...' : s }
 function fmtTime(t) { if (!t) return '-'; return new Date(t).toLocaleString('zh-CN', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' }) }
 function isInstalled(slug) { return installedSlugs.value.has(slug) }
+function canManage(s) {
+  if (!s) return false
+  // 只有 workspace 技能（我们自己安装的）可以导出/卸载
+  // bundled 是 OpenClaw 内置，managed 是 OpenClaw 管理
+  return s.source === 'openclaw-workspace' || s.source === 'local'
+}
 
 function skillEmoji(s) {
   const name = (s.name || s.displayName || '').toLowerCase()
@@ -436,16 +442,24 @@ async function checkUpdates() {
   checkingUpdates.value = false
 }
 
-function exportSkill(s) {
+async function exportSkill(s) {
   const skillKey = s.skillKey || s.name
   const skillName = (s.nameZh || s.displayName || s.name) + '.zip'
   try {
     const token = localStorage.getItem('token') || ''
+    const resp = await fetch(`/api/clawhub/skills/${encodeURIComponent(skillKey)}/export?token=${encodeURIComponent(token)}`)
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ message: '导出失败' }))
+      ElMessage.error(err.message || '导出失败')
+      return
+    }
+    const blob = await resp.blob()
+    const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = `/api/clawhub/skills/${encodeURIComponent(skillKey)}/export?token=${encodeURIComponent(token)}`
-    a.download = skillName
+    a.href = url; a.download = skillName
     document.body.appendChild(a); a.click(); document.body.removeChild(a)
-  } catch (e) { ElMessage.error('导出失败') }
+    URL.revokeObjectURL(url)
+  } catch (e) { ElMessage.error('导出失败: ' + (e.message || '网络错误')) }
 }
 
 async function deleteSkill(s) {
