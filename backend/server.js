@@ -694,7 +694,7 @@ app.post('/api/chat/send', requireAuth, async (req, res) => {
         res.json({ code: 200, data: { content: reply } });
       }
     } else {
-      // OpenClaw 路径：专家 Agent 或通用聊天 → 透传 OpenClaw
+      // OpenClaw 路径：专家 Agent 或通用聊天 → 透传 OpenClaw（含技能调用能力）
       const gw = getOpenClawGateway();
       const historyKey = agent || 'default';
       const history = session_id ? loadSessionHistory(session_id) : getHistory(historyKey);
@@ -705,10 +705,10 @@ app.post('/api/chat/send', requireAuth, async (req, res) => {
       history.push({ role: 'user', content });
       if (session_id) saveSessionMessage(session_id, 'user', content);
 
-      // 专家 Agent：将系统提示词嵌入用户消息（OpenClaw 默认 Agent 忽略 role:system）
-      let msgs;
+      // 加载配置（专家走 agent，通用聊天走 '*' 全局技能 + 默认提示词）
+      let msgs, config;
       if (isExpert) {
-        const config = loadAgentConfig(agent);
+        config = loadAgentConfig(agent);
         const expertName = expertRow.name || '专家';
         const isNewConversation = history.filter(m => m.role === 'user').length <= 1;
         const header = isNewConversation
@@ -716,9 +716,13 @@ app.post('/api/chat/send', requireAuth, async (req, res) => {
           : `[系统指令]\n继续扮演「${expertName}」，严格遵循身份设定：\n\n---\n`;
         const enriched = `${header}${config.systemPrompt}\n---\n\n[用户消息]\n${content}`;
         msgs = [...history.slice(0, -1), { role: 'user', content: enriched }];
-        console.log(`[chat] Expert → OpenClaw name="${expertName}" newConv=${isNewConversation} promptChars=${config.systemPrompt.length}`);
+        console.log(`[chat] Expert → OpenClaw name="${expertName}" newConv=${isNewConversation} promptChars=${config.systemPrompt.length} tools=${config.tools?.length||0}`);
       } else {
-        msgs = [...history];
+        // 通用聊天：加载全局可用技能（agent_id='*'）注入 system prompt + tools
+        config = loadAgentConfig('*');
+        const sysMsg = { role: 'system', content: config.systemPrompt };
+        msgs = [sysMsg, ...history];
+        console.log(`[chat] General → OpenClaw tools=${config.tools?.length||0}`);
       }
 
       // LLM 调用工厂（专家/通用路径）
@@ -736,7 +740,7 @@ app.post('/api/chat/send', requireAuth, async (req, res) => {
 
       // 带工具的非流式首轮调用（检测 tool_calls）
       let ocRes = await callWithFailover(
-        () => doFetch(msgs, false, tools),
+        () => doFetch(msgs, false, config?.tools),
         { providerId: 'openclaw' }
       );
       let ocData = await ocRes.json();
