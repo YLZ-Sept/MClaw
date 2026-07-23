@@ -107,6 +107,14 @@ const renderedInline = computed(() => {
 
 function renderMarkdown(text) {
   try {
+    // 1. 替换 localhost/openclaw 绝对 URL → 相对路径（流式输出实时可用）
+    text = text.replace(/https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\]):18622\/api\/download\/([^\s"'<>)\]]+)/g, '/api/download/openclaw/$1')
+    text = text.replace(/https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\]):18622\/([^\s"'<>)\]]+)/g, '/api/openclaw-proxy/$1')
+    text = text.replace(/https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\]):18621\/([^\s"'<>)\]]+)/g, '/$1')
+    // 2. 替换 OpenClaw workspace 绝对路径 → 下载链接
+    text = text.replace(/(\/[^\s"'<>)]*\.openclaw\/workspace\/([^\s"'<>)\]]+\.(?:xlsx|docx|pdf|pptx|png|jpg|csv|txt|md)))/gi, '/api/download/openclaw/$2')
+    text = text.replace(/(\/[^\s"'<>)]*\.openclaw\/workspace\/([^\s"'<>)\]]+))/g, '[/api/download/openclaw/$2]')
+    // 3. 现有的相对路径 → 可点击链接
     text = text.replace(/(?<!\]\()(\/api\/download\/(?:ppt|excel|pdf|docx|diagram|openclaw)\/[^\s"'<>)]+)/g, '[$1]($1)')
     let html = marked.parse(text)
     html = html.replace(/<a /g, '<a target="_blank" rel="noopener" ')

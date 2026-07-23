@@ -1149,4 +1149,23 @@ server.listen(PORT, () => {
   try { const { startAllBots, ensureWechatAccount } = require('./channels/wechat-bot'); ensureWechatAccount(); startAllBots(); } catch (e) { console.log('[server] 微信 Bot 启动失败:', e.message); }
   // 启动 WebSocket 健康状态推送
   try { require('./services/health-pusher').start(); } catch (e) { console.log('[server] HealthPusher 启动失败:', e.message); }
+  // OpenClaw workspace 文件过期清理（24h）
+  try {
+    const os = require('os'); const path = require('path'); const fs = require('fs');
+    const wsDir = path.join(os.homedir(), '.openclaw', 'workspace');
+    const cleanupWS = () => {
+      const cutoff = Date.now() - 86400000;
+      try {
+        if (!fs.existsSync(wsDir)) return;
+        for (const entry of fs.readdirSync(wsDir, { withFileTypes: true })) {
+          if (entry.isDirectory()) continue;
+          const fp = path.join(wsDir, entry.name);
+          try { const stat = fs.statSync(fp); if (stat.mtimeMs < cutoff) { fs.unlinkSync(fp); console.log('[cleanup] workspace:', entry.name); } } catch {}
+        }
+      } catch {}
+    };
+    cleanupWS();
+    setInterval(cleanupWS, 3600000); // 每小时
+    console.log('[server] Workspace 文件清理已启动 (24h TTL)');
+  } catch {}
 });
