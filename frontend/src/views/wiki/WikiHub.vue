@@ -138,9 +138,15 @@
           <div v-if="activeTab === 'materials'" class="materials-panel">
             <div class="panel-hd">
               <h3>素材管理</h3>
-              <el-upload :auto-upload="true" :show-file-list="false" :http-request="uploadMaterial" accept=".txt,.md,.csv,.pdf,.docx,.xlsx,.pptx,.html">
-                <el-button type="primary" size="small">上传素材</el-button>
-              </el-upload>
+              <div style="display:flex;gap:8px;align-items:center">
+                <el-upload :auto-upload="true" :show-file-list="false" :http-request="uploadMaterial" accept=".txt,.md,.csv,.pdf,.docx,.xlsx,.pptx,.html">
+                  <el-button type="primary" size="small">📄 上传素材</el-button>
+                </el-upload>
+                <input ref="folderInputRef" type="file" webkitdirectory style="display:none" @change="onFolderSelected" />
+                <el-button type="primary" size="small" plain :loading="uploadingFolder" @click="pickFolder">
+                  {{ uploadingFolder ? `📁 ${uploadProgress}` : '📁 上传文件夹' }}
+                </el-button>
+              </div>
             </div>
             <table class="mat-table" v-if="materials.length">
               <thead><tr><th>名称</th><th>类型</th><th>状态</th><th>时间</th></tr></thead>
@@ -223,6 +229,9 @@ const configModel = ref('')
 const configRules = ref('')
 const showCreateKB = ref(false)
 const creating = ref(false)
+const folderInputRef = ref(null)
+const uploadingFolder = ref(false)
+const uploadProgress = ref('')
 const newKBForm = ref({ name: '', description: '' })
 
 const wsTabs = [{ key: 'pages', label: '页面' }, { key: 'graph', label: '图谱' }, { key: 'materials', label: '素材' }, { key: 'config', label: '配置' }]
@@ -380,22 +389,60 @@ async function savePage() {
   saving.value = false
 }
 
+async function uploadSingleFile(file) {
+  const form = new FormData(); form.append('file', file)
+  const kbId = currentKB.value.id
+  const { data } = await request.post('/knowledge-base/kbs/' + kbId + '/materials/upload', form)
+  return data
+}
+
 async function uploadMaterial(options) {
-  const form = new FormData(); form.append('file', options.file)
   try {
-    const kbId = currentKB.value.id
-    const { data } = await request.post('/knowledge-base/kbs/' + kbId + '/materials/upload', form)
+    const data = await uploadSingleFile(options.file)
     if (data.code === 200) {
       ElMessage.success(data.data?.message || '已上传')
-      // 异步轮询刷新：等待 AI 消化完成
-      clearPollTimers()
-      pollTimers.push(
-        setTimeout(() => { if (currentKB.value?.id === kbId) openKB(currentKB.value) }, 3000),
-        setTimeout(() => { if (currentKB.value?.id === kbId) openKB(currentKB.value) }, 8000),
-        setTimeout(() => { if (currentKB.value?.id === kbId) openKB(currentKB.value) }, 20000)
-      )
+      scheduleRefresh()
     }
   } catch { ElMessage.error('上传失败') }
+}
+
+function scheduleRefresh() {
+  const kbId = currentKB.value.id
+  clearPollTimers()
+  pollTimers.push(
+    setTimeout(() => { if (currentKB.value?.id === kbId) openKB(currentKB.value) }, 5000),
+    setTimeout(() => { if (currentKB.value?.id === kbId) openKB(currentKB.value) }, 15000),
+    setTimeout(() => { if (currentKB.value?.id === kbId) openKB(currentKB.value) }, 45000)
+  )
+}
+
+function pickFolder() {
+  folderInputRef.value?.click()
+}
+
+async function onFolderSelected(e) {
+  const files = Array.from(e.target.files || [])
+  if (!files.length) return
+  uploadingFolder.value = true
+  let done = 0, failed = 0
+  for (const file of files) {
+    uploadProgress.value = `${done + 1}/${files.length} ${file.name}`
+    try {
+      const data = await uploadSingleFile(file)
+      if (data.code === 200) done++
+      else failed++
+    } catch { failed++ }
+  }
+  uploadingFolder.value = false
+  uploadProgress.value = ''
+  // 重置 input 以便重复选择同一文件夹
+  e.target.value = ''
+  if (done > 0) {
+    ElMessage.success(`已上传 ${done} 个文件${failed ? `，${failed} 失败` : ''}`)
+    scheduleRefresh()
+  } else {
+    ElMessage.error('全部上传失败')
+  }
 }
 
 async function saveConfig() {
