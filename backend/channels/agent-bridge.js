@@ -624,14 +624,13 @@ function loadAgentConfig(agent) {
     });
   }
 
-  // 注入已勾选的 OpenClaw 技能 + agent_apps.skill_bindings 技能（prompt + openclaw_exec 工具）
+  // ═══ 技能系统：目录 + 按需发现（替代全量加载 SKILL.md） ═══
   try {
-    // 从 agent_openclaw_skills 表收集
+    // 收集已绑定技能的名称（仅作为目录索引，不加载完整内容）
     const tableSkills = db.prepare(
       "SELECT skill_name FROM agent_openclaw_skills WHERE (agent_id=? OR agent_id='*') AND enabled=1"
     ).all(agent).map(r => r.skill_name);
 
-    // 从 agent_apps.skill_bindings 列收集
     const bindingSkills = [];
     for (const row of allDbRows) {
       if (row.skill_bindings && row.skill_bindings.trim()) {
@@ -642,51 +641,91 @@ function loadAgentConfig(agent) {
       }
     }
 
-    const allSkillNames = [...new Set([...tableSkills, ...bindingSkills])];
-    if (allSkillNames.length > 0) {
-      const os = require('os');
-      const homeDir = os.homedir();
-      let skillPrompts = '';
+    const boundSkillNames = [...new Set([...tableSkills, ...bindingSkills])];
 
-      for (const skill_name of allSkillNames) {
-        // 尝试从 agents 目录和 plugin-skills 目录找 SKILL.md
-        const candidates = [
-          path.join(homeDir, '.agents', 'skills', skill_name, 'SKILL.md'),
-          path.join(homeDir, '.openclaw', 'plugin-skills', skill_name, 'SKILL.md'),
-          path.join(homeDir, '.openclaw', 'workspace', 'skills', skill_name, 'SKILL.md')
-        ];
-        let skillContent = null;
-        for (const p of candidates) {
-          try { skillContent = fs.readFileSync(p, 'utf8'); break; } catch {}
+    // 扫描所有可用技能（全磁盘），建立目录
+    const os = require('os');
+    const homeDir = os.homedir();
+    const scanDirs = [
+      path.join(homeDir, '.openclaw', 'workspace', 'skills'),
+      path.join(homeDir, '.openclaw', 'skills'),
+      path.join(homeDir, '.agents', 'skills'),
+    ];
+    const allDiscoveredSkills = [];
+    for (const dir of scanDirs) {
+      if (!fs.existsSync(dir)) continue;
+      try {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          if (!entry.isDirectory()) continue;
+          const mdPath = path.join(dir, entry.name, 'SKILL.md');
+          if (!fs.existsSync(mdPath)) continue;
+          let desc = '';
+          try {
+            const md = fs.readFileSync(mdPath, 'utf8');
+            const m = md.match(/^description:\s*(.+)$/m);
+            if (m) desc = m[1].trim();
+          } catch {}
+          allDiscoveredSkills.push({ name: entry.name, description: desc, bound: boundSkillNames.includes(entry.name) });
         }
-        if (!skillContent) continue;
+      } catch {}
+    }
 
-        // 解析 YAML frontmatter（--- 包围）
-        let body = skillContent;
-        if (body.startsWith('---')) {
-          const end = body.indexOf('---', 4);
-          if (end !== -1) body = body.slice(end + 3).trim();
-        }
-        if (!body) continue;
+    if (allDiscoveredSkills.length > 0) {
+      // 轻量目录：仅列出名称+一句话描述
+      const catalog = allDiscoveredSkills
+        .map(s => `- ${s.name}${s.bound ? ' ⭐' : ''}: ${s.description || '(无描述)'}`)
+        .join('\n');
+      systemPrompt += `\n\n---\n\n# 可用技能目录\n以下技能可通过 search_skills 查找，通过 load_skill 获取详细指令：\n\n${catalog}\n\n共 ${allDiscoveredSkills.length} 个技能可用。⭐ = 已绑定到当前 Agent。`;
 
-        skillPrompts += `\n\n---\n\n# OpenClaw 技能: ${skill_name}\n${body}`;
+      // search_skills 工具
+      if (!seenToolNames.has('search_skills')) {
+        mergedTools.push({
+          type: 'function',
+          function: {
+            name: 'search_skills',
+            description: '搜索可用技能。根据关键词查找匹配的技能，返回名称和描述。先调用此工具确认技能存在，再调用 load_skill 获取详细使用说明。',
+            parameters: {
+              type: 'object',
+              properties: {
+                query: { type: 'string', description: '搜索关键词，如 "excel"、"pdf"、"code review"' }
+              },
+              required: ['query']
+            }
+          }
+        });
+        seenToolNames.add('search_skills');
       }
 
-      if (skillPrompts) {
-        systemPrompt += '\n\n---\n\n# OpenClaw 技能\n以下技能来自 OpenClaw，你可以通过调用 execute_command 工具来运行这些技能的 CLI 命令。' + skillPrompts;
+      // load_skill 工具
+      if (!seenToolNames.has('load_skill')) {
+        mergedTools.push({
+          type: 'function',
+          function: {
+            name: 'load_skill',
+            description: '加载指定技能的完整使用说明。返回 SKILL.md 内容，包含 CLI 命令、参数说明和使用示例。加载后即可通过 execute_command 执行。',
+            parameters: {
+              type: 'object',
+              properties: {
+                name: { type: 'string', description: '技能名称，如 "excel-analysis"、"web-search"' }
+              },
+              required: ['name']
+            }
+          }
+        });
+        seenToolNames.add('load_skill');
       }
 
-      // 注入 openclaw_exec 工具
+      // execute_command 工具
       if (!seenToolNames.has('execute_command')) {
         mergedTools.push({
           type: 'function',
           function: {
             name: 'execute_command',
-            description: '执行一个 OpenClaw 技能的命令。当你需要使用 OpenClaw 技能（如 agent-browser、agent-tools 等）时调用此工具。命令会在 OpenClaw 环境中执行并返回结果。',
+            description: '执行命令。使用 load_skill 获取技能指令后，通过此工具执行。命令会在本地环境中运行并返回结果。',
             parameters: {
               type: 'object',
               properties: {
-                command: { type: 'string', description: '要执行的命令，如 "npx agent-browser skills get core" 或 "infsh app run falai/flux-dev-lora"' }
+                command: { type: 'string', description: '要执行的命令' }
               },
               required: ['command']
             }

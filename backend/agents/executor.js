@@ -664,6 +664,86 @@ async function exec(toolName, args, context) {
         return { error: '命令执行返回异常: ' + JSON.stringify(result).slice(0, 500) };
       }
 
+      // ─── 技能发现：搜索可用技能 ───
+      case 'search_skills': {
+        const query = (args.query || '').toLowerCase();
+        const fs = require('fs');
+        const path = require('path');
+        const os = require('os');
+
+        const searchDirs = [
+          path.join(os.homedir(), '.openclaw', 'workspace', 'skills'),
+          path.join(os.homedir(), '.openclaw', 'skills'),
+          path.join(os.homedir(), '.agents', 'skills'),
+        ];
+
+        const results = [];
+        for (const dir of searchDirs) {
+          if (!fs.existsSync(dir)) continue;
+          try {
+            for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+              if (!entry.isDirectory()) continue;
+              const name = entry.name.toLowerCase();
+              const mdPath = path.join(dir, entry.name, 'SKILL.md');
+              if (!fs.existsSync(mdPath)) continue;
+
+              // 匹配技能名或读取描述
+              let description = '';
+              try {
+                const content = fs.readFileSync(mdPath, 'utf8');
+                const descMatch = content.match(/^description:\s*(.+)$/m);
+                if (descMatch) description = descMatch[1].trim();
+              } catch {}
+
+              const matchText = name + ' ' + description.toLowerCase();
+              if (!query || matchText.includes(query)) {
+                results.push({
+                  name: entry.name,
+                  description: description || '(无描述)',
+                  source: dir.includes('workspace') ? 'workspace' : dir.includes('.agents') ? 'legacy' : 'managed'
+                });
+              }
+            }
+          } catch {}
+        }
+
+        return { skills: results.slice(0, 20), total: results.length };
+      }
+
+      // ─── 技能发现：加载单个技能完整内容 ───
+      case 'load_skill': {
+        const skillName = args.name;
+        if (!skillName) return { error: '缺少 name 参数' };
+        const fs = require('fs');
+        const path = require('path');
+        const os = require('os');
+
+        const searchDirs = [
+          path.join(os.homedir(), '.openclaw', 'workspace', 'skills', skillName),
+          path.join(os.homedir(), '.openclaw', 'skills', skillName),
+          path.join(os.homedir(), '.agents', 'skills', skillName),
+        ];
+
+        for (const dir of searchDirs) {
+          const mdPath = path.join(dir, 'SKILL.md');
+          if (!fs.existsSync(mdPath)) continue;
+          try {
+            let content = fs.readFileSync(mdPath, 'utf8');
+            // 去掉 YAML frontmatter
+            content = content.replace(/^---[\s\S]*?---\n*/, '');
+            return {
+              name: skillName,
+              content: content.substring(0, 8000),
+              path: mdPath
+            };
+          } catch (e) {
+            return { error: '读取失败: ' + e.message };
+          }
+        }
+
+        return { error: `技能 "${skillName}" 未找到` };
+      }
+
       // ─── 财务管理 ───
       case 'list_finance_records': {
         const ftype = args.type || 'receivable';
