@@ -718,10 +718,10 @@ app.post('/api/chat/send', requireAuth, async (req, res) => {
         msgs = [...history.slice(0, -1), { role: 'user', content: enriched }];
         console.log(`[chat] Expert → OpenClaw name="${expertName}" newConv=${isNewConversation} promptChars=${config.systemPrompt.length} tools=${config.tools?.length||0}`);
       } else {
-        // 通用聊天：加载全局可用技能（agent_id='*'）注入 system prompt + tools
+        // 通用聊天：加载全局可用技能（agent_id='*'），提示词注入首条 user message
         config = loadAgentConfig('*');
-        const sysMsg = { role: 'system', content: config.systemPrompt };
-        msgs = [sysMsg, ...history];
+        const enriched = `[系统指令]\n${config.systemPrompt}\n\n---\n\n[用户消息]\n${content}`;
+        msgs = [...history.slice(0, -1), { role: 'user', content: enriched }];
         console.log(`[chat] General → OpenClaw tools=${config.tools?.length||0}`);
       }
 
