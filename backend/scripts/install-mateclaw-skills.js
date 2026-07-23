@@ -501,7 +501,7 @@ async function main() {
       if (template) {
         fs.mkdirSync(skillDir, { recursive: true });
         const md = `---
-name: ${template.name}
+name: ${skillName}
 description: ${template.description}
 version: 1.0.0
 category: ${guessCategory(skillName)}
@@ -510,8 +510,8 @@ category: ${guessCategory(skillName)}
 ${template.body}`;
         fs.writeFileSync(path.join(skillDir, 'SKILL.md'), md, 'utf-8');
 
-        // 写 _meta.json
-        const meta = { name: template.name, description: template.description, version: '1.0.0', category: guessCategory(skillName) };
+        // 写 _meta.json（name 必须用英文目录名，中文名留给翻译系统处理）
+        const meta = { name: skillName, displayName: template.name, description: template.description, version: '1.0.0', category: guessCategory(skillName) };
         fs.writeFileSync(path.join(skillDir, '_meta.json'), JSON.stringify(meta, null, 2), 'utf-8');
 
         console.log(`  ✓ ${skillName} — 本地创建`);
