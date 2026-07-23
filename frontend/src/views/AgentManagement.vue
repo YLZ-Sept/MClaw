@@ -48,7 +48,7 @@
         <div class="agent-name">{{ agent.name }}</div>
         <div class="agent-desc" :title="agent.desc">{{ agent.desc }}</div>
         <div class="agent-meta">
-          <span v-if="agent.base_agent" class="agent-base">基于 {{ agent.base_agent }}</span>
+          <!-- base_agent 不在列表展示 -->
           <span class="agent-id">ID: {{ agent.id }}</span>
         </div>
         <div class="agent-action">
@@ -426,16 +426,8 @@
               <el-color-picker v-model="dlg.form.color" size="default" style="margin-top:4px"/>
             </el-form-item>
 
-            <el-form-item label="基础 Agent">
-              <el-select v-model="dlg.form.base_agent" multiple style="width:100%" clearable placeholder="不继承（纯自定义提示词）">
-                <el-option label="企业经营管理 Agent (完整工具集)" value="internal-agent"/>
-                <el-option label="售后管理 Agent (客服工具集)" value="support-agent"/>
-                <el-option label="销售管理 Agent (CRM 工具集)" value="sales-agent"/>
-              </el-select>
-            </el-form-item>
-
             <el-form-item label="系统提示词">
-              <el-input v-model="dlg.form.system_prompt" type="textarea" :rows="4" placeholder="留空继承基础Agent，或点击右侧 AI 生成自动填写..."/>
+              <el-input v-model="dlg.form.system_prompt" type="textarea" :rows="4" placeholder="描述智能体的角色、能力和行为规范..."/>
               <div style="display:flex;justify-content:flex-end;margin-top:6px">
                 <el-button size="small" type="primary" :loading="promptGenerating" @click="generatePrompt">
                   <el-icon style="margin-right:4px"><MagicStick /></el-icon>AI 生成提示词
@@ -444,10 +436,10 @@
             </el-form-item>
 
             <el-form-item label="知识库">
-              <el-select v-model="dlg.form.kb_article_ids" multiple filterable placeholder="选择知识库文章" style="width:100%">
-                <el-option v-for="a in kbArticles" :key="a.id" :label="a.title" :value="a.id">
-                  <span>{{ a.title }}</span>
-                  <span style="float:right;color:#b8aad0;font-size:11px">{{ a.category }}</span>
+              <el-select v-model="dlg.form.kb_ids" multiple filterable placeholder="选择知识库（自动加载该 KB 下全部页面）" style="width:100%">
+                <el-option v-for="kb in kbList" :key="kb.id" :label="kb.name" :value="kb.id">
+                  <span>{{ kb.name }}</span>
+                  <span style="float:right;color:#b8aad0;font-size:11px">{{ kb.pageCount || 0 }} 页</span>
                 </el-option>
               </el-select>
             </el-form-item>
@@ -489,9 +481,7 @@
             </div>
             <div class="agent-name">{{ dlg.form.name || '智能体名称' }}</div>
             <div class="agent-desc">{{ dlg.form.desc || '智能体描述预览...' }}</div>
-            <div class="agent-meta" v-if="dlg.form.base_agent?.length">
-              <span class="agent-base">基于 {{ dlg.form.base_agent.join(', ') }}</span>
-            </div>
+            <!-- base_agent 不在预览展示 -->
           </div>
         </div>
       </div>
@@ -517,7 +507,7 @@ import AgentCreateWizard from '../components/agent/AgentCreateWizard.vue'
 const router = useRouter()
 
 const agents = ref([])
-const kbArticles = ref([])
+const kbList = ref([])
 const dlg = reactive({ visible: false, isEdit: false, form: {} })
 const showWizard = ref(false)
 const promptGenerating = ref(false)
@@ -546,8 +536,11 @@ async function loadAgents() {
   try { const { data } = await request.get('/agents'); agents.value = data.data || [] } catch { agents.value = [] }
   finally { loading.value = false }
 }
-async function loadKB() {
-  try { const { data } = await request.get('/knowledge-base', { params: { status: 'published' } }); kbArticles.value = data.data || [] } catch { kbArticles.value = [] }
+async function loadKBList() {
+  try {
+    const { data } = await request.get('/knowledge-base/kbs')
+    kbList.value = data.data || []
+  } catch { kbList.value = [] }
 }
 
 function startChat(agent) {
@@ -649,10 +642,9 @@ async function handleKbUpload(opts, idx) {
 // ----- 智能体 -----
 function openEdit(agent) {
   dlg.isEdit = true
-  const ids = agent.kb_article_ids ? agent.kb_article_ids.split(',').filter(Boolean) : []
+  const kbIds = agent.kb_ids ? agent.kb_ids.split(',').filter(Boolean) : []
   const fps = agent.kb_folder_paths ? agent.kb_folder_paths.split(',').filter(Boolean) : []
-  const bas = agent.base_agent ? agent.base_agent.split(',').filter(Boolean) : []
-  dlg.form = { ...agent, color: agent.bg || agent.color || '#7c3aed', base_agent: bas, kb_article_ids: ids, kb_folder_paths: fps.length ? fps : [] }
+  dlg.form = { ...agent, color: agent.bg || agent.color || '#7c3aed', kb_ids: kbIds, kb_folder_paths: fps.length ? fps : [] }
   dlg.visible = true
 }
 async function saveAgent() {
@@ -661,8 +653,7 @@ async function saveAgent() {
   try {
     const payload = {
       ...dlg.form,
-      base_agent: (dlg.form.base_agent || []).join(','),
-      kb_article_ids: (dlg.form.kb_article_ids || []).join(','),
+      kb_ids: (dlg.form.kb_ids || []).join(','),
       kb_folder_paths: (dlg.form.kb_folder_paths || []).filter(Boolean).join(',')
     }
     if (dlg.isEdit) { await request.put('/agent-apps/' + dlg.form.id, payload) }
@@ -980,7 +971,7 @@ function openCustomerServiceSettings() {
   window.open('https://yuanqi.tencent.com/', '_blank')
 }
 
-onMounted(() => { loadAgents(); loadKB() })
+onMounted(() => { loadAgents(); loadKBList() })
 </script>
 
 <style scoped>

@@ -972,6 +972,9 @@ try { db.exec('CREATE INDEX IF NOT EXISTS idx_wiki_pages_kb_id ON wiki_pages(kb_
 // 数据迁移：category 是 UUID（36位含连字符的 wikihub_kbs.id）→ kb_id
 try { db.exec("UPDATE wiki_pages SET kb_id = category WHERE length(category) = 36 AND category LIKE '%-%-%-%-%'"); } catch {}
 
+// agent_apps 绑定知识库（kb_ids 替代 kb_article_ids 单页选择）
+try { db.exec('ALTER TABLE agent_apps ADD COLUMN kb_ids TEXT DEFAULT \'\''); } catch {}
+
 function seedExperts() {
   const expected = 50;
   const count = db.prepare('SELECT COUNT(*) as n FROM agent_apps WHERE is_expert=1').get();

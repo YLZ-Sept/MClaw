@@ -449,6 +449,36 @@ function loadAgentConfig(agent) {
     }
   } catch {}
 
+  // 绑定的知识库（kb_ids → 加载该 KB 下所有已消化 Wiki 页面）
+  try {
+    const allKbIds = allDbRows
+      .map(r => r.kb_ids)
+      .filter(Boolean)
+      .flatMap(s => s.split(',').map(id => id.trim()).filter(Boolean));
+    const uniqueKbIds = [...new Set(allKbIds)];
+    if (uniqueKbIds.length) {
+      const placeholders = uniqueKbIds.map(() => '?').join(',');
+      const kbPages = db.prepare(
+        `SELECT wp.title, wp.summary, wp.content, wk.name as kb_name FROM wiki_pages wp
+         LEFT JOIN wikihub_kbs wk ON wp.kb_id = wk.id
+         WHERE wp.kb_id IN (${placeholders}) AND wp.status='published'
+         ORDER BY wk.name, wp.updated_at DESC`
+      ).all(...uniqueKbIds);
+      if (kbPages.length) {
+        let currentKb = '';
+        let kbPrompt = '';
+        for (const p of kbPages) {
+          if (p.kb_name && p.kb_name !== currentKb) {
+            currentKb = p.kb_name;
+            kbPrompt += `\n## 📚 ${currentKb}\n`;
+          }
+          kbPrompt += `### ${p.title}\n${p.summary || ''}\n${(p.content || '').slice(0, 2000)}\n\n---\n`;
+        }
+        systemPrompt += '\n\n---\n\n# 参考知识库\n' + kbPrompt;
+      }
+    }
+  } catch {}
+
   // 绑定的本地文件夹/文件引用（所有 agent_app 行）
   try {
     const allFolderPaths = allDbRows
