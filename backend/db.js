@@ -841,8 +841,8 @@ try { db.exec(`CREATE TABLE IF NOT EXISTS logs (
   created_at TEXT DEFAULT (datetime('now','localtime'))
 )`); } catch {}
 
-const ALL_PERMS = ["chat","tasks","digital","trending","knowledge","skills","channels","model","security","security_config","security_sessions","security_maintain","security_logs","security_users","security_roles","security_permissions","crm","inventory","hr","docs","finance","publish"];
-const ALL_SUB_PERMS = ["security_config","security_sessions","security_maintain","security_logs","security_roles","security_permissions"];
+const ALL_PERMS = ["chat","tasks","digital","trending","knowledge","skills","channels","model","security","security_config","security_sessions","security_maintain","security_logs","security_users","security_roles","security_permissions","security_tools","crm","inventory","hr","docs","finance","publish"];
+const ALL_SUB_PERMS = ["security_config","security_sessions","security_maintain","security_logs","security_roles","security_permissions","security_tools"];
 
 // 种子角色
 function seedRole(name, desc, perms) {
@@ -876,6 +876,19 @@ seedUser('admin', 'admin123', '管理员', 'admin', ALL_PERMS, '管理员');
 try {
   db.prepare("UPDATE users SET role_id=(SELECT id FROM roles WHERE name='管理员') WHERE username='admin' AND role_id IS NULL").run();
   db.prepare("UPDATE users SET role_id=(SELECT id FROM roles WHERE name='超级管理员') WHERE username='superadmin' AND role_id IS NULL").run();
+} catch {}
+
+// 迁移：补发 security_tools 权限给已有 security 的角色
+try {
+  const roles = db.prepare("SELECT id, permissions FROM roles WHERE permissions LIKE '%security%' AND permissions NOT LIKE '%security_tools%'").all();
+  for (const r of roles) {
+    const perms = JSON.parse(r.permissions);
+    if (perms.includes('security') && !perms.includes('security_tools')) {
+      perms.push('security_tools');
+      db.prepare('UPDATE roles SET permissions=? WHERE id=?').run(JSON.stringify(perms), r.id);
+      console.log(`[migrate] 角色 ${r.id} 补发 security_tools`);
+    }
+  }
 } catch {}
 
 // 种子安全设置默认值

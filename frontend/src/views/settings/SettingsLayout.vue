@@ -43,7 +43,12 @@ onMounted(() => {
 
 const visibleItems = computed(() => {
   if (userRole.value === 'superadmin') return allItems
-  return allItems.filter(item => userPerms.value.includes(item.perm))
+  return allItems.filter(item => {
+    if (userPerms.value.includes(item.perm)) return true
+    // "用户"标签也应对有 security_roles 权限的用户可见（角色管理在 UserManagement.vue 内）
+    if (item.path === '/settings/users' && userPerms.value.includes('security_roles')) return true
+    return false
+  })
 })
 </script>
 

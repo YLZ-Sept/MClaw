@@ -52,6 +52,12 @@ export function clearChat(agent) {
 export function getStatus() {
   return request.get('/status')
 }
+export function getDiagnostics() {
+  return request.get('/status/diagnostics')
+}
+export function repairService(action) {
+  return request.post('/status/repair', { action })
+}
 
 export function login(username, password) {
   return request.post('/auth/login', { username, password }).then(res => res.data)

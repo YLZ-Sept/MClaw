@@ -6,7 +6,7 @@ const os = require('os');
 let _timer = null;
 let _running = false;
 
-function gather() {
+async function gather() {
   const data = { type: 'system_health', time: Date.now() };
 
   try {
@@ -28,7 +28,7 @@ function gather() {
     // 多平台发布服务
     try {
       const multiPublish = require('./multi-publish');
-      const pubHealth = multiPublish.health();
+      const pubHealth = await multiPublish.health();
       services.push({ name: '多平台发布服务', status: pubHealth.status === 'healthy' ? 'running' : 'stopped', port: 18623 });
     } catch {
       services.push({ name: '多平台发布服务', status: 'stopped', port: 18623 });
@@ -69,11 +69,11 @@ function start(intervalMs = 30000) {
   const { broadcast } = require('../channels/event-bus');
 
   // 首次延迟 2 秒等各服务初始化完成
-  _timer = setTimeout(() => {
-    broadcast(gather());
+  _timer = setTimeout(async () => {
+    broadcast(await gather());
     // 之后定期推送
-    _timer = setInterval(() => {
-      broadcast(gather());
+    _timer = setInterval(async () => {
+      broadcast(await gather());
     }, intervalMs);
   }, 2000);
 

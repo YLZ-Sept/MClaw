@@ -845,6 +845,195 @@ app.get('/api/status', async (req, res) => {
   });
 });
 
+// ── 服务自检诊断 ──
+app.get('/api/status/diagnostics', requireAuth, async (req, res) => {
+  const os = require('os');
+  const fs = require('fs');
+  const path = require('path');
+  const { execSync } = require('child_process');
+  const multiPublish = require('./services/multi-publish');
+  const wsClient = require('./openclaw/ws-client');
+  const db = require('./db');
+
+  const checks = [];
+  const dbPath = path.join(__dirname, 'data', 'internal.db');
+
+  // 1. 后端服务
+  const uptime = process.uptime();
+  const h = Math.floor(uptime / 3600), m = Math.floor((uptime % 3600) / 60);
+  checks.push({
+    id: 'backend', name: '后端服务',
+    status: 'pass', detail: `运行 ${h}h ${m}m，端口 18621`,
+    repairable: false
+  });
+
+  // 2. 发布服务
+  try {
+    const pubHealth = await multiPublish.health();
+    if (pubHealth.status === 'healthy') {
+      checks.push({ id: 'publisher', name: '发布服务', status: 'pass', detail: 'Python FastAPI 健康检查通过', repairable: false });
+    } else {
+      checks.push({ id: 'publisher', name: '发布服务', status: 'fail', detail: '健康检查返回异常状态', repairable: true, repairAction: 'restart_publisher' });
+    }
+  } catch {
+    checks.push({ id: 'publisher', name: '发布服务', status: 'fail', detail: '无法连接 Python 发布服务', repairable: true, repairAction: 'restart_publisher' });
+  }
+
+  // 3. AI引擎
+  const aiConnected = wsClient.isConnected();
+  checks.push({
+    id: 'ai_engine', name: 'AI引擎',
+    status: aiConnected ? 'pass' : 'fail',
+    detail: aiConnected ? 'OpenClaw WebSocket 已连接' : 'OpenClaw WebSocket 未连接',
+    repairable: false
+  });
+
+  // 4. 数据库完整性
+  try {
+    const result = db.prepare('PRAGMA integrity_check').all();
+    const ok = result.length === 1 && result[0].integrity_check === 'ok';
+    checks.push({
+      id: 'db_integrity', name: '数据库完整性',
+      status: ok ? 'pass' : 'fail',
+      detail: ok ? '完整性检查通过' : result.map(r => r.integrity_check).join('; '),
+      repairable: !ok, repairAction: 'vacuum_db'
+    });
+  } catch (e) {
+    checks.push({ id: 'db_integrity', name: '数据库完整性', status: 'fail', detail: e.message, repairable: true, repairAction: 'vacuum_db' });
+  }
+
+  // 5. 磁盘空间
+  try {
+    const dbDir = path.dirname(dbPath);
+    let freeMB = 0, totalMB = 0;
+    if (process.platform === 'win32') {
+      // Windows fallback with rough estimate
+      const stat = fs.statfsSync ? fs.statfsSync(dbDir) : null;
+      if (stat) { freeMB = Math.round((stat.bsize * stat.bfree) / 1048576); totalMB = Math.round((stat.bsize * stat.blocks) / 1048576); }
+    } else {
+      const out = execSync(`df -BM "${dbDir}" | tail -1`, { encoding: 'utf8', timeout: 5000 }).trim();
+      const parts = out.split(/\s+/);
+      totalMB = parseInt(parts[1]) || 0; freeMB = parseInt(parts[3]) || 0;
+    }
+    const pct = totalMB > 0 ? Math.round((freeMB / totalMB) * 100) : 0;
+    if (freeMB < 500) {
+      checks.push({ id: 'disk', name: '磁盘空间', status: 'fail', detail: `仅剩 ${freeMB}MB (${pct}%)，服务可能异常`, repairable: false });
+    } else if (freeMB < 5120) {
+      checks.push({ id: 'disk', name: '磁盘空间', status: 'warn', detail: `剩余 ${freeMB}MB (${pct}%)，建议清理`, repairable: false });
+    } else {
+      checks.push({ id: 'disk', name: '磁盘空间', status: 'pass', detail: `可用 ${Math.round(freeMB / 1024 * 10) / 10}GB / ${Math.round(totalMB / 1024 * 10) / 10}GB`, repairable: false });
+    }
+  } catch {
+    checks.push({ id: 'disk', name: '磁盘空间', status: 'warn', detail: '无法获取磁盘信息', repairable: false });
+  }
+
+  // 6. 内存使用
+  const memUsedPct = Math.round(((os.totalmem() - os.freemem()) / os.totalmem()) * 100);
+  const memUsedMB = Math.round((os.totalmem() - os.freemem()) / 1048576);
+  const memTotalMB = Math.round(os.totalmem() / 1048576);
+  if (memUsedPct > 95) {
+    checks.push({ id: 'memory', name: '内存使用', status: 'fail', detail: `${memUsedMB}MB / ${memTotalMB}MB (${memUsedPct}%)，内存即将耗尽`, repairable: false });
+  } else if (memUsedPct > 85) {
+    checks.push({ id: 'memory', name: '内存使用', status: 'warn', detail: `${memUsedMB}MB / ${memTotalMB}MB (${memUsedPct}%)，内存偏高`, repairable: false });
+  } else {
+    checks.push({ id: 'memory', name: '内存使用', status: 'pass', detail: `${memUsedMB}MB / ${memTotalMB}MB (${memUsedPct}%)`, repairable: false });
+  }
+
+  // 7. WAL 文件大小
+  try {
+    const walPath = dbPath + '-wal';
+    if (fs.existsSync(walPath)) {
+      const dbSize = fs.statSync(dbPath).size;
+      const walSize = fs.statSync(walPath).size;
+      const walMB = Math.round(walSize / 1048576 * 10) / 10;
+      if (walSize > dbSize * 0.2) {
+        checks.push({ id: 'wal', name: 'WAL文件', status: 'warn', detail: `WAL ${walMB}MB 超过数据库的 20%，建议检查点`, repairable: true, repairAction: 'checkpoint_wal' });
+      } else {
+        checks.push({ id: 'wal', name: 'WAL文件', status: 'pass', detail: `WAL ${walMB}MB，正常`, repairable: false });
+      }
+    } else {
+      checks.push({ id: 'wal', name: 'WAL文件', status: 'pass', detail: '无 WAL 文件', repairable: false });
+    }
+  } catch {
+    checks.push({ id: 'wal', name: 'WAL文件', status: 'warn', detail: '无法检查 WAL', repairable: false });
+  }
+
+  const summary = {
+    pass: checks.filter(c => c.status === 'pass').length,
+    warn: checks.filter(c => c.status === 'warn').length,
+    fail: checks.filter(c => c.status === 'fail').length,
+  };
+
+  res.json({ code: 200, data: { time: new Date().toISOString(), checks, summary } });
+});
+
+// ── 服务修复 ──
+app.post('/api/status/repair', requireAuth, express.json(), async (req, res) => {
+  const { action } = req.body;
+  const { execSync, spawn } = require('child_process');
+  const path = require('path');
+  const fs = require('fs');
+
+  try {
+    switch (action) {
+      case 'checkpoint_wal': {
+        const db = require('./db');
+        const before = fs.existsSync(path.join(__dirname, 'data', 'internal.db-wal'))
+          ? Math.round(fs.statSync(path.join(__dirname, 'data', 'internal.db-wal')).size / 1048576 * 10) / 10 : 0;
+        db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').run();
+        const after = fs.existsSync(path.join(__dirname, 'data', 'internal.db-wal'))
+          ? Math.round(fs.statSync(path.join(__dirname, 'data', 'internal.db-wal')).size / 1048576 * 10) / 10 : 0;
+        return res.json({ code: 200, data: { action, success: true, message: `WAL 检查点完成 (${before}MB → ${after}MB)` } });
+      }
+
+      case 'vacuum_db': {
+        const db = require('./db');
+        const before = fs.statSync(path.join(__dirname, 'data', 'internal.db')).size;
+        db.prepare('PRAGMA optimize').run();
+        db.exec('VACUUM');
+        const after = fs.statSync(path.join(__dirname, 'data', 'internal.db')).size;
+        const freed = Math.round((before - after) / 1024 * 10) / 10;
+        return res.json({ code: 200, data: { action, success: true, message: `数据库优化完成，释放 ${freed}KB` } });
+      }
+
+      case 'restart_publisher': {
+        const autoDouyinPath = path.join(__dirname, 'auto_douyin');
+        const pythonBin = path.join(autoDouyinPath, '.venv', 'bin', 'python');
+        const mainPy = path.join(autoDouyinPath, 'main.py');
+        if (!fs.existsSync(mainPy)) {
+          return res.json({ code: 400, data: { action, success: false, message: '发布服务脚本不存在' } });
+        }
+        // kill old
+        try { execSync('pkill -f "main.py"', { timeout: 5000 }); } catch {}
+        await new Promise(r => setTimeout(r, 1000));
+        // start new
+        const child = spawn(pythonBin, [mainPy], {
+          cwd: autoDouyinPath,
+          detached: true,
+          stdio: ['ignore', fs.openSync('/tmp/publisher.log', 'a'), fs.openSync('/tmp/publisher.log', 'a')],
+        });
+        child.unref();
+        await new Promise(r => setTimeout(r, 3000));
+        // verify
+        try {
+          const resp = await fetch('http://127.0.0.1:18623/health');
+          const data = await resp.json();
+          if (data.status === 'healthy') {
+            return res.json({ code: 200, data: { action, success: true, message: '发布服务已重启并恢复正常' } });
+          }
+        } catch {}
+        return res.json({ code: 200, data: { action, success: true, message: '发布服务已重启，请稍后验证' } });
+      }
+
+      default:
+        return res.json({ code: 400, data: { success: false, message: '未知修复动作: ' + action } });
+    }
+  } catch (e) {
+    console.error('[repair]', action, e);
+    return res.json({ code: 500, data: { success: false, message: e.message } });
+  }
+});
+
 // ── Provider 健康状态 ──
 app.get('/api/llm/health', requireAuth, (req, res) => {
   res.json({ code: 200, data: getHealthSnapshot() });

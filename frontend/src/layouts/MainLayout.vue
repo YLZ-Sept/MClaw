@@ -76,7 +76,7 @@
         </div>
         <div class="nav-group">
           <div class="nav-group-title">配置</div>
-          <router-link v-if="hasPerm('model')" to="/settings" class="nav-item" active-class="active">
+          <router-link v-if="canSeeSettings" to="/settings" class="nav-item" active-class="active">
             <el-icon><Setting /></el-icon><span>设置</span>
           </router-link>
           <router-link v-if="hasPerm('system')" to="/memory" class="nav-item" active-class="active">
@@ -378,6 +378,12 @@ function hasAnyPerm(...perms) {
   if (userRole.value === 'superadmin') return true
   return perms.some(p => userPerms.value.includes(p))
 }
+// 设置入口：允许 model / security* / tasks 权限的用户进入
+const settingsPerms = ['model', 'security', 'tasks', 'security_config', 'security_sessions', 'security_maintain', 'security_logs', 'security_users', 'security_roles', 'security_permissions']
+const canSeeSettings = computed(() => {
+  if (userRole.value === 'superadmin') return true
+  return settingsPerms.some(p => userPerms.value.includes(p))
+})
 
 async function handleLogout() {
   try {
